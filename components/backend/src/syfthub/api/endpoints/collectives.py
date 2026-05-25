@@ -23,6 +23,9 @@ from syfthub.schemas.collective import (
     CollectiveMemberResponse,
     CollectiveResponse,
     CollectiveReviewRequest,
+    CollectiveSharedEndpointCreate,
+    CollectiveSharedEndpointResponse,
+    CollectiveSharedEndpointUpdate,
     CollectiveUpdate,
     MembershipStatus,
 )
@@ -105,6 +108,89 @@ async def get_collective_endpoint_paths(
     Returns an empty list when the collective exists but has no approved members.
     """
     return service.get_collective_endpoint_paths(slug)
+
+
+# ----------------------------------------------------------------------
+# Shared endpoints — named, curated subsets of approved members
+# ----------------------------------------------------------------------
+#
+# Public read routes are nested under ``/by-slug/{slug}/shared-endpoints``
+# (no auth) and MUST be declared before the catch-all ``/{collective_id}``
+# routes so FastAPI's path resolver picks the more-specific match.
+# Management routes (auth required) are mounted under
+# ``/{collective_id}/shared-endpoints``.
+
+
+@router.get(
+    "/shared-endpoints/bulk",
+    response_model=List[CollectiveSharedEndpointResponse],
+)
+async def list_shared_endpoints_bulk(
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+    collective_ids: Annotated[
+        Optional[List[int]],
+        Query(
+            alias="collective_id",
+            description=(
+                "Repeat the parameter to request multiple collectives in one "
+                "shot, e.g. ``?collective_id=1&collective_id=2``."
+            ),
+        ),
+    ] = None,
+) -> List[CollectiveSharedEndpointResponse]:
+    """Bulk list of shared endpoints for a set of collectives (public).
+
+    Powers the chat-view's add-sources modal — collapses N per-collective
+    fetches into one round trip. Unknown ids are silently skipped so a
+    stale id doesn't 404 the whole batch.
+    """
+    return service.list_shared_endpoints_bulk(collective_ids or [])
+
+
+@router.get(
+    "/by-slug/{slug}/shared-endpoints",
+    response_model=List[CollectiveSharedEndpointResponse],
+)
+async def list_shared_endpoints_by_slug(
+    slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[CollectiveSharedEndpointResponse]:
+    """List a collective's shared endpoints by parent slug (public-readable)."""
+    return service.list_shared_endpoints_by_slug(slug)
+
+
+@router.get(
+    "/by-slug/{slug}/shared-endpoints/{shared_slug}",
+    response_model=CollectiveSharedEndpointResponse,
+)
+async def get_shared_endpoint_by_slug(
+    slug: str,
+    shared_slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveSharedEndpointResponse:
+    """Get one shared endpoint by collective slug + shared slug (public)."""
+    return service.get_shared_endpoint_by_slugs(slug, shared_slug)
+
+
+@router.get(
+    "/by-slug/{slug}/shared-endpoints/{shared_slug}/endpoint-paths",
+    response_model=List[str],
+)
+async def get_shared_endpoint_endpoint_paths(
+    slug: str,
+    shared_slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[str]:
+    """Return owner/slug paths of a shared endpoint's active member endpoints.
+
+    Used by the TypeScript SDK to resolve ``collective/<X>/<Y>`` paths. The
+    result is the intersection of the configured endpoint set with the
+    collective's currently approved members; configured endpoints that have
+    since left the collective are silently filtered out. The ``all`` shared
+    slug short-circuits to "every approved member" (same payload as
+    ``/by-slug/{slug}/endpoint-paths``).
+    """
+    return service.get_shared_endpoint_paths(slug, shared_slug)
 
 
 @router.get("/{collective_id}", response_model=CollectiveResponse)
@@ -289,3 +375,87 @@ async def respond_to_invitation(
     return service.respond_to_invitation(
         collective_id, endpoint_id, data.decision, current_user
     )
+
+
+# ----------------------------------------------------------------------
+# Shared endpoints — management routes (auth required for mutations)
+# ----------------------------------------------------------------------
+
+
+@router.get(
+    "/{collective_id}/shared-endpoints",
+    response_model=List[CollectiveSharedEndpointResponse],
+)
+async def list_shared_endpoints(
+    collective_id: int,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[CollectiveSharedEndpointResponse]:
+    """List a collective's shared endpoints. Public-readable."""
+    return service.list_shared_endpoints(collective_id)
+
+
+@router.post(
+    "/{collective_id}/shared-endpoints",
+    response_model=CollectiveSharedEndpointResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_shared_endpoint(
+    collective_id: int,
+    data: CollectiveSharedEndpointCreate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveSharedEndpointResponse:
+    """Create a shared endpoint under a collective. Collective owner only.
+
+    Every ``endpoint_ids`` entry must be an approved member of the parent
+    collective. The slug is auto-derived from the name when omitted.
+    """
+    return service.create_shared_endpoint(collective_id, data, current_user)
+
+
+@router.get(
+    "/{collective_id}/shared-endpoints/{shared_slug}",
+    response_model=CollectiveSharedEndpointResponse,
+)
+async def get_shared_endpoint(
+    collective_id: int,
+    shared_slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveSharedEndpointResponse:
+    """Get one shared endpoint by parent id + own slug. Public-readable."""
+    return service.get_shared_endpoint(collective_id, shared_slug)
+
+
+@router.patch(
+    "/{collective_id}/shared-endpoints/{shared_slug}",
+    response_model=CollectiveSharedEndpointResponse,
+)
+async def update_shared_endpoint(
+    collective_id: int,
+    shared_slug: str,
+    data: CollectiveSharedEndpointUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveSharedEndpointResponse:
+    """Update a shared endpoint. Collective owner only.
+
+    ``endpoint_ids`` is a full replacement when present; omit it to leave the
+    membership untouched. Slug is immutable.
+    """
+    return service.update_shared_endpoint(
+        collective_id, shared_slug, data, current_user
+    )
+
+
+@router.delete(
+    "/{collective_id}/shared-endpoints/{shared_slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_shared_endpoint(
+    collective_id: int,
+    shared_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> None:
+    """Delete a shared endpoint and its member rows. Collective owner only."""
+    service.delete_shared_endpoint(collective_id, shared_slug, current_user)

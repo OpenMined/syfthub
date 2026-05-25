@@ -263,6 +263,48 @@ describe('AddSourcesModal', () => {
       });
       expect(screen.getByText(/no matching collectives found/i)).toBeInTheDocument();
     });
+
+    it('keeps the parent collective visible when only a shared endpoint matches', async () => {
+      // Regression: previously the search only matched parent fields, so a
+      // user typing a shared-endpoint name saw an empty list even when a
+      // matching shared endpoint existed under one of the visible collectives.
+      const user = userEvent.setup();
+      const collective = createMockCollective({
+        name: 'Genomics Research',
+        slug: 'genomics',
+        description: 'Sequencing endpoints',
+        tags: ['bio']
+      });
+      const shared = {
+        id: 11,
+        collective_id: collective.id,
+        collective_slug: collective.slug,
+        name: 'Health News',
+        slug: 'health-news',
+        shared_endpoint_path: 'collective/genomics/health-news',
+        description: '',
+        members: [],
+        member_count: 0,
+        active_member_count: 0,
+        created_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z'
+      };
+      renderModal(
+        defaultProps({
+          availableCollectives: [collective],
+          availableSharedEndpoints: [{ collective, shared }]
+        })
+      );
+
+      await user.click(screen.getByRole('button', { name: /collectives/i }));
+      const searchInput = screen.getByPlaceholderText(/search collectives/i);
+      fireEvent.change(searchInput, { target: { value: 'health-news' } });
+
+      await waitFor(() => {
+        expect(screen.getByText('Genomics Research')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Health News')).toBeInTheDocument();
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -789,6 +789,116 @@ describe('ChatResource', () => {
       );
       expect(collectiveCalls).toHaveLength(1);
     });
+
+    it('should expand collective/<slug>/<shared> to the shared-endpoint route', async () => {
+      const mockAliceDocs = {
+        name: 'Alice Docs',
+        slug: 'docs',
+        type: 'data_source',
+        ownerUsername: 'alice',
+        description: 'Alice data source',
+        version: '1.0.0',
+        stars_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        connect: [
+          {
+            type: 'syftai',
+            enabled: true,
+            description: 'Alice DS connection',
+            config: { url: 'http://alice-ds:8080' },
+          },
+        ],
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (
+          url.includes(
+            '/api/v1/collectives/by-slug/my-coll/shared-endpoints/health-news/endpoint-paths'
+          )
+        ) {
+          return new Response(JSON.stringify(['alice/docs']), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/v1/endpoints/public')) {
+          return new Response(JSON.stringify([mockAliceDocs]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      await client.chat.complete({
+        prompt: 'Hello',
+        model: guestModel,
+        dataSources: ['collective/my-coll/health-news'],
+        ...guestOpts,
+      });
+
+      const sharedCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes(
+          '/api/v1/collectives/by-slug/my-coll/shared-endpoints/health-news/endpoint-paths'
+        )
+      );
+      expect(sharedCall).toBeDefined();
+
+      // The non-shared endpoint-paths route must NOT have been called.
+      const defaultCall = mockFetch.mock.calls.find(
+        (call: unknown[]) =>
+          (call[0] as string).endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
+      );
+      expect(defaultCall).toBeUndefined();
+    });
+
+    it('should treat collective/<slug>/all as an alias for the no-subset form', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (
+          url.endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
+        ) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      await client.chat.complete({
+        prompt: 'Hello',
+        model: guestModel,
+        dataSources: ['collective/my-coll/all'],
+        ...guestOpts,
+      });
+
+      // `/all` should NOT generate a shared-endpoints route — it falls back to
+      // the no-subset endpoint-paths route so the backend can short-circuit.
+      const sharedCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes(
+          '/api/v1/collectives/by-slug/my-coll/shared-endpoints/all/endpoint-paths'
+        )
+      );
+      expect(sharedCall).toBeUndefined();
+
+      const defaultCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
+      );
+      expect(defaultCall).toBeDefined();
+    });
   });
 });
 

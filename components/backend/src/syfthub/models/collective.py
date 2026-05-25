@@ -68,6 +68,11 @@ class CollectiveModel(BaseModel, TimestampMixin):
         back_populates="collective",
         cascade="all, delete-orphan",
     )
+    shared_endpoints: Mapped[List["CollectiveSharedEndpointModel"]] = relationship(
+        "CollectiveSharedEndpointModel",
+        back_populates="collective",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("idx_collectives_owner_id", "owner_id"),
@@ -149,4 +154,97 @@ class CollectiveMemberModel(BaseModel):
         return (
             f"<CollectiveMember(collective={self.collective_id}, "
             f"endpoint={self.endpoint_id}, status='{self.status}')>"
+        )
+
+
+class CollectiveSharedEndpointModel(BaseModel, TimestampMixin):
+    """A named, curated subset of a collective's approved member endpoints.
+
+    Resolves at chat-time as ``collective/<collective_slug>/<slug>`` and fans
+    out only to the configured endpoints intersected with the collective's
+    *currently* approved members. The implicit ``all`` shared endpoint
+    (``collective/<collective_slug>/all``) is never stored — it is hardcoded
+    as an alias for "every approved member".
+    """
+
+    __tablename__ = "collective_shared_endpoints"
+
+    collective_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("collectives.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Unique per collective (not globally) — see uq_shared_endpoint_collective_slug.
+    slug: Mapped[str] = mapped_column(String(63), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    # Relationships
+    collective: Mapped["CollectiveModel"] = relationship(
+        "CollectiveModel", back_populates="shared_endpoints"
+    )
+    members: Mapped[List["CollectiveSharedEndpointMemberModel"]] = relationship(
+        "CollectiveSharedEndpointMemberModel",
+        back_populates="shared_endpoint",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "collective_id", "slug", name="uq_shared_endpoint_collective_slug"
+        ),
+        Index("idx_shared_endpoint_collective_id", "collective_id"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of CollectiveSharedEndpoint."""
+        return (
+            f"<CollectiveSharedEndpoint(id={self.id}, "
+            f"collective={self.collective_id}, slug='{self.slug}')>"
+        )
+
+
+class CollectiveSharedEndpointMemberModel(BaseModel):
+    """An endpoint configured into a collective shared-endpoint subset.
+
+    A row here means "the collective owner picked this endpoint as part of the
+    subset"; whether the endpoint *currently* participates in chat fan-out
+    depends on the intersection with the collective's approved members, which
+    is computed at read time.
+    """
+
+    __tablename__ = "collective_shared_endpoint_members"
+
+    shared_endpoint_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("collective_shared_endpoints.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    endpoint_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("endpoints.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Relationships
+    shared_endpoint: Mapped["CollectiveSharedEndpointModel"] = relationship(
+        "CollectiveSharedEndpointModel", back_populates="members"
+    )
+    endpoint: Mapped["EndpointModel"] = relationship(
+        "EndpointModel", back_populates="shared_endpoint_memberships"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "shared_endpoint_id", "endpoint_id", name="uq_shared_endpoint_member_pair"
+        ),
+        Index("idx_shared_endpoint_member_shared_id", "shared_endpoint_id"),
+        Index("idx_shared_endpoint_member_endpoint_id", "endpoint_id"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of CollectiveSharedEndpointMember."""
+        return (
+            f"<CollectiveSharedEndpointMember(shared={self.shared_endpoint_id}, "
+            f"endpoint={self.endpoint_id})>"
         )

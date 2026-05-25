@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { Collective } from '@/lib/collectives-api';
+import type { Collective, CollectiveSharedEndpoint } from '@/lib/collectives-api';
 import type { ChatSource } from '@/lib/types';
 
 import Check from 'lucide-react/dist/esm/icons/check';
@@ -26,6 +26,32 @@ import { getPublicEndpointsPaginated, isDataSourceEndpoint } from '@/lib/endpoin
  * the TypeScript SDK detects and resolves to individual endpoint paths before
  * building the aggregator request.
  */
+/**
+ * Convert a shared endpoint into a ChatSource keyed by both the collective and
+ * shared slug. The `full_path` is `collective/<collective-slug>/<shared-slug>`,
+ * which the TypeScript SDK recognises and expands to the configured-and-active
+ * subset of members at chat time.
+ */
+function sharedEndpointToChatSource(shared: CollectiveSharedEndpoint): ChatSource {
+  return {
+    id: `collective:${shared.collective_slug}/${shared.slug}`,
+    name: shared.name,
+    tags: [],
+    description: shared.description,
+    type: 'data_source',
+    updated: '',
+    updated_at: shared.updated_at,
+    status: 'active',
+    slug: shared.slug,
+    stars_count: 0,
+    version: '',
+    readme: '',
+    contributors_count: 0,
+    owner_username: undefined,
+    full_path: shared.shared_endpoint_path
+  };
+}
+
 function collectiveToChatSource(collective: Collective): ChatSource {
   return {
     // The id prefix "collective:" makes it unique and avoids clashing with
@@ -257,6 +283,86 @@ const CollectiveItem = memo(function CollectiveItem({
   );
 });
 
+interface SharedEndpointItemProps {
+  collective: Collective;
+  shared: CollectiveSharedEndpoint;
+  isSelected: boolean;
+  onToggle: () => void;
+}
+
+/**
+ * Indented child row representing a curated subset of a collective's members.
+ * Visually nested under its parent collective in the Collectives tab so the
+ * relationship is obvious without a heavyweight expandable component tree.
+ */
+const SharedEndpointItem = memo(function SharedEndpointItem({
+  collective,
+  shared,
+  isSelected,
+  onToggle
+}: Readonly<SharedEndpointItemProps>) {
+  return (
+    <div
+      className={`group ml-6 flex w-full items-start gap-3 rounded-lg border border-l-2 p-3 transition-all ${
+        isSelected
+          ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/30'
+          : 'border-border bg-card border-l-indigo-300 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-l-indigo-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20'
+      }`}
+    >
+      <button
+        type='button'
+        onClick={onToggle}
+        aria-pressed={isSelected}
+        className='mt-1 shrink-0 rounded focus-visible:ring-2 focus-visible:ring-indigo-500/50 focus-visible:outline-none'
+      >
+        <div
+          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+            isSelected
+              ? 'border-indigo-500 bg-indigo-500 dark:border-indigo-600 dark:bg-indigo-600'
+              : 'border-input bg-background'
+          }`}
+          aria-hidden='true'
+        >
+          {isSelected && <Check className='h-3 w-3 text-white' />}
+        </div>
+      </button>
+
+      <button
+        type='button'
+        onClick={onToggle}
+        className='min-w-0 flex-1 text-left focus-visible:outline-none'
+        tabIndex={-1}
+      >
+        <span className='font-inter text-foreground block truncate text-sm font-medium'>
+          {shared.name}
+        </span>
+        <span className='font-inter text-muted-foreground block truncate text-xs'>
+          {shared.shared_endpoint_path} &middot; {shared.active_member_count}/{shared.member_count}{' '}
+          active
+        </span>
+        {shared.description && (
+          <p className='font-inter text-muted-foreground mt-1 line-clamp-2 text-xs'>
+            {shared.description}
+          </p>
+        )}
+      </button>
+
+      <Link
+        to={`/c/${collective.slug}`}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
+        aria-label={`View ${collective.name} collective`}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+      >
+        <ExternalLink className='h-4 w-4' />
+      </Link>
+    </div>
+  );
+});
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -271,6 +377,17 @@ export interface AddSourcesModalProps {
   onConfirm: (selectedSources: ChatSource[]) => void;
   /** Collectives to show in the Collectives tab. Pass an empty array to hide the tab. */
   availableCollectives?: Collective[];
+  /**
+   * Curated shared-endpoint subsets, paired with their parent collective.
+   *
+   * Rendered as indented child rows under each parent in the Collectives tab.
+   * Empty when no collective in `availableCollectives` has any named subsets;
+   * the parent rows still work as before in that case.
+   */
+  availableSharedEndpoints?: Array<{
+    collective: Collective;
+    shared: CollectiveSharedEndpoint;
+  }>;
 }
 
 export const AddSourcesModal = memo(function AddSourcesModal({
@@ -279,7 +396,8 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   availableSources,
   selectedSourceIds,
   onConfirm,
-  availableCollectives = []
+  availableCollectives = [],
+  availableSharedEndpoints = []
 }: Readonly<AddSourcesModalProps>) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('endpoints');
   // Local selection state — only committed on confirm
@@ -312,6 +430,13 @@ export const AddSourcesModal = memo(function AddSourcesModal({
           initialMap.set(id, collectiveToChatSource(collective));
         }
       }
+      // ... and any selected shared-endpoint subsets.
+      for (const { shared } of availableSharedEndpoints) {
+        const id = `collective:${shared.collective_slug}/${shared.slug}`;
+        if (selectedSourceIds.has(id)) {
+          initialMap.set(id, sharedEndpointToChatSource(shared));
+        }
+      }
       setResolvedSourcesMap(initialMap);
       setSearchQuery('');
       setDebouncedSearchQuery('');
@@ -319,7 +444,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
       setActiveTab('endpoints');
     }
     previousOpenReference.current = isOpen;
-  }, [isOpen, selectedSourceIds, availableSources, availableCollectives]);
+  }, [isOpen, selectedSourceIds, availableSources, availableCollectives, availableSharedEndpoints]);
 
   // Reset search when switching tabs
   const handleTabChange = useCallback((tab: ActiveTab) => {
@@ -373,18 +498,41 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     [availableSources]
   );
 
-  // Collectives filtered locally by search query
+  // Collectives filtered locally by search query. A collective is included
+  // when EITHER the parent fields match OR at least one of its shared
+  // endpoints matches — shared endpoints are first-class selectable items,
+  // so 'health-news' must surface its parent collective even when the
+  // parent name doesn't mention 'health-news'.
   const filteredCollectives = useMemo(() => {
     if (!debouncedSearchQuery.trim()) return availableCollectives;
     const q = debouncedSearchQuery.toLowerCase();
-    return availableCollectives.filter(
-      (c) =>
+    const sharedByParentSlug = new Map<string, CollectiveSharedEndpoint[]>();
+    for (const { collective, shared } of availableSharedEndpoints) {
+      const list = sharedByParentSlug.get(collective.slug);
+      if (list) {
+        list.push(shared);
+      } else {
+        sharedByParentSlug.set(collective.slug, [shared]);
+      }
+    }
+    return availableCollectives.filter((c) => {
+      if (
         c.name.toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q) ||
         c.slug.toLowerCase().includes(q) ||
         c.tags.some((t) => t.toLowerCase().includes(q))
-    );
-  }, [availableCollectives, debouncedSearchQuery]);
+      ) {
+        return true;
+      }
+      const shared = sharedByParentSlug.get(c.slug) ?? [];
+      return shared.some(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.slug.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q)
+      );
+    });
+  }, [availableCollectives, availableSharedEndpoints, debouncedSearchQuery]);
 
   // Sorted endpoints: selected bubble to top
   const sortedSources = useMemo(() => {
@@ -406,6 +554,22 @@ export const AddSourcesModal = memo(function AddSourcesModal({
       return aSelected - bSelected;
     });
   }, [filteredCollectives, localSelected]);
+
+  // Shared endpoints indexed by parent collective slug. The grouping is cheap
+  // even for thousands of entries (single pass) and saves a per-row lookup
+  // while rendering.
+  const sharedByCollective = useMemo(() => {
+    const map = new Map<string, CollectiveSharedEndpoint[]>();
+    for (const { collective, shared } of availableSharedEndpoints) {
+      const list = map.get(collective.slug);
+      if (list) {
+        list.push(shared);
+      } else {
+        map.set(collective.slug, [shared]);
+      }
+    }
+    return map;
+  }, [availableSharedEndpoints]);
 
   const toggleEndpoint = useCallback((source: ChatSource) => {
     setLocalSelected((previous) => {
@@ -431,6 +595,29 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   const toggleCollective = useCallback((collective: Collective) => {
     const id = `collective:${collective.slug}`;
     const chatSource = collectiveToChatSource(collective);
+    setLocalSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    setResolvedSourcesMap((previous) => {
+      const next = new Map(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.set(id, chatSource);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSharedEndpoint = useCallback((shared: CollectiveSharedEndpoint) => {
+    const id = `collective:${shared.collective_slug}/${shared.slug}`;
+    const chatSource = sharedEndpointToChatSource(shared);
     setLocalSelected((previous) => {
       const next = new Set(previous);
       if (next.has(id)) {
@@ -560,16 +747,41 @@ export const AddSourcesModal = memo(function AddSourcesModal({
             </div>
           )
         ) : sortedCollectives.length > 0 ? (
-          sortedCollectives.map((collective) => (
-            <CollectiveItem
-              key={collective.slug}
-              collective={collective}
-              isSelected={localSelected.has(`collective:${collective.slug}`)}
-              onToggle={() => {
-                toggleCollective(collective);
-              }}
-            />
-          ))
+          sortedCollectives.flatMap((collective) => {
+            const sharedEndpoints = sharedByCollective.get(collective.slug) ?? [];
+            const queryLower = debouncedSearchQuery.toLowerCase();
+            // Filter shared endpoints by the same search query so the parent +
+            // children render consistently when the user is searching.
+            const matchingShared = queryLower
+              ? sharedEndpoints.filter(
+                  (shared) =>
+                    shared.name.toLowerCase().includes(queryLower) ||
+                    shared.slug.toLowerCase().includes(queryLower) ||
+                    shared.description.toLowerCase().includes(queryLower)
+                )
+              : sharedEndpoints;
+            return [
+              <CollectiveItem
+                key={collective.slug}
+                collective={collective}
+                isSelected={localSelected.has(`collective:${collective.slug}`)}
+                onToggle={() => {
+                  toggleCollective(collective);
+                }}
+              />,
+              ...matchingShared.map((shared) => (
+                <SharedEndpointItem
+                  key={`${collective.slug}/${shared.slug}`}
+                  collective={collective}
+                  shared={shared}
+                  isSelected={localSelected.has(`collective:${collective.slug}/${shared.slug}`)}
+                  onToggle={() => {
+                    toggleSharedEndpoint(shared);
+                  }}
+                />
+              ))
+            ];
+          })
         ) : (
           <div className='py-8 text-center'>
             <p className='font-inter text-muted-foreground text-sm'>

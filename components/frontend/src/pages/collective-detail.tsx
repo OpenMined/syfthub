@@ -7,6 +7,7 @@ import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Copy from 'lucide-react/dist/esm/icons/copy';
 import Database from 'lucide-react/dist/esm/icons/database';
+import Layers from 'lucide-react/dist/esm/icons/layers';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
@@ -29,6 +30,7 @@ import {
   useRequestJoinMany
 } from '@/hooks/use-collectives';
 import { useMyEndpoints } from '@/hooks/use-endpoint-queries';
+import { useSharedEndpoints } from '@/hooks/use-shared-endpoints';
 import { isJoinableEndpointType } from '@/lib/collectives-api';
 import { getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
@@ -73,9 +75,14 @@ export default function CollectiveDetailPage() {
 
   const { data: collective, isLoading, isError } = useCollectiveBySlug(slug);
   const { data: members } = useCollectiveMembers(collective?.id, 'approved');
+  const { data: sharedEndpoints } = useSharedEndpoints(collective?.id);
 
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const [cardTab, setCardTab] = useState<'endpoints' | 'members'>('endpoints');
+  // The "shared" tab only appears when the collective has at least one custom
+  // subset; the default-all path lives in the sidebar SharedEndpointCard.
+  const sharedEndpointsList = sharedEndpoints ?? [];
+  const showSharedTab = sharedEndpointsList.length > 0;
+  const [cardTab, setCardTab] = useState<'endpoints' | 'members' | 'shared'>('endpoints');
 
   // The collective's "members" are the distinct owners of its endpoints —
   // derived from each approved membership's endpoint_owner_username.
@@ -191,7 +198,9 @@ export default function CollectiveDetailPage() {
             {/* Endpoints & Members */}
             <Card className='p-6'>
               <div className='mb-4 flex gap-4 border-b'>
-                {(['endpoints', 'members'] as const).map((tab) => (
+                {(
+                  ['endpoints', 'members', ...(showSharedTab ? (['shared'] as const) : [])] as const
+                ).map((tab) => (
                   <button
                     key={tab}
                     type='button'
@@ -204,14 +213,16 @@ export default function CollectiveDetailPage() {
                         : 'text-muted-foreground hover:text-foreground border-transparent'
                     }`}
                   >
-                    {tab === 'endpoints' ? (
-                      <Database className='h-4 w-4' />
-                    ) : (
-                      <Users className='h-4 w-4' />
-                    )}
-                    {tab}
+                    <TabIcon tab={tab} />
+                    {tab === 'shared' ? 'shared endpoints' : tab}
                     <span className='text-muted-foreground text-xs font-normal'>
-                      ({tab === 'endpoints' ? approvedMembers.length : owners.length})
+                      (
+                      {tabCount(tab, {
+                        endpoints: approvedMembers.length,
+                        members: owners.length,
+                        shared: sharedEndpointsList.length
+                      })}
+                      )
                     </span>
                   </button>
                 ))}
@@ -312,6 +323,34 @@ export default function CollectiveDetailPage() {
                       No members yet.
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Shared endpoints tab — curated subsets of approved members.
+                  Each row shows the public path so visitors can copy and use
+                  it in chat directly. */}
+              {cardTab === 'shared' && (
+                <div>
+                  <div className='max-h-[22rem] space-y-3 overflow-y-auto pr-1'>
+                    {sharedEndpointsList.map((shared) => (
+                      <Card key={shared.id} className='hover:border-primary/30 p-3 transition-all'>
+                        <div className='flex items-start justify-between gap-3'>
+                          <div className='min-w-0 flex-1'>
+                            <h4 className='truncate text-sm font-medium'>{shared.name}</h4>
+                            {shared.description && (
+                              <p className='text-muted-foreground mt-1 line-clamp-2 text-xs'>
+                                {shared.description}
+                              </p>
+                            )}
+                            <SharedPathChip path={shared.shared_endpoint_path} />
+                          </div>
+                          <div className='text-muted-foreground shrink-0 text-right text-xs'>
+                            {shared.active_member_count} active
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               )}
             </Card>
@@ -636,5 +675,60 @@ function JoinCollectiveModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+type DetailCardTab = 'endpoints' | 'members' | 'shared';
+
+/** Icon for the main-column tab strip. Switch-keyed to avoid nested ternaries. */
+function TabIcon({ tab }: Readonly<{ tab: DetailCardTab }>) {
+  switch (tab) {
+    case 'endpoints': {
+      return <Database className='h-4 w-4' />;
+    }
+    case 'members': {
+      return <Users className='h-4 w-4' />;
+    }
+    case 'shared': {
+      return <Layers className='h-4 w-4' />;
+    }
+    default: {
+      return null;
+    }
+  }
+}
+
+/** Count badge for the main-column tab strip. */
+function tabCount(tab: DetailCardTab, counts: Record<DetailCardTab, number>): number {
+  return counts[tab];
+}
+
+/**
+ * Inline copy-to-clipboard chip for a shared-endpoint path.
+ *
+ * Smaller and less ceremonial than the sidebar `SharedEndpointCard`; meant
+ * for the per-row "Shared Endpoints" tab where multiple chips need to fit.
+ */
+function SharedPathChip({ path }: Readonly<{ path: string }>) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type='button'
+      onClick={() => {
+        void navigator.clipboard.writeText(path);
+        setCopied(true);
+        setTimeout(() => {
+          setCopied(false);
+        }, 1500);
+      }}
+      className='hover:bg-muted/50 mt-2 inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1 text-xs'
+    >
+      <code className='truncate font-mono'>{path}</code>
+      {copied ? (
+        <Check className='h-3 w-3 shrink-0 text-emerald-500' />
+      ) : (
+        <Copy className='h-3 w-3 shrink-0 opacity-60' />
+      )}
+    </button>
   );
 }
