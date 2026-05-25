@@ -159,8 +159,16 @@ func (a *App) resolveAttachment(fileID string) (*transport.AgentClientSession, *
 // from the cache; object_store streams via the SDK's downloader. On a
 // streaming failure w may have received partial data — callers are
 // responsible for cleanup (e.g. SaveAgentAttachment removes a partial file).
-func (a *App) writeAttachment(ctx context.Context, sc *transport.AgentClientSession, entry *agentAttachment, w io.Writer) error {
+//
+// progress, when non-nil, is invoked as plaintext flows through the SDK.
+// The desktop UI uses this to emit attachment.progress Wails events; it is
+// the caller's job to throttle if needed.
+func (a *App) writeAttachment(ctx context.Context, sc *transport.AgentClientSession, entry *agentAttachment, w io.Writer, progress func(downloaded, total int64)) error {
 	if entry.Bytes != nil {
+		// Single-shot synthetic progress so UI flips straight to "done".
+		if progress != nil {
+			progress(int64(len(entry.Bytes)), int64(len(entry.Bytes)))
+		}
 		_, err := w.Write(entry.Bytes)
 		return err
 	}
@@ -168,13 +176,46 @@ func (a *App) writeAttachment(ctx context.Context, sc *transport.AgentClientSess
 		return fmt.Errorf("attachment %s has unknown transport %q", entry.Meta.FileID, entry.Meta.Transport)
 	}
 	info := syfthubapi.AttachmentInfoFromEvent(&entry.Meta)
-	return sc.DownloadAttachment(ctx, info, w)
+	var opts []transport.DownloadOption
+	if progress != nil {
+		opts = append(opts, transport.WithProgress(progress))
+	}
+	return sc.DownloadAttachment(ctx, info, w, opts...)
+}
+
+// emitAttachmentProgress emits a throttled attachment.progress Wails event.
+// Tick at most once per progressMinInterval to avoid hammering the JS bridge
+// for fast/chunky downloads.
+const progressMinInterval = 100 * time.Millisecond
+
+// attachmentProgressEmitter returns a writeAttachment-compatible progress
+// callback closed over a per-download throttle timer. The final progress
+// (downloaded == total when total > 0) is always emitted.
+func (a *App) attachmentProgressEmitter(fileID string, sessionID string) func(downloaded, total int64) {
+	var last time.Time
+	return func(downloaded, total int64) {
+		now := time.Now()
+		final := total > 0 && downloaded >= total
+		if !final && now.Sub(last) < progressMinInterval {
+			return
+		}
+		last = now
+		runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
+			Type:      "attachment.progress",
+			SessionID: sessionID,
+			Data: map[string]any{
+				"file_id":    fileID,
+				"downloaded": downloaded,
+				"total":      total,
+			},
+		})
+	}
 }
 
 // SaveAgentAttachment writes an agent-emitted attachment into ~/Downloads
 // under its original filename (with " (n)" suffix on collision). Inline-tier
-// bytes are served from the in-memory cache; object-store-tier attachments
-// are unsupported on the direct peer-to-peer path.
+// bytes are served from the in-memory cache; object_store-tier attachments
+// stream via the SDK and emit attachment.progress events to the frontend.
 func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) {
 	if fileID == "" {
 		return "", fmt.Errorf("file_id required")
@@ -204,7 +245,54 @@ func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) 
 
 	ctx, cancel := a.attachmentContext()
 	defer cancel()
-	if err := a.writeAttachment(ctx, sc, entry, out); err != nil {
+	if err := a.writeAttachment(ctx, sc, entry, out, a.attachmentProgressEmitter(fileID, sc.SessionID)); err != nil {
+		_ = os.Remove(dest)
+		return "", err
+	}
+	return dest, nil
+}
+
+// SaveAttachmentAs opens a native save-as dialog seeded with suggestedName and
+// writes the attachment to the user's chosen path. Returns the chosen path on
+// success, "" if the user cancelled the dialog, or an error. Replaces the
+// frontend-supplied-path binding so the destination can only ever come from
+// an OS dialog gesture.
+func (a *App) SaveAttachmentAs(fileID, suggestedName string) (string, error) {
+	if fileID == "" {
+		return "", fmt.Errorf("file_id required")
+	}
+	sc, entry, err := a.resolveAttachment(fileID)
+	if err != nil {
+		return "", err
+	}
+
+	name := filepath.Base(strings.TrimSpace(suggestedName))
+	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+		name = fileID
+	}
+	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: name,
+		Title:           "Save attachment",
+	})
+	if err != nil {
+		return "", fmt.Errorf("save dialog: %w", err)
+	}
+	if dest == "" {
+		return "", nil // user cancelled
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return "", fmt.Errorf("mkdir: %w", err)
+	}
+	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("open dest: %w", err)
+	}
+	defer out.Close()
+
+	ctx, cancel := a.attachmentContext()
+	defer cancel()
+	if err := a.writeAttachment(ctx, sc, entry, out, a.attachmentProgressEmitter(fileID, sc.SessionID)); err != nil {
 		_ = os.Remove(dest)
 		return "", err
 	}
@@ -308,26 +396,6 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 	}, nil
 }
 
-// DownloadActiveSessionAttachment writes fileID's bytes to destPath. Used
-// when the user picks "Save to…" with a custom path.
-func (a *App) DownloadActiveSessionAttachment(fileID, destPath string) error {
-	sc, entry, err := a.resolveAttachment(fileID)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
-	}
-	out, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("open dest: %w", err)
-	}
-	defer out.Close()
-
-	ctx, cancel := a.attachmentContext()
-	defer cancel()
-	return a.writeAttachment(ctx, sc, entry, out)
-}
 
 // AttachmentInlineBytes returns the plaintext bytes for an attachment so the
 // frontend can render image previews / inline content in the chat timeline.
@@ -346,7 +414,8 @@ func (a *App) AttachmentInlineBytes(fileID string, maxBytes int64) ([]byte, erro
 		return entry.Bytes, nil
 	}
 
-	// Object-store tier: stream into a capped buffer.
+	// Object-store tier: stream into a capped buffer. Inline previews are
+	// always bounded, so no progress emit is wired here.
 	ctx, cancel := a.attachmentContext()
 	defer cancel()
 	info := syfthubapi.AttachmentInfoFromEvent(&entry.Meta)

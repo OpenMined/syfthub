@@ -122,7 +122,10 @@ func (s *AgentClientSession) publishUserAttachment(info syfthubapi.AttachmentInf
 // responsible for cleanup. Requires the dialer to have been built with
 // WithAttachmentStore(transport) AND the session opened with the
 // AttachmentCapability.
-func (s *AgentClientSession) DownloadAttachment(_ context.Context, info syfthubapi.AttachmentInfo, w io.Writer) error {
+//
+// Optional DownloadOption values (e.g. WithProgress) are forwarded to the
+// underlying ObjectStoreDownloader.
+func (s *AgentClientSession) DownloadAttachment(_ context.Context, info syfthubapi.AttachmentInfo, w io.Writer, opts ...DownloadOption) error {
 	if info.Transport != syfthubapi.AttachmentTransportObjectStore {
 		return fmt.Errorf("attachment %s has transport=%q; DownloadAttachment is for object_store only",
 			info.FileID, info.Transport)
@@ -135,7 +138,7 @@ func (s *AgentClientSession) DownloadAttachment(_ context.Context, info syfthuba
 	if !ok {
 		return fmt.Errorf("downloader %T does not support streaming", dl)
 	}
-	return osDl.DownloadStream(&info, w)
+	return osDl.DownloadStream(&info, w, opts...)
 }
 
 // ensureUploader lazily builds the object-store uploader on first large-file

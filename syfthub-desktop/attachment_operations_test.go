@@ -23,10 +23,9 @@ func TestAttachToActiveSessionWithoutSessionReturnsError(t *testing.T) {
 	}
 }
 
-func TestDownloadAttachmentWithoutSessionReturnsError(t *testing.T) {
+func TestSaveAgentAttachmentWithoutSessionReturnsError(t *testing.T) {
 	app := NewApp()
-	dir := t.TempDir()
-	err := app.DownloadActiveSessionAttachment("att-x", filepath.Join(dir, "out.bin"))
+	_, err := app.SaveAgentAttachment("att-x", "out.bin")
 	if err == nil {
 		t.Fatal("expected error for inactive session")
 	}
