@@ -128,6 +128,15 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   // a credential and restarts the session with it attached.
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
+  // expiringAttachments is populated by the host's attachments.expiring event
+  // emitted just before a session swap or stop discards the in-memory cache
+  // of agent-emitted attachments. The chat UI renders a non-modal toast with
+  // a "Save now?" CTA so the user can rescue unsaved files before they're
+  // gone. Cleared via dismissExpiring() on user action.
+  const [expiringAttachments, setExpiringAttachments] = useState<
+    Array<{ file_id: string; name: string; size_bytes: number; mime: string }>
+  >([]);
+
   // suppressNextTerminalRef hides the session.{completed,cancelled,failed}
   // event that the producer emits immediately after agent.payment_required.
   // From the user's perspective, the payment-and-retry handshake is a single
@@ -303,6 +312,28 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
             data: { ...data, uri: fileId ? `attachment://${fileId}` : undefined },
             timestamp: Date.now(),
           }]);
+          break;
+        }
+
+        case 'attachments.expiring': {
+          // The host is about to clear its in-memory cache of agent-emitted
+          // attachments (session swap, stop, or end). Surface the list so
+          // the UI can offer a last-chance "Save now?" toast.
+          const items = Array.isArray(data.attachments) ? data.attachments : [];
+          const normalized = items
+            .map((it: unknown) => {
+              const o = it as Record<string, unknown>;
+              return {
+                file_id: String(o.file_id ?? ''),
+                name: String(o.name ?? ''),
+                size_bytes: Number(o.size_bytes ?? 0),
+                mime: String(o.mime ?? ''),
+              };
+            })
+            .filter(x => x.file_id);
+          if (normalized.length > 0) {
+            setExpiringAttachments(normalized);
+          }
           break;
         }
 
@@ -787,6 +818,10 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     });
   }, []);
 
+  const dismissExpiring = useCallback(() => {
+    setExpiringAttachments([]);
+  }, []);
+
   return {
     entries,
     isRunning,
@@ -798,5 +833,7 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     clearEntries,
     pendingPayment,
     dismissPayment,
+    expiringAttachments,
+    dismissExpiring,
   };
 }

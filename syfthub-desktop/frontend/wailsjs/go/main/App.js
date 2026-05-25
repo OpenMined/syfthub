@@ -86,8 +86,8 @@ export function DeleteSentReview(arg1) {
   return window['go']['main']['App']['DeleteSentReview'](arg1);
 }
 
-export function DownloadActiveSessionAttachment(arg1, arg2) {
-  return window['go']['main']['App']['DownloadActiveSessionAttachment'](arg1, arg2);
+export function SaveAttachmentAs(arg1, arg2) {
+  return window['go']['main']['App']['SaveAttachmentAs'](arg1, arg2);
 }
 
 export function DownloadUpdate() {

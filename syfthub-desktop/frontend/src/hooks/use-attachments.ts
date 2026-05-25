@@ -1,33 +1,84 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AttachToActiveSession,
-  DownloadActiveSessionAttachment,
+  SaveAttachmentAs,
   AttachmentInlineBytes,
 } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 // AttachmentSummary mirrors the Go struct returned by AttachToActiveSession.
 // The bytes live on the host's side of the tunnel — no local_path exists on
-// the client.
+// the client. `delivered` flips true when the host's user.attachment ack
+// event arrives, so the chip can show a "✓" once the file is materialized
+// on the host.
 export interface AttachmentSummary {
   file_id: string;
   name: string;
   mime: string;
   size_bytes: number;
   sha256: string;
+  delivered?: boolean;
+}
+
+// Per-file inbound download progress, populated from attachment.progress events.
+export interface AttachmentProgress {
+  downloaded: number;
+  total: number;
 }
 
 /**
  * useAttachments tracks the list of files the user has staged for the
- * currently-running agent session. Each staged file is sent to the agent via
- * the hub WebSocket (inline) or aggregator HTTP relay (object-store) — the
- * AttachToActiveSession Wails binding picks the transport based on size.
+ * currently-running agent session AND the inbound-download progress map.
+ *
+ * Flow:
+ *  1. User drops a file before a session is live → stagePath(hostPath); chip
+ *     renders with a "queued" badge.
+ *  2. Session starts → flushPending() uploads each queued path via the Wails
+ *     binding, which streams the bytes to the host. Files ≤ 64 KiB ride
+ *     inline; larger files spill to NATS Object Store via the SDK.
+ *  3. Host emits user.attachment ack → chip flips to delivered ✓.
+ *  4. Saving an agent-emitted attachment via SaveAttachmentAs streams via the
+ *     SDK and emits attachment.progress events, which populate the progress
+ *     map keyed by file_id.
  *
  * See docs/architecture/attachments.md.
  */
 export function useAttachments() {
   const [staged, setStaged] = useState<AttachmentSummary[]>([]);
+  // pending holds host-path strings dropped/picked before a session was live.
+  // flushPending() promotes them to staged once a session starts.
+  const [pending, setPending] = useState<string[]>([]);
+  const [progress, setProgress] = useState<Record<string, AttachmentProgress>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Subscribe to the host-emitted attachment events.
+  useEffect(() => {
+    const unsubscribe = EventsOn(
+      'agent:event',
+      (event: { type: string; data?: Record<string, unknown> }) => {
+        if (event.type === 'user.attachment') {
+          const fileId = String(event.data?.file_id ?? '');
+          if (!fileId) return;
+          setStaged(prev =>
+            prev.map(s => (s.file_id === fileId ? { ...s, delivered: true } : s)),
+          );
+        } else if (event.type === 'attachment.progress') {
+          const fileId = String(event.data?.file_id ?? '');
+          if (!fileId) return;
+          const downloaded = Number(event.data?.downloaded ?? 0);
+          const total = Number(event.data?.total ?? 0);
+          setProgress(prev => ({
+            ...prev,
+            [fileId]: { downloaded, total },
+          }));
+        }
+      },
+    );
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   const attach = useCallback(async (hostPath: string) => {
     setBusy(true);
@@ -45,19 +96,49 @@ export function useAttachments() {
     }
   }, []);
 
-  const download = useCallback(async (fileId: string, destPath: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await DownloadActiveSessionAttachment(fileId, destPath);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      throw e;
-    } finally {
-      setBusy(false);
-    }
+  // stagePath queues a host path for upload after the session starts. The
+  // caller is responsible for invoking flushPending() once the session is
+  // live (typically via a useEffect on isRunning).
+  const stagePath = useCallback((hostPath: string) => {
+    setPending(prev => [...prev, hostPath]);
   }, []);
+
+  // flushPending promotes every queued path to a real attachment by calling
+  // attach() for each. Per-path failures are recorded in `error` but do not
+  // abort the loop. Returns the count successfully uploaded.
+  const flushPending = useCallback(async () => {
+    let snapshot: string[] = [];
+    setPending(prev => {
+      snapshot = prev;
+      return [];
+    });
+    if (snapshot.length === 0) return 0;
+    let count = 0;
+    for (const p of snapshot) {
+      try {
+        await attach(p);
+        count++;
+      } catch {
+        /* attach() records the error; keep iterating */
+      }
+    }
+    return count;
+  }, [attach]);
+
+  const removePending = useCallback((hostPath: string) => {
+    setPending(prev => prev.filter(p => p !== hostPath));
+  }, []);
+
+  // saveAs opens the native save-as dialog and writes the attachment to the
+  // chosen path. Returns the absolute destination on success, null on user
+  // cancel, throws on failure.
+  const saveAs = useCallback(
+    async (fileId: string, suggestedName: string): Promise<string | null> => {
+      const dest = await SaveAttachmentAs(fileId, suggestedName);
+      return dest || null;
+    },
+    [],
+  );
 
   const inlineBytes = useCallback(async (fileId: string, maxBytes = 0) => {
     return AttachmentInlineBytes(fileId, maxBytes);
@@ -69,7 +150,22 @@ export function useAttachments() {
 
   const clear = useCallback(() => {
     setStaged([]);
+    setProgress({});
   }, []);
 
-  return { staged, attach, download, inlineBytes, remove, clear, busy, error };
+  return {
+    staged,
+    pending,
+    progress,
+    attach,
+    stagePath,
+    flushPending,
+    removePending,
+    saveAs,
+    inlineBytes,
+    remove,
+    clear,
+    busy,
+    error,
+  };
 }
