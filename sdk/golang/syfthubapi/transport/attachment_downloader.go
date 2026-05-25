@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -40,14 +41,15 @@ func NewObjectStoreDownloader(
 	}, nil
 }
 
-// DownloadAndMaterialize fetches ciphertext from Object Store, unwraps the
-// per-file key under the session KEK, decrypts the chunked stream, verifies
-// the plaintext SHA, and writes plaintext to a 0600-mode file inside
-// dir. Sets info.LocalPath on success.
-func (d *ObjectStoreDownloader) DownloadAndMaterialize(
-	dir string,
-	info *syfthubapi.AttachmentInfo,
-) error {
+// DownloadStream fetches the object-store ciphertext for info, decrypts it,
+// verifies the declared size and SHA-256, and writes the plaintext to w.
+//
+// On verification failure w MAY have received partial data; the caller is
+// responsible for cleaning up (truncating / removing the file or buffer).
+// Callers that need atomic on-disk semantics should use DownloadAndMaterialize
+// instead, which buffers in memory and only writes the file after the SHA
+// check passes.
+func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, w io.Writer) error {
 	if info.Transport != syfthubapi.AttachmentTransportObjectStore {
 		return fmt.Errorf("downloader called for transport=%q", info.Transport)
 	}
@@ -83,8 +85,7 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 		return fmt.Errorf("object-store get: %w", err)
 	}
 
-	var pt bytes.Buffer
-	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, &pt)
+	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, w)
 	if err != nil {
 		return fmt.Errorf("decrypt stream: %w", err)
 	}
@@ -93,6 +94,23 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 	}
 	if gotSHA != info.PlaintextSHA256 {
 		return fmt.Errorf("sha256 mismatch")
+	}
+	return nil
+}
+
+// DownloadAndMaterialize is the atomic on-disk variant of DownloadStream: it
+// buffers the plaintext in memory, verifies its SHA, and only then writes a
+// 0600-mode file under dir. Sets info.LocalPath on success. Use this when a
+// failed download must leave no partial file behind (the host runner path).
+// For a streaming variant that writes incrementally to an arbitrary io.Writer,
+// use DownloadStream.
+func (d *ObjectStoreDownloader) DownloadAndMaterialize(
+	dir string,
+	info *syfthubapi.AttachmentInfo,
+) error {
+	var pt bytes.Buffer
+	if err := d.DownloadStream(info, &pt); err != nil {
+		return err
 	}
 
 	name := info.FileID

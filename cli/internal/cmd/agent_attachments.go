@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 )
 
@@ -38,14 +39,14 @@ func uploadAgentAttachment(ctx context.Context, session *transport.AgentClientSe
 		mimeType = "application/octet-stream"
 	}
 
-	fileID, err := session.SendAttachment(ctx, f, transport.AttachmentOpts{
+	info, err := session.SendAttachment(ctx, f, transport.AttachmentOpts{
 		Name: name,
 		MIME: mimeType,
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("📎 attached %s (%d bytes) → %s\n", name, st.Size(), fileID)
+	fmt.Printf("📎 attached %s (%d bytes) → %s\n", name, st.Size(), info.FileID)
 	return nil
 }
 
@@ -89,8 +90,9 @@ func saveAgentAttachment(session *transport.AgentClientSession, e *agenttypes.At
 	case "object_store":
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+		info := syfthubapi.AttachmentInfoFromEvent(e)
 		var buf bytes.Buffer
-		if err := session.DownloadAttachment(ctx, e.FileID, &buf); err != nil {
+		if err := session.DownloadAttachment(ctx, info, &buf); err != nil {
 			return fmt.Errorf("download: %w", err)
 		}
 		body = buf.Bytes()
