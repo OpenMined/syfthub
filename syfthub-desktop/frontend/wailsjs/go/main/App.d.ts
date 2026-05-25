@@ -46,7 +46,7 @@ export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteSentReview(arg1:string):Promise<void>;
 
-export function DownloadActiveSessionAttachment(arg1:string,arg2:string):Promise<void>;
+export function SaveAttachmentAs(arg1:string,arg2:string):Promise<string>;
 
 export function DownloadUpdate():Promise<void>;
 

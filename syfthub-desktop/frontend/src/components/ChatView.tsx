@@ -193,11 +193,17 @@ export interface ChatInputAreaProps {
   // staged list / handlers are provided, the input renders the paperclip
   // button + the staged-files chip strip.
   staged?: AttachmentSummary[];
+  // pending lists host-paths queued before a session was live; rendered as a
+  // small banner so the user knows they'll auto-upload on session start.
+  pending?: string[];
+  // Per-file download progress for inbound chips (downloaded/total bytes).
+  attachmentProgress?: Record<string, { downloaded: number; total: number }>;
   onPickAttachment?: () => void;
   onRemoveAttachment?: (fileId: string) => void;
+  onClearPending?: () => void;
+  onSaveAttachmentAs?: (fileId: string, name: string) => Promise<string | null | undefined>;
   attachmentsBusy?: boolean;
   attachmentError?: string | null;
-  attachmentsDisabled?: boolean;
 }
 
 export function ChatInputArea({
@@ -218,11 +224,14 @@ export function ChatInputArea({
   showModelSelector = true,
   lockedModel,
   staged,
+  pending,
+  attachmentProgress,
   onPickAttachment,
   onRemoveAttachment,
+  onClearPending,
+  onSaveAttachmentAs,
   attachmentsBusy,
   attachmentError,
-  attachmentsDisabled,
 }: Readonly<ChatInputAreaProps>) {
   const networkAgents = useAppStore((s) => s.networkAgents);
   const networkAgentsLoading = useAppStore((s) => s.networkAgentsLoading);
@@ -263,9 +272,31 @@ export function ChatInputArea({
                 mime={s.mime}
                 sizeBytes={s.size_bytes}
                 staged
+                delivered={s.delivered}
+                progress={attachmentProgress?.[s.file_id]}
                 onRemove={onRemoveAttachment}
               />
             ))}
+          </div>
+        )}
+        {pending && pending.length > 0 && (
+          <div
+            role='status'
+            aria-live='polite'
+            className='border-border bg-muted/40 text-muted-foreground animate-in fade-in mb-2 flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs duration-150'
+          >
+            <span>
+              {pending.length} file{pending.length === 1 ? '' : 's'} queued — will upload when the session starts.
+            </span>
+            {onClearPending && (
+              <button
+                type='button'
+                onClick={onClearPending}
+                className='text-muted-foreground hover:text-foreground underline-offset-2 hover:underline'
+              >
+                Clear
+              </button>
+            )}
           </div>
         )}
         {attachmentError && (
@@ -294,15 +325,15 @@ export function ChatInputArea({
               {showAttachmentButton && (
                 <PromptInputAction
                   tooltip={
-                    attachmentsDisabled
-                      ? 'Start a session to attach files'
-                      : 'Attach file (or drag and drop)'
+                    isActive
+                      ? 'Attach file (or drag and drop)'
+                      : 'Attach file (queued until session starts)'
                   }
                 >
                   <button
                     type='button'
                     onClick={onPickAttachment}
-                    disabled={attachmentsDisabled || attachmentsBusy}
+                    disabled={attachmentsBusy}
                     className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring focus-visible:ring-offset-background flex h-8 w-8 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-30'
                     aria-label='Attach file'
                   >
@@ -432,6 +463,8 @@ function AgentChatContent() {
     stopSession,
     pendingPayment,
     dismissPayment,
+    expiringAttachments,
+    dismissExpiring,
   } = useChatWorkflow();
 
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
@@ -440,9 +473,15 @@ function AgentChatContent() {
   // ── Attachments ──────────────────────────────────────────────────────────
   const {
     staged,
+    pending,
+    progress: attachmentProgress,
     attach,
+    stagePath,
+    flushPending,
+    saveAs: saveAttachmentAs,
     remove: removeStaged,
     clear: clearStaged,
+    removePending: clearAllPending,
     busy: attachmentsBusy,
     error: attachmentError,
   } = useAttachments();
@@ -454,14 +493,19 @@ function AgentChatContent() {
   const sessionActive = isRunning || awaitingInput;
 
   const handlePickAttachment = useCallback(async () => {
-    if (!sessionActive) return;
     try {
       const path = await BrowseForAttachment();
-      if (path) await attach(path);
+      if (!path) return;
+      if (sessionActive) {
+        await attach(path);
+      } else {
+        // Queue for upload after the session starts.
+        stagePath(path);
+      }
     } catch {
       /* attach() already records the error via the hook */
     }
-  }, [sessionActive, attach]);
+  }, [sessionActive, attach, stagePath]);
 
   // Save an agent-emitted attachment to ~/Downloads. Returns the absolute
   // path so the chip can show a "Saved to …" confirmation tooltip.
@@ -472,12 +516,37 @@ function AgentChatContent() {
     [],
   );
 
-  // Wails native file-drop. Paths are absolute strings. We only act when a
-  // session is live — the runner won't see anything until a session exists.
+  // Save-as opens a native file dialog; returns null on user cancel.
+  const handleSaveAttachmentAs = useCallback(
+    async (fileId: string, fileName: string) => {
+      return await saveAttachmentAs(fileId, fileName);
+    },
+    [saveAttachmentAs],
+  );
+
+  // Clear all pending (queued) attachments — used when the user dismisses
+  // the "queued" banner.
+  const handleClearPending = useCallback(() => {
+    pending?.forEach((p) => clearAllPending(p));
+  }, [pending, clearAllPending]);
+
+  // Flush queued attachments once a session goes live. Runs at most once
+  // per isRunning rising edge; useAttachments empties `pending` atomically
+  // so a re-render during the flush won't fire it twice.
+  useEffect(() => {
+    if (!isRunning) return;
+    void flushPending();
+  }, [isRunning, flushPending]);
+
+  // Wails native file-drop. Paths are absolute strings. When a session is
+  // live we upload immediately; otherwise we queue.
   useEffect(() => {
     OnFileDrop((_x, _y, paths) => {
-      if (!sessionActive) return;
       setDragActive(false);
+      if (!sessionActive) {
+        for (const p of paths) stagePath(p);
+        return;
+      }
       void (async () => {
         for (const p of paths) {
           try {
@@ -491,11 +560,12 @@ function AgentChatContent() {
 
     // HTML5 drag events are needed to flash the overlay; the actual drop is
     // handled by Wails (above). dragenter/dragleave use a counter pattern to
-    // avoid flicker when entering child elements.
+    // avoid flicker when entering child elements. The overlay shows for both
+    // live and pre-session drops — the latter just queue rather than upload.
     let depth = 0;
     const onEnter = () => {
       depth++;
-      if (sessionActive) setDragActive(true);
+      setDragActive(true);
     };
     const onLeave = () => {
       depth = Math.max(0, depth - 1);
@@ -515,7 +585,7 @@ function AgentChatContent() {
       window.removeEventListener('dragleave', onLeave);
       window.removeEventListener('drop', onDrop);
     };
-  }, [sessionActive, attach]);
+  }, [sessionActive, attach, stagePath]);
 
   const handleSubmit = useCallback(async () => {
     const prompt = inputValue.trim();
@@ -531,10 +601,10 @@ function AgentChatContent() {
       await sendInput(prompt);
     } else if (!isRunning) {
       setInputValue('');
-      // Note: any pre-session staged files (dropped before clicking send)
-      // currently fail because AttachToActiveSession requires an active
-      // session. We could buffer them, but for v1 the staged chip strip is
-      // visible-only-while-running.
+      // Don't clearStaged() here — pre-session pending paths are flushed on
+      // session start by the useEffect above. We also leave any already-
+      // staged chips (rare but possible after a previous session ended) so
+      // the user can see what's about to be sent.
       clearStaged();
       await startSession(prompt);
     }
@@ -715,7 +785,9 @@ function AgentChatContent() {
                           name={attName}
                           mime={String(d.mime ?? 'application/octet-stream')}
                           sizeBytes={Number(d.size_bytes ?? 0)}
+                          progress={attachmentProgress?.[String(d.file_id ?? '')]}
                           onDownload={(fid) => handleDownloadAttachment(fid, attName)}
+                          onSaveAs={(fid, nm) => handleSaveAttachmentAs(fid, nm)}
                         />
                       </div>
                     </Message>
@@ -859,11 +931,14 @@ function AgentChatContent() {
         sendTooltip='Send (Enter)'
         isActive={isRunning}
         staged={staged}
+        pending={pending}
+        attachmentProgress={attachmentProgress}
         onPickAttachment={handlePickAttachment}
         onRemoveAttachment={removeStaged}
+        onClearPending={handleClearPending}
+        onSaveAttachmentAs={handleSaveAttachmentAs}
         attachmentsBusy={attachmentsBusy}
         attachmentError={attachmentError}
-        attachmentsDisabled={!sessionActive}
         footer={chatSelectedModel ? (
           <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
             <span className='font-medium'>{chatSelectedModel.name}</span>
@@ -871,11 +946,11 @@ function AgentChatContent() {
         ) : undefined}
       />
 
-      {/* Drop overlay — fades in when files are dragged over the window AND
-          a session is active. The Wails-recognized drop target uses the
-          --wails-drop-target CSS custom property (see main.go DragAndDrop
-          options) so the runtime knows we accept the drop here. */}
-      {dragActive && sessionActive && (
+      {/* Drop overlay — fades in when files are dragged over the window.
+          The Wails-recognized drop target uses the --wails-drop-target CSS
+          custom property (see main.go DragAndDrop options) so the runtime
+          knows we accept the drop here. */}
+      {dragActive && (
         <div
           // eslint-disable-next-line react/forbid-dom-props
           style={{ '--wails-drop-target': 'drop' } as React.CSSProperties}
@@ -888,8 +963,57 @@ function AgentChatContent() {
             </div>
             <p className='text-base font-medium'>Drop to attach</p>
             <p className='text-muted-foreground text-sm'>
-              Files will be sent on your next message
+              {sessionActive
+                ? 'Files will be sent on your next message'
+                : 'Files will be queued and sent when the session starts'}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Attachments-expiring toast — surfaces when the host is about to
+          discard cached agent-emitted attachments (session swap/stop). The
+          user gets one chance to Save All to Downloads before the bytes
+          are gone. Dismissed manually or by clicking the action. */}
+      {expiringAttachments.length > 0 && (
+        <div
+          role='alert'
+          aria-live='assertive'
+          className='border-border bg-card text-foreground animate-in fade-in slide-in-from-bottom-2 fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 rounded-lg border px-4 py-3 shadow-lg duration-150'
+        >
+          <div className='min-w-0 flex-1'>
+            <p className='text-sm font-medium'>
+              {expiringAttachments.length} unsaved attachment
+              {expiringAttachments.length === 1 ? '' : 's'} will be lost
+            </p>
+            <p className='text-muted-foreground mt-0.5 text-xs'>
+              Save now to keep them.
+            </p>
+            <div className='mt-2 flex gap-2'>
+              <button
+                type='button'
+                onClick={async () => {
+                  for (const a of expiringAttachments) {
+                    try {
+                      await handleDownloadAttachment(a.file_id, a.name);
+                    } catch {
+                      /* keep iterating */
+                    }
+                  }
+                  dismissExpiring();
+                }}
+                className='bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-2.5 py-1 text-xs font-medium transition-colors'
+              >
+                Save all to Downloads
+              </button>
+              <button
+                type='button'
+                onClick={dismissExpiring}
+                className='text-muted-foreground hover:text-foreground rounded-md px-2.5 py-1 text-xs transition-colors'
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}

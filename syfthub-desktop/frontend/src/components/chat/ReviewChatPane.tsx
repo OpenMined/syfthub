@@ -369,7 +369,6 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
         onRemoveAttachment={handleRemoveAttachment}
         attachmentsBusy={false}
         attachmentError={attachmentError}
-        attachmentsDisabled={!continuable || submitting || isRunning}
         footer={isRunning ? (
           <p className='mt-1.5 text-[11px] italic text-muted-foreground'>
             A live session is already running. Stop it before continuing this thread.

@@ -39,6 +39,16 @@ interface ChatWorkflowValue {
   clearEntries: () => void;
   pendingPayment: PendingPayment | null;
   dismissPayment: () => void;
+  // attachments.expiring toast state. Populated when the host warns of
+  // unsaved cached attachments about to be discarded; cleared by the UI on
+  // user action.
+  expiringAttachments: Array<{
+    file_id: string;
+    name: string;
+    size_bytes: number;
+    mime: string;
+  }>;
+  dismissExpiring: () => void;
 }
 
 const ChatWorkflowContext = createContext<ChatWorkflowValue | null>(null);

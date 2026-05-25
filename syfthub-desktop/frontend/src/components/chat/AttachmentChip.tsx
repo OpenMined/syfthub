@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Check,
   Download,
   ExternalLink,
   File as FileIcon,
@@ -7,6 +8,7 @@ import {
   FileImage,
   FileText,
   Loader2,
+  Save,
   X,
 } from 'lucide-react';
 import {
@@ -25,14 +27,37 @@ export interface AttachmentChipProps {
    * entry, with download action + image figure for image MIMEs).
    */
   staged?: boolean;
+  /**
+   * delivered=true (staged only) means the host has emitted a user.attachment
+   * accept-ack for this file. The chip renders a small ✓ next to the size to
+   * confirm the file actually landed on the host.
+   */
+  delivered?: boolean;
+  /**
+   * pending=true (staged only) means the user dropped/picked the file BEFORE
+   * a session was live. The chip renders with a "queued" badge until
+   * flushPending() promotes it to a normal staged attachment.
+   */
+  pending?: boolean;
+  /**
+   * Inbound-download progress (non-staged only). When set and downloaded <
+   * total, the chip renders a thin progress bar. Populated from
+   * attachment.progress events via useAttachments.progress.
+   */
+  progress?: { downloaded: number; total: number };
   onRemove?: (fileId: string) => void;
   /**
-   * Save the attachment somewhere on the user's disk. The parent should
-   * resolve with the absolute destination path on success (used to
+   * Save the attachment to a default location (~/Downloads). The parent
+   * should resolve with the absolute destination path on success (used to
    * tooltip the "Saved" confirmation), null/undefined on user cancel,
    * or throw on failure (chip shows the error briefly).
    */
   onDownload?: (fileId: string) => Promise<string | null | undefined>;
+  /**
+   * Optional "Save as…" alternative that opens a native save-file dialog.
+   * Same return contract as onDownload.
+   */
+  onSaveAs?: (fileId: string, name: string) => Promise<string | null | undefined>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -229,10 +254,19 @@ export function AttachmentChip({
   mime,
   sizeBytes,
   staged,
+  delivered,
+  pending,
+  progress,
   onRemove,
   onDownload,
+  onSaveAs,
 }: AttachmentChipProps) {
   const isImage = mime.startsWith('image/');
+  const isDownloading =
+    progress != null && progress.total > 0 && progress.downloaded < progress.total;
+  const progressPct = isDownloading
+    ? Math.min(100, Math.max(0, (progress!.downloaded / progress!.total) * 100))
+    : 0;
 
   // Image figure variant: only for agent-emitted attachments. Cap fetch at
   // 4 MiB so we don't accidentally pull a 20 MB PNG into memory.
@@ -297,17 +331,28 @@ export function AttachmentChip({
               {isSaved && ' · Saved'}
             </p>
           </div>
-          {onDownload && (
-            <DownloadOrOpenButton
-              fileId={fileId}
-              name={name}
-              onDownload={onDownload}
-              size='md'
-              state={downloadState}
-              setState={setDownloadState}
-            />
-          )}
+          <div className='flex items-center gap-1'>
+            {onDownload && (
+              <DownloadOrOpenButton
+                fileId={fileId}
+                name={name}
+                onDownload={onDownload}
+                size='md'
+                state={downloadState}
+                setState={setDownloadState}
+              />
+            )}
+            {onSaveAs && downloadState.kind !== 'saved' && (
+              <SaveAsButton
+                fileId={fileId}
+                name={name}
+                onSaveAs={onSaveAs}
+                size='md'
+              />
+            )}
+          </div>
         </figcaption>
+        {isDownloading && <ProgressBar pct={progressPct} />}
       </figure>
     );
   }
@@ -348,6 +393,29 @@ export function AttachmentChip({
       >
         {humanSize(sizeBytes)}
       </span>
+      {staged && delivered && (
+        <Check
+          className='text-emerald-500 h-3 w-3 shrink-0'
+          aria-label='Delivered to host'
+        />
+      )}
+      {staged && pending && (
+        <span
+          className='text-muted-foreground bg-background/60 shrink-0 rounded px-1 text-[9px] uppercase tracking-wide'
+          aria-label='Queued — will upload when session starts'
+          title='Queued — will upload when session starts'
+        >
+          Queued
+        </span>
+      )}
+      {isDownloading && (
+        <span
+          className='text-muted-foreground shrink-0 text-[10px] tabular-nums'
+          aria-label={`Downloading ${Math.round(progressPct)}%`}
+        >
+          {Math.round(progressPct)}%
+        </span>
+      )}
       {staged && onRemove && (
         <button
           type='button'
@@ -368,6 +436,76 @@ export function AttachmentChip({
           setState={setDownloadState}
         />
       )}
+      {!staged && onSaveAs && downloadState.kind !== 'saved' && (
+        <SaveAsButton
+          fileId={fileId}
+          name={name}
+          onSaveAs={onSaveAs}
+          size='sm'
+        />
+      )}
     </span>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function ProgressBar({ pct }: { pct: number }) {
+  return (
+    <div
+      className='bg-muted h-1 w-full overflow-hidden'
+      role='progressbar'
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className='bg-primary h-full transition-[width] duration-150'
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+function SaveAsButton({
+  fileId,
+  name,
+  onSaveAs,
+  size,
+}: {
+  fileId: string;
+  name: string;
+  onSaveAs: (fileId: string, name: string) => Promise<string | null | undefined>;
+  size: 'sm' | 'md';
+}) {
+  const [busy, setBusy] = useState(false);
+  const cls = size === 'md' ? 'h-6 w-6' : 'h-5 w-5';
+  const iconCls = size === 'md' ? 'h-3.5 w-3.5' : 'h-3 w-3';
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onSaveAs(fileId, name);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('save-as failed', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type='button'
+      onClick={handleClick}
+      disabled={busy}
+      className={`${cls} text-muted-foreground hover:text-foreground hover:bg-background focus-visible:ring-ring focus-visible:ring-offset-background ml-0.5 flex shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50`}
+      aria-label={`Save ${name} as…`}
+      title={`Save ${name} as…`}
+    >
+      <Save
+        className={`${iconCls} ${busy ? 'animate-pulse' : ''}`}
+        aria-hidden='true'
+      />
+    </button>
   );
 }
