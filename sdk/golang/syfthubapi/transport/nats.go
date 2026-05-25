@@ -137,6 +137,13 @@ func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, ci
 		b.logger.Warn("[AGENT] attachment channel full, dropping",
 			"session_id", sess.ID, "file_id", info.FileID)
 	}
+
+	// Emit the accept-ack regardless of DeliverAttachment's boolean return —
+	// the file is materialized on disk either way; the boolean only reports
+	// whether the runner-side receive channel had room. Clients use this
+	// event to mark the staged-attachment chip as delivered.
+	b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeUserAttachment,
+		agenttypes.UserAttachmentEvent{FileID: info.FileID, SizeBytes: info.SizeBytes})
 }
 
 // materializeInlineAttachment decodes inline base64 bytes, verifies the
