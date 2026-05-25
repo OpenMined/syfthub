@@ -122,6 +122,11 @@ func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []a
 	a.agentMu.Lock()
 	prev := a.agentSession
 	a.agentSession = nil
+	prevSessionID := ""
+	if prev != nil {
+		prevSessionID = prev.SessionID
+	}
+	a.emitAttachmentsExpiringLocked(prevSessionID)
 	a.agentAttachments = nil
 	if prev != nil {
 		a.agentCancelledID = prev.SessionID
@@ -256,6 +261,7 @@ func (a *App) drainAgentSession(sc *transport.AgentClientSession) {
 	a.agentMu.Lock()
 	if a.agentSession == sc {
 		a.agentSession = nil
+		a.emitAttachmentsExpiringLocked(sessionID)
 		a.agentAttachments = nil
 	}
 	if a.agentCancelledID == sessionID {
@@ -300,6 +306,11 @@ func (a *App) StopAgentSession() error {
 	a.agentMu.Lock()
 	sc := a.agentSession
 	a.agentSession = nil
+	prevSessionID := ""
+	if sc != nil {
+		prevSessionID = sc.SessionID
+	}
+	a.emitAttachmentsExpiringLocked(prevSessionID)
 	a.agentAttachments = nil
 	if sc != nil {
 		a.agentCancelledID = sc.SessionID
@@ -326,4 +337,28 @@ func (a *App) consumeAgentCancelled(sessionID string) bool {
 		return true
 	}
 	return false
+}
+
+// emitAttachmentsExpiringLocked snapshots the current agentAttachments map
+// and emits an attachments.expiring event so the frontend can warn the user
+// about unsaved files before the session swap discards them. Caller MUST
+// hold a.agentMu. No-op when the cache is empty.
+func (a *App) emitAttachmentsExpiringLocked(prevSessionID string) {
+	if len(a.agentAttachments) == 0 {
+		return
+	}
+	items := make([]map[string]any, 0, len(a.agentAttachments))
+	for fid, entry := range a.agentAttachments {
+		items = append(items, map[string]any{
+			"file_id":    fid,
+			"name":       entry.Meta.Name,
+			"size_bytes": entry.Meta.SizeBytes,
+			"mime":       entry.Meta.MIME,
+		})
+	}
+	runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
+		Type:      "attachments.expiring",
+		SessionID: prevSessionID,
+		Data:      map[string]any{"attachments": items},
+	})
 }
