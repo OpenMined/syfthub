@@ -1020,3 +1020,436 @@ def test_get_collective_endpoint_paths_format(
         assert len(parts) == 2 and all(parts), (
             f"Path {path!r} does not match 'owner/slug' format"
         )
+
+
+# ----------------------------------------------------------------------
+# Shared endpoints — named, curated subsets of approved members
+# ----------------------------------------------------------------------
+
+
+def _approve_endpoint_into_collective(
+    client: TestClient,
+    *,
+    collective_id: int,
+    endpoint_id: int,
+    member_headers: dict,
+    owner_headers: dict,
+) -> None:
+    """End-to-end helper: request join + owner approves, leaving status=approved."""
+    resp = client.post(
+        f"{API}/collectives/{collective_id}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = client.post(
+        f"{API}/collectives/{collective_id}/members/{endpoint_id}/review",
+        json={"decision": "approve"},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.fixture
+def collective_with_two_members(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> dict:
+    """A collective with two approved data-source endpoints from a separate user.
+
+    Yields a dict carrying the collective id/slug and the two approved endpoint
+    ids so each shared-endpoint test can curate subsets without rebuilding the
+    base graph.
+    """
+    collective = _create_collective(client, owner_headers, name="Genomics Collective")
+    endpoint_one = _create_endpoint(client, member_headers, name="Source One")
+    endpoint_two = _create_endpoint(client, member_headers, name="Source Two")
+    for endpoint_id in (endpoint_one, endpoint_two):
+        _approve_endpoint_into_collective(
+            client,
+            collective_id=collective["id"],
+            endpoint_id=endpoint_id,
+            member_headers=member_headers,
+            owner_headers=owner_headers,
+        )
+    return {
+        "id": collective["id"],
+        "slug": collective["slug"],
+        "endpoint_one": endpoint_one,
+        "endpoint_two": endpoint_two,
+    }
+
+
+def test_create_shared_endpoint(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Owner creates a shared endpoint with one of two approved members."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Health News",
+            "description": "Subset focused on health",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["name"] == "Health News"
+    assert body["slug"] == "health-news"
+    assert body["collective_slug"] == collective["slug"]
+    assert (
+        body["shared_endpoint_path"] == f"collective/{collective['slug']}/health-news"
+    )
+    assert body["member_count"] == 1
+    assert body["active_member_count"] == 1
+    assert len(body["members"]) == 1
+    assert body["members"][0]["endpoint_id"] == collective["endpoint_one"]
+    assert body["members"][0]["is_active"] is True
+
+
+def test_create_shared_endpoint_explicit_slug(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Explicit slug is honored when valid."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Curated",
+            "slug": "alpha",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["slug"] == "alpha"
+
+
+def test_reserved_slug_all_rejected(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """The reserved 'all' slug cannot be used for a custom shared endpoint."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "All Endpoints",
+            "slug": "all",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_duplicate_slug_per_collective_rejected(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Two shared endpoints in the same collective cannot share a slug."""
+    collective = collective_with_two_members
+    payload = {
+        "name": "Health",
+        "slug": "health",
+        "endpoint_ids": [collective["endpoint_one"]],
+    }
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json=payload,
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json=payload,
+        headers=owner_headers,
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_non_approved_endpoint_rejected_on_create(
+    client: TestClient,
+    owner_headers: dict,
+    member_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """An endpoint that isn't an approved member can't be added to a subset."""
+    collective = collective_with_two_members
+    # A second collective with an endpoint that's NOT approved in the first one.
+    outsider = _create_endpoint(client, member_headers, name="Outsider")
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Bad",
+            "endpoint_ids": [collective["endpoint_one"], outsider],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert str(outsider) in resp.json()["detail"]
+
+
+def test_empty_endpoint_ids_rejected(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """A shared endpoint must have at least one configured member."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={"name": "Empty", "endpoint_ids": []},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_create_requires_collective_owner(
+    client: TestClient,
+    member_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Non-owners cannot create shared endpoints."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Sneaky",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=member_headers,
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_list_and_get_shared_endpoints(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """List + get-by-slug return the created shared endpoints."""
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Health News",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    # By collective id (public-readable).
+    resp = client.get(f"{API}/collectives/{collective['id']}/shared-endpoints")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+    # By collective slug (public-readable).
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}/shared-endpoints"
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+    # By slug pair.
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}/shared-endpoints/health-news"
+    )
+    assert resp.status_code == 200
+    assert resp.json()["slug"] == "health-news"
+
+
+def test_update_shared_endpoint_replaces_members(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """PATCH with endpoint_ids replaces the full member set."""
+    collective = collective_with_two_members
+    create = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Curated",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert create.status_code == 201
+
+    resp = client.patch(
+        f"{API}/collectives/{collective['id']}/shared-endpoints/curated",
+        json={
+            "name": "Curated v2",
+            "endpoint_ids": [collective["endpoint_two"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == "Curated v2"
+    assert body["member_count"] == 1
+    assert body["members"][0]["endpoint_id"] == collective["endpoint_two"]
+
+
+def test_update_shared_endpoint_omitting_endpoints_leaves_members(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Omitting endpoint_ids in PATCH leaves the membership untouched."""
+    collective = collective_with_two_members
+    client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Curated",
+            "endpoint_ids": [
+                collective["endpoint_one"],
+                collective["endpoint_two"],
+            ],
+        },
+        headers=owner_headers,
+    )
+    resp = client.patch(
+        f"{API}/collectives/{collective['id']}/shared-endpoints/curated",
+        json={"description": "Just a description tweak"},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["member_count"] == 2
+
+
+def test_delete_shared_endpoint(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Owner can delete; subsequent GET returns 404."""
+    collective = collective_with_two_members
+    client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={"name": "Bye", "endpoint_ids": [collective["endpoint_one"]]},
+        headers=owner_headers,
+    )
+    resp = client.delete(
+        f"{API}/collectives/{collective['id']}/shared-endpoints/bye",
+        headers=owner_headers,
+    )
+    assert resp.status_code == 204, resp.text
+    resp = client.get(f"{API}/collectives/{collective['id']}/shared-endpoints/bye")
+    assert resp.status_code == 404
+
+
+def test_endpoint_paths_intersect_with_approved(
+    client: TestClient,
+    owner_headers: dict,
+    member_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """When a configured endpoint is removed from the collective, it drops from fan-out."""
+    collective = collective_with_two_members
+    client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "Both",
+            "endpoint_ids": [
+                collective["endpoint_one"],
+                collective["endpoint_two"],
+            ],
+        },
+        headers=owner_headers,
+    )
+
+    # Sanity check: both members are in the fan-out before removal.
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}"
+        f"/shared-endpoints/both/endpoint-paths"
+    )
+    assert resp.status_code == 200, resp.text
+    assert sorted(resp.json()) == ["member/source-one", "member/source-two"]
+
+    # Endpoint owner leaves the collective with endpoint_two.
+    resp = client.delete(
+        f"{API}/collectives/{collective['id']}/members/{collective['endpoint_two']}",
+        headers=member_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    # endpoint_two silently drops from the shared endpoint at resolve time.
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}"
+        f"/shared-endpoints/both/endpoint-paths"
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == ["member/source-one"]
+
+    # The shared-endpoint detail surfaces the inactive state in `members`.
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}/shared-endpoints/both"
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["member_count"] == 2
+    assert body["active_member_count"] == 1
+    inactive = [m for m in body["members"] if not m["is_active"]]
+    assert len(inactive) == 1
+    assert inactive[0]["endpoint_id"] == collective["endpoint_two"]
+
+
+def test_all_slug_resolves_to_full_membership(
+    client: TestClient,
+    collective_with_two_members: dict,
+) -> None:
+    """``collective/<X>/all`` and ``collective/<X>`` resolve identically."""
+    collective = collective_with_two_members
+    resp_all = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}"
+        f"/shared-endpoints/all/endpoint-paths"
+    )
+    resp_default = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}/endpoint-paths"
+    )
+    assert resp_all.status_code == 200, resp_all.text
+    assert resp_default.status_code == 200, resp_default.text
+    assert sorted(resp_all.json()) == sorted(resp_default.json())
+
+
+def test_unknown_shared_slug_404(
+    client: TestClient,
+    collective_with_two_members: dict,
+) -> None:
+    """Querying an unknown shared slug yields 404."""
+    collective = collective_with_two_members
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}"
+        f"/shared-endpoints/does-not-exist/endpoint-paths"
+    )
+    assert resp.status_code == 404
+
+
+def test_deleting_collective_cascades_to_shared_endpoints(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """Cascade: deleting the collective removes its shared endpoints."""
+    collective = collective_with_two_members
+    client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={"name": "Sub", "endpoint_ids": [collective["endpoint_one"]]},
+        headers=owner_headers,
+    )
+    resp = client.delete(f"{API}/collectives/{collective['id']}", headers=owner_headers)
+    assert resp.status_code == 204, resp.text
+    # The parent is gone, so the by-slug lookup 404s.
+    resp = client.get(
+        f"{API}/collectives/by-slug/{collective['slug']}/shared-endpoints"
+    )
+    assert resp.status_code == 404

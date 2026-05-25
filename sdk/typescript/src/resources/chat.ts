@@ -244,8 +244,15 @@ export class ChatResource {
   private static readonly TUNNELING_PREFIX = 'tunneling:';
 
   /**
-   * Expand any `collective/<slug>` entries in the data-sources list into the
-   * individual `owner/slug` paths of the collective's approved members.
+   * Expand any `collective/<slug>` (or `collective/<slug>/<shared-slug>`)
+   * entries in the data-sources list into the individual `owner/slug` paths
+   * of the collective's approved members.
+   *
+   * Path forms recognised:
+   * - `collective/<slug>` → every approved member (backward-compatible)
+   * - `collective/<slug>/all` → equivalent alias of the above
+   * - `collective/<slug>/<shared-slug>` → the named subset, intersected with
+   *   the collective's currently approved members
    *
    * Non-collective entries pass through unchanged. String paths are
    * deduplicated so a regular endpoint that also belongs to a selected
@@ -259,13 +266,32 @@ export class ChatResource {
 
     for (const ds of dataSources) {
       if (typeof ds === 'string' && ds.startsWith(ChatResource.COLLECTIVE_PREFIX)) {
-        const slug = ds.slice(ChatResource.COLLECTIVE_PREFIX.length);
+        const rest = ds.slice(ChatResource.COLLECTIVE_PREFIX.length);
+        const slashAt = rest.indexOf('/');
+        const collectiveSlug = slashAt < 0 ? rest : rest.slice(0, slashAt);
+        // `all` is the implicit alias of "every approved member" and maps to
+        // the same hub route as the no-subset form, so the SDK normalises it
+        // away rather than round-tripping a degenerate identifier.
+        const rawShared = slashAt < 0 ? undefined : rest.slice(slashAt + 1);
+        const sharedSlug = rawShared && rawShared !== 'all' ? rawShared : undefined;
+
+        if (!collectiveSlug) {
+          throw new EndpointResolutionError(
+            `Malformed collective path: ${ds}`,
+            ds
+          );
+        }
+
         let memberPaths: string[];
         try {
-          memberPaths = await this.hub.getCollectiveEndpointPaths(slug);
+          memberPaths = await this.hub.getCollectiveEndpointPaths(
+            collectiveSlug,
+            sharedSlug
+          );
         } catch (error) {
+          const target = sharedSlug ? `${collectiveSlug}/${sharedSlug}` : collectiveSlug;
           throw new EndpointResolutionError(
-            `Failed to resolve collective '${slug}': ${error instanceof Error ? error.message : String(error)}`,
+            `Failed to resolve collective '${target}': ${error instanceof Error ? error.message : String(error)}`,
             ds
           );
         }

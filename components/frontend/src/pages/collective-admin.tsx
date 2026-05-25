@@ -15,6 +15,7 @@ import Users from 'lucide-react/dist/esm/icons/users';
 import X from 'lucide-react/dist/esm/icons/x';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { SharedEndpointsTab } from '@/components/collectives/shared-endpoints-tab';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -38,7 +39,7 @@ import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { isJoinableEndpointType, parseTags } from '@/lib/collectives-api';
 import { formatDate } from '@/lib/date-utils';
 
-type AdminTab = 'members' | 'requests' | 'invitations' | 'settings';
+type AdminTab = 'members' | 'requests' | 'invitations' | 'shared' | 'settings';
 
 /**
  * Collective administration (`/c/:slug/admin`). Owner only — the route is
@@ -106,6 +107,7 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
     { id: 'members', label: 'Members' },
     { id: 'requests', label: 'Requests', badge: requests.length },
     { id: 'invitations', label: 'Invitations', badge: invitations.length },
+    { id: 'shared', label: 'Shared Endpoints' },
     { id: 'settings', label: 'Settings' }
   ];
 
@@ -337,6 +339,10 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
             </Card>
           )}
         </div>
+      )}
+
+      {activeTab === 'shared' && (
+        <SharedEndpointsTab collective={collective} approvedMembers={members} />
       )}
 
       {activeTab === 'settings' && <CollectiveSettingsForm collective={collective} />}

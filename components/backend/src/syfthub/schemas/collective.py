@@ -294,6 +294,201 @@ class CollectiveMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ----------------------------------------------------------------------
+# Shared endpoints — named, curated subsets of a collective's members
+# ----------------------------------------------------------------------
+
+
+# ``all`` is the implicit shared-endpoint slug that fans out to every approved
+# member (equivalent to plain ``collective/<slug>``). It is never stored as a
+# row — the resolver short-circuits on this slug — so explicit creation of an
+# "all" subset is rejected. Other reserved slugs may be added later as the
+# routing surface grows; keep it as a set for forward-compat.
+RESERVED_SHARED_ENDPOINT_SLUGS = {"all"}
+
+
+def _validate_shared_endpoint_slug(v: str) -> str:
+    """Validate a user-provided shared-endpoint slug.
+
+    Reuses the collective slug pattern (lowercase + hyphens, 1-63 chars) but
+    against a smaller reserved set — these slugs are scoped under a collective
+    and don't share the public URL space.
+    """
+    if v != v.lower():
+        raise ValueError("Slug must contain only lowercase letters")
+    if v in RESERVED_SHARED_ENDPOINT_SLUGS:
+        raise ValueError(f"'{v}' is a reserved shared-endpoint slug")
+    if "--" in v:
+        raise ValueError("Slug cannot contain consecutive hyphens")
+    if not _SLUG_PATTERN.match(v):
+        raise ValueError(
+            "Slug must contain only lowercase letters, numbers, and hyphens. "
+            "Cannot start or end with a hyphen."
+        )
+    return v
+
+
+def slugify_shared_endpoint_name(name: str) -> str:
+    """Derive a URL-safe base slug from a shared-endpoint name.
+
+    The result is not guaranteed unique — the service resolves collisions.
+    Falls back to a generic ``shared`` slug when the input has no
+    alphanumerics so the slug always meets the 1+ char minimum.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower().strip()).strip("-")
+    if not slug:
+        slug = "shared"
+    if len(slug) > 63:
+        slug = slug[:63].rstrip("-")
+    return slug
+
+
+class CollectiveSharedEndpointBase(BaseModel):
+    """Fields a user supplies when creating or updating a shared endpoint."""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Display name of the shared endpoint",
+    )
+    description: str = Field(
+        "",
+        max_length=500,
+        description="Short one-liner describing the shared endpoint",
+    )
+
+
+class CollectiveSharedEndpointCreate(CollectiveSharedEndpointBase):
+    """Schema for creating a new shared endpoint under a collective."""
+
+    slug: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=63,
+        description="URL-safe identifier (auto-generated from name if omitted)",
+    )
+    endpoint_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Endpoints to include in this subset. Every id MUST be an "
+            "approved member of the parent collective at creation time."
+        ),
+    )
+
+    @field_validator("slug")
+    @classmethod
+    def validate_slug(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the optional user-provided slug."""
+        return None if v is None else _validate_shared_endpoint_slug(v)
+
+    @field_validator("endpoint_ids")
+    @classmethod
+    def deduplicate_ids(cls, v: List[int]) -> List[int]:
+        """Drop duplicates from the endpoint id list, preserving order."""
+        seen: set[int] = set()
+        result: List[int] = []
+        for endpoint_id in v:
+            if endpoint_id not in seen:
+                seen.add(endpoint_id)
+                result.append(endpoint_id)
+        return result
+
+
+class CollectiveSharedEndpointUpdate(BaseModel):
+    """Schema for updating a shared endpoint — all fields optional, owner-only.
+
+    ``endpoint_ids`` is a *full replacement* when present; pass the complete
+    new set, not a delta. Pass ``None`` (omit the field) to leave membership
+    untouched. Slug is not updatable — it is part of the public path and
+    renaming it would silently break callers.
+    """
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    endpoint_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+    @field_validator("endpoint_ids")
+    @classmethod
+    def deduplicate_ids(cls, v: Optional[List[int]]) -> Optional[List[int]]:
+        """Drop duplicates while preserving order."""
+        if v is None:
+            return None
+        seen: set[int] = set()
+        result: List[int] = []
+        for endpoint_id in v:
+            if endpoint_id not in seen:
+                seen.add(endpoint_id)
+                result.append(endpoint_id)
+        return result
+
+
+class CollectiveSharedEndpointMemberSummary(BaseModel):
+    """One member endpoint inside a shared endpoint, enriched for UI rendering."""
+
+    endpoint_id: int = Field(..., description="Endpoint's unique identifier")
+    endpoint_name: Optional[str] = Field(
+        None, description="Display name of the member endpoint"
+    )
+    endpoint_slug: Optional[str] = Field(
+        None, description="URL slug of the member endpoint"
+    )
+    endpoint_owner_username: Optional[str] = Field(
+        None, description="Username of the member endpoint's owner"
+    )
+    endpoint_type: Optional[str] = Field(
+        None, description="Type of the member endpoint"
+    )
+    is_active: bool = Field(
+        ...,
+        description=(
+            "True when the endpoint is currently an approved member of the "
+            "parent collective. When False, the endpoint was configured into "
+            "this subset but has since left the collective; it is silently "
+            "skipped at fan-out time."
+        ),
+    )
+
+
+class CollectiveSharedEndpointResponse(BaseModel):
+    """Schema for a shared endpoint in API responses."""
+
+    id: int = Field(..., description="Shared endpoint's unique identifier")
+    collective_id: int = Field(..., description="Parent collective's ID")
+    collective_slug: str = Field(..., description="Parent collective's slug")
+    name: str = Field(..., description="Display name")
+    slug: str = Field(..., description="URL-safe identifier (unique per collective)")
+    shared_endpoint_path: str = Field(
+        ...,
+        description=(
+            "Public path for this shared endpoint, "
+            "``collective/<collective_slug>/<slug>``. Derived from the parent "
+            "collective's slug and this entity's slug; never user-settable."
+        ),
+    )
+    description: str = Field(..., description="Short one-liner")
+    members: List[CollectiveSharedEndpointMemberSummary] = Field(
+        default_factory=list,
+        description=(
+            "Configured member endpoints with their current active state. "
+            "Active = currently an approved member of the parent collective."
+        ),
+    )
+    member_count: int = Field(0, description="Total configured members")
+    active_member_count: int = Field(
+        0,
+        description=(
+            "Members that are currently approved in the parent collective and "
+            "will participate in chat fan-out."
+        ),
+    )
+    created_at: datetime = Field(..., description="When the row was created")
+    updated_at: datetime = Field(..., description="When the row was last updated")
+
+    model_config = {"from_attributes": True}
+
+
 class InvitationEmailContext(BaseModel):
     """Context for the collective-invitation notification email.
 

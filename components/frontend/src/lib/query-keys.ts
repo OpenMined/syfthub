@@ -64,3 +64,13 @@ export const collectiveKeys = {
   byEndpoint: (owner: string, slug: string) =>
     [...collectiveKeys.all, 'byEndpoint', owner, slug] as const
 };
+
+export const sharedEndpointKeys = {
+  all: ['shared-endpoints'] as const,
+  byCollective: (collectiveId: number) =>
+    [...sharedEndpointKeys.all, 'byCollective', collectiveId] as const,
+  byCollectiveSlug: (collectiveSlug: string) =>
+    [...sharedEndpointKeys.all, 'byCollectiveSlug', collectiveSlug] as const,
+  detail: (collectiveId: number, sharedSlug: string) =>
+    [...sharedEndpointKeys.all, 'detail', collectiveId, sharedSlug] as const
+};

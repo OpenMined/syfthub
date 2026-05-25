@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 
 from fastapi import HTTPException, status
 
 from syfthub.repositories.collective import (
     CollectiveMemberRepository,
     CollectiveRepository,
+    CollectiveSharedEndpointMemberRepository,
+    CollectiveSharedEndpointRepository,
 )
 from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.user import UserRepository
@@ -25,12 +27,17 @@ from syfthub.schemas.collective import (
     CollectiveCreate,
     CollectiveMemberResponse,
     CollectiveResponse,
+    CollectiveSharedEndpointCreate,
+    CollectiveSharedEndpointMemberSummary,
+    CollectiveSharedEndpointResponse,
+    CollectiveSharedEndpointUpdate,
     CollectiveUpdate,
     InvitationDecision,
     InvitationEmailContext,
     MembershipStatus,
     ReviewDecision,
     slugify_collective_name,
+    slugify_shared_endpoint_name,
 )
 from syfthub.schemas.endpoint import (
     Endpoint,
@@ -64,6 +71,10 @@ class CollectiveService(BaseService):
         self.member_repo = CollectiveMemberRepository(session)
         self.endpoint_repo = EndpointRepository(session)
         self.user_repo = UserRepository(session)
+        self.shared_endpoint_repo = CollectiveSharedEndpointRepository(session)
+        self.shared_endpoint_member_repo = CollectiveSharedEndpointMemberRepository(
+            session
+        )
 
     # ------------------------------------------------------------------
     # Collective CRUD
@@ -109,8 +120,9 @@ class CollectiveService(BaseService):
         """Return owner/slug paths of all approved member endpoints.
 
         Called by the SDK's collective-resolution step to expand a
-        ``collective/<slug>`` path into the individual endpoint paths that
-        participate in the aggregator request.
+        ``collective/<slug>`` (or the equivalent ``collective/<slug>/all``)
+        path into the individual endpoint paths that participate in the
+        aggregator request.
         """
         collective = self.collective_repo.get_by_slug(slug)
         if collective is None:
@@ -118,15 +130,39 @@ class CollectiveService(BaseService):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Collective not found",
             )
-        memberships = self.member_repo.list_members(
-            collective.id, [MembershipStatus.APPROVED.value]
+        return self._collective_approved_paths(collective.id)
+
+    def get_shared_endpoint_paths(
+        self, collective_slug: str, shared_slug: str
+    ) -> List[str]:
+        """Resolve a ``collective/<X>/<Y>`` path to owner/slug endpoint paths.
+
+        The result is the intersection of the configured endpoint set with the
+        parent collective's currently approved members — endpoints that have
+        since left the collective are silently filtered out. The ``all`` slug
+        short-circuits to "every approved member".
+        """
+        collective = self.collective_repo.get_by_slug(collective_slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
+            )
+        if shared_slug == "all":
+            return self._collective_approved_paths(collective.id)
+
+        shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+            collective.id, shared_slug
         )
-        enriched = self._enrich_many(memberships)
-        return [
-            f"{m.endpoint_owner_username}/{m.endpoint_slug}"
-            for m in enriched
-            if m.endpoint_owner_username and m.endpoint_slug
-        ]
+        if shared is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared endpoint not found",
+            )
+        configured_ids = self.shared_endpoint_member_repo.list_endpoint_ids(shared.id)
+        approved_ids = self._approved_endpoint_ids(collective.id)
+        active_ids = [eid for eid in configured_ids if eid in approved_ids]
+        return self._resolve_endpoint_paths(active_ids)
 
     def list_collectives(
         self,
@@ -768,3 +804,324 @@ class CollectiveService(BaseService):
             status_code=status.HTTP_409_CONFLICT,
             detail="Could not generate a unique slug; please supply one explicitly",
         )
+
+    # ------------------------------------------------------------------
+    # Shared endpoints — curated subsets of approved members
+    # ------------------------------------------------------------------
+
+    def list_shared_endpoints(
+        self, collective_id: int
+    ) -> List[CollectiveSharedEndpointResponse]:
+        """List a collective's shared endpoints with active/inactive enrichment."""
+        self._get_collective_or_404(collective_id)
+        rows = self.shared_endpoint_repo.list_for_collective(collective_id)
+        return self._enrich_shared_endpoints(collective_id, rows)
+
+    def list_shared_endpoints_by_slug(
+        self, collective_slug: str
+    ) -> List[CollectiveSharedEndpointResponse]:
+        """List shared endpoints by parent collective slug (public)."""
+        collective = self.collective_repo.get_by_slug(collective_slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
+            )
+        rows = self.shared_endpoint_repo.list_for_collective(collective.id)
+        return self._enrich_shared_endpoints(collective.id, rows)
+
+    def get_shared_endpoint(
+        self, collective_id: int, shared_slug: str
+    ) -> CollectiveSharedEndpointResponse:
+        """Get one shared endpoint by collective id + slug."""
+        self._get_collective_or_404(collective_id)
+        shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+            collective_id, shared_slug
+        )
+        if shared is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared endpoint not found",
+            )
+        return self._enrich_shared_endpoint(collective_id, shared)
+
+    def get_shared_endpoint_by_slugs(
+        self, collective_slug: str, shared_slug: str
+    ) -> CollectiveSharedEndpointResponse:
+        """Get one shared endpoint by collective slug + own slug (public)."""
+        collective = self.collective_repo.get_by_slug(collective_slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
+            )
+        shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+            collective.id, shared_slug
+        )
+        if shared is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared endpoint not found",
+            )
+        return self._enrich_shared_endpoint(collective.id, shared)
+
+    def create_shared_endpoint(
+        self,
+        collective_id: int,
+        data: CollectiveSharedEndpointCreate,
+        current_user: User,
+    ) -> CollectiveSharedEndpointResponse:
+        """Create a shared endpoint under a collective.
+
+        Validates that every ``endpoint_ids`` entry is currently an approved
+        member of the collective — owners can't smuggle in pending, rejected,
+        or unrelated endpoints. Slug is auto-derived from the name when
+        omitted, with collision resolution mirroring the collective slug
+        helper.
+        """
+        collective = self._get_collective_or_404(collective_id)
+        self._require_owner(collective, current_user)
+
+        approved_ids = self._approved_endpoint_ids(collective_id)
+        unknown = [eid for eid in data.endpoint_ids if eid not in approved_ids]
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Every endpoint must be an approved member of this "
+                    "collective. Not approved: "
+                    f"{', '.join(str(eid) for eid in unknown)}"
+                ),
+            )
+
+        slug = self._resolve_shared_endpoint_slug(collective_id, data)
+        created = self.shared_endpoint_repo.create_shared_endpoint(
+            collective_id=collective_id,
+            name=data.name,
+            slug=slug,
+            description=data.description,
+            endpoint_ids=data.endpoint_ids,
+            collective_slug=collective.slug,
+        )
+        if created is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create shared endpoint",
+            )
+        return self._enrich_shared_endpoint(collective_id, created)
+
+    def update_shared_endpoint(
+        self,
+        collective_id: int,
+        shared_slug: str,
+        data: CollectiveSharedEndpointUpdate,
+        current_user: User,
+    ) -> CollectiveSharedEndpointResponse:
+        """Update a shared endpoint's name/description and (optionally) members."""
+        collective = self._get_collective_or_404(collective_id)
+        self._require_owner(collective, current_user)
+        shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+            collective_id, shared_slug
+        )
+        if shared is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared endpoint not found",
+            )
+
+        endpoint_ids: Optional[List[int]] = None
+        if data.endpoint_ids is not None:
+            approved_ids = self._approved_endpoint_ids(collective_id)
+            unknown = [eid for eid in data.endpoint_ids if eid not in approved_ids]
+            if unknown:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Every endpoint must be an approved member of this "
+                        "collective. Not approved: "
+                        f"{', '.join(str(eid) for eid in unknown)}"
+                    ),
+                )
+            endpoint_ids = list(data.endpoint_ids)
+
+        fields = data.model_dump(exclude_unset=True, exclude={"endpoint_ids"})
+        if not fields and endpoint_ids is None:
+            return self._enrich_shared_endpoint(collective_id, shared)
+
+        updated = self.shared_endpoint_repo.update_shared_endpoint(
+            shared.id,
+            fields=fields,
+            endpoint_ids=endpoint_ids,
+            collective_slug=collective.slug,
+        )
+        if updated is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update shared endpoint",
+            )
+        return self._enrich_shared_endpoint(collective_id, updated)
+
+    def delete_shared_endpoint(
+        self,
+        collective_id: int,
+        shared_slug: str,
+        current_user: User,
+    ) -> None:
+        """Delete a shared endpoint (cascades to its member rows)."""
+        collective = self._get_collective_or_404(collective_id)
+        self._require_owner(collective, current_user)
+        shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+            collective_id, shared_slug
+        )
+        if shared is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Shared endpoint not found",
+            )
+        if not self.shared_endpoint_repo.delete_shared_endpoint(shared.id):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete shared endpoint",
+            )
+
+    # ------------------------------------------------------------------
+    # Shared-endpoint helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_shared_endpoint_slug(
+        self, collective_id: int, data: CollectiveSharedEndpointCreate
+    ) -> str:
+        """Determine a unique slug for a new shared endpoint within a collective."""
+        if data.slug:
+            if self.shared_endpoint_repo.slug_exists(collective_id, data.slug):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Shared endpoint slug already taken in this collective",
+                )
+            return data.slug
+
+        base = slugify_shared_endpoint_name(data.name)
+        if not self.shared_endpoint_repo.slug_exists(collective_id, base):
+            return base
+        for _ in range(5):
+            candidate = f"{base[:56]}-{secrets.token_hex(3)}"
+            if not self.shared_endpoint_repo.slug_exists(collective_id, candidate):
+                return candidate
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Could not generate a unique slug; please supply one explicitly",
+        )
+
+    def _approved_endpoint_ids(self, collective_id: int) -> set[int]:
+        """Set of endpoint ids currently approved in the collective."""
+        memberships = self.member_repo.list_members(
+            collective_id, [MembershipStatus.APPROVED.value]
+        )
+        return {m.endpoint_id for m in memberships}
+
+    def _collective_approved_paths(self, collective_id: int) -> List[str]:
+        """Owner/slug paths of every approved member endpoint."""
+        memberships = self.member_repo.list_members(
+            collective_id, [MembershipStatus.APPROVED.value]
+        )
+        enriched = self._enrich_many(memberships)
+        return [
+            f"{m.endpoint_owner_username}/{m.endpoint_slug}"
+            for m in enriched
+            if m.endpoint_owner_username and m.endpoint_slug
+        ]
+
+    def _resolve_endpoint_paths(self, endpoint_ids: Sequence[int]) -> List[str]:
+        """Resolve endpoint ids to ``owner/slug`` strings, preserving input order."""
+        if not endpoint_ids:
+            return []
+        endpoints = {
+            ep.id: ep for ep in self.endpoint_repo.get_by_ids(list(endpoint_ids))
+        }
+        owners = {
+            owner.id: owner
+            for owner in self.user_repo.get_by_ids(
+                list({ep.user_id for ep in endpoints.values()})
+            )
+        }
+        paths: List[str] = []
+        for endpoint_id in endpoint_ids:
+            endpoint = endpoints.get(endpoint_id)
+            if endpoint is None:
+                continue
+            owner = owners.get(endpoint.user_id)
+            if owner is None:
+                continue
+            paths.append(f"{owner.username}/{endpoint.slug}")
+        return paths
+
+    def _enrich_shared_endpoint(
+        self,
+        collective_id: int,
+        shared: CollectiveSharedEndpointResponse,
+    ) -> CollectiveSharedEndpointResponse:
+        """Populate ``members``, ``member_count`` and ``active_member_count``."""
+        return self._enrich_shared_endpoints(collective_id, [shared])[0]
+
+    def _enrich_shared_endpoints(
+        self,
+        collective_id: int,
+        rows: List[CollectiveSharedEndpointResponse],
+    ) -> List[CollectiveSharedEndpointResponse]:
+        """Bulk-enrich shared endpoints with member summaries + counts."""
+        if not rows:
+            return rows
+        approved_ids = self._approved_endpoint_ids(collective_id)
+        configured = self.shared_endpoint_member_repo.list_endpoint_ids_bulk(
+            [row.id for row in rows]
+        )
+        endpoint_ids_all: set[int] = set()
+        for ids in configured.values():
+            endpoint_ids_all.update(ids)
+        endpoint_map = {
+            ep.id: ep for ep in self.endpoint_repo.get_by_ids(list(endpoint_ids_all))
+        }
+        owners = {
+            owner.id: owner
+            for owner in self.user_repo.get_by_ids(
+                list({ep.user_id for ep in endpoint_map.values()})
+            )
+        }
+
+        enriched: List[CollectiveSharedEndpointResponse] = []
+        for row in rows:
+            ids = configured.get(row.id, [])
+            members: List[CollectiveSharedEndpointMemberSummary] = []
+            active = 0
+            for endpoint_id in ids:
+                endpoint = endpoint_map.get(endpoint_id)
+                if endpoint is None:
+                    # Endpoint was hard-deleted (CASCADE removed the join row)
+                    # so this should never fire in practice, but be defensive.
+                    continue
+                is_active = endpoint_id in approved_ids
+                if is_active:
+                    active += 1
+                owner = owners.get(endpoint.user_id)
+                members.append(
+                    CollectiveSharedEndpointMemberSummary(
+                        endpoint_id=endpoint.id,
+                        endpoint_name=endpoint.name,
+                        endpoint_slug=endpoint.slug,
+                        endpoint_owner_username=(
+                            owner.username if owner is not None else None
+                        ),
+                        endpoint_type=endpoint.type.value,
+                        is_active=is_active,
+                    )
+                )
+            enriched.append(
+                row.model_copy(
+                    update={
+                        "members": members,
+                        "member_count": len(members),
+                        "active_member_count": active,
+                    }
+                )
+            )
+        return enriched

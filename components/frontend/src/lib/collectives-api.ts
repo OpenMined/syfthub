@@ -384,3 +384,144 @@ export function respondToInvitation(
     auth: true
   });
 }
+
+// =============================================================================
+// Shared endpoints — named, curated subsets of a collective's members
+// =============================================================================
+
+/**
+ * One member endpoint inside a shared endpoint, enriched for UI rendering.
+ *
+ * `is_active` is `true` when the endpoint is currently an approved member of
+ * the parent collective; `false` means the endpoint was configured into the
+ * subset but has since left the collective and is silently skipped at
+ * chat-time fan-out. Surface inactive members in the admin UI so owners can
+ * either re-invite them or remove them from the selection.
+ */
+export interface CollectiveSharedEndpointMember {
+  endpoint_id: number;
+  endpoint_name: string | null;
+  endpoint_slug: string | null;
+  endpoint_owner_username: string | null;
+  endpoint_type: string | null;
+  is_active: boolean;
+}
+
+/**
+ * A shared endpoint — named, curated subset of a collective's approved
+ * member endpoints. Resolves at chat-time as `collective/<collective_slug>/<slug>`.
+ */
+export interface CollectiveSharedEndpoint {
+  id: number;
+  collective_id: number;
+  collective_slug: string;
+  name: string;
+  slug: string;
+  /** Derived: `collective/<collective_slug>/<slug>`. Read-only. */
+  shared_endpoint_path: string;
+  description: string;
+  members: CollectiveSharedEndpointMember[];
+  member_count: number;
+  /**
+   * Members that are currently approved in the parent collective and will
+   * participate in chat fan-out — `<= member_count`.
+   */
+  active_member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Body for creating a shared endpoint. */
+export interface CollectiveSharedEndpointCreateInput {
+  name: string;
+  description?: string;
+  /** Optional — auto-derived from the name when omitted. */
+  slug?: string;
+  /**
+   * Endpoints to include. Must all be currently approved members of the
+   * parent collective; the backend rejects non-members with a 400.
+   */
+  endpoint_ids: number[];
+}
+
+/**
+ * Body for updating a shared endpoint — all fields optional.
+ *
+ * `endpoint_ids` is a *full replacement* when present; omit it to leave the
+ * member set untouched. Slug is immutable.
+ */
+export interface CollectiveSharedEndpointUpdateInput {
+  name?: string;
+  description?: string;
+  endpoint_ids?: number[];
+}
+
+/** List a collective's shared endpoints by parent id. Public-readable. */
+export function listSharedEndpoints(collectiveId: number): Promise<CollectiveSharedEndpoint[]> {
+  return request<CollectiveSharedEndpoint[]>(`/${collectiveId}/shared-endpoints`);
+}
+
+/** List a collective's shared endpoints by parent slug. Public-readable.
+ *
+ * Returns an empty array on 404 so callers can render "no card" identically
+ * whether the parent collective is missing or simply has no subsets.
+ */
+export async function listSharedEndpointsByCollectiveSlug(
+  collectiveSlug: string
+): Promise<CollectiveSharedEndpoint[]> {
+  const response = await fetch(
+    `${BASE}/by-slug/${encodeURIComponent(collectiveSlug)}/shared-endpoints`
+  );
+  if (response.status === 404) return [];
+  if (!response.ok) {
+    throw new Error(
+      await errorMessage(response, `Failed to load shared endpoints (${response.status})`)
+    );
+  }
+  return (await response.json()) as CollectiveSharedEndpoint[];
+}
+
+/** Get one shared endpoint by parent id + own slug. Public-readable. */
+export function getSharedEndpoint(
+  collectiveId: number,
+  sharedSlug: string
+): Promise<CollectiveSharedEndpoint> {
+  return request<CollectiveSharedEndpoint>(
+    `/${collectiveId}/shared-endpoints/${encodeURIComponent(sharedSlug)}`
+  );
+}
+
+/** Create a shared endpoint under a collective. Collective owner only. */
+export function createSharedEndpoint(
+  collectiveId: number,
+  input: CollectiveSharedEndpointCreateInput
+): Promise<CollectiveSharedEndpoint> {
+  return request<CollectiveSharedEndpoint>(`/${collectiveId}/shared-endpoints`, {
+    method: 'POST',
+    body: input,
+    auth: true
+  });
+}
+
+/** Update a shared endpoint. Collective owner only. */
+export function updateSharedEndpoint(
+  collectiveId: number,
+  sharedSlug: string,
+  input: CollectiveSharedEndpointUpdateInput
+): Promise<CollectiveSharedEndpoint> {
+  return request<CollectiveSharedEndpoint>(
+    `/${collectiveId}/shared-endpoints/${encodeURIComponent(sharedSlug)}`,
+    { method: 'PATCH', body: input, auth: true }
+  );
+}
+
+/** Delete a shared endpoint and its member rows. Collective owner only. */
+export async function deleteSharedEndpoint(
+  collectiveId: number,
+  sharedSlug: string
+): Promise<void> {
+  await request<null>(`/${collectiveId}/shared-endpoints/${encodeURIComponent(sharedSlug)}`, {
+    method: 'DELETE',
+    auth: true
+  });
+}
