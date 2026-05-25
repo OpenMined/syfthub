@@ -33,12 +33,14 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
       { id: 'overview', label: 'Overview' },
       { id: 'docs', label: 'Docs' },
       { id: 'policies', label: 'Policies' },
-      { id: 'requests', label: 'Requests' },
     ],
   },
   {
     label: 'Monitor',
-    items: [{ id: 'logs', label: 'Logs' }],
+    items: [
+      { id: 'requests', label: 'Requests' },
+      { id: 'logs', label: 'Logs' },
+    ],
   },
   {
     label: 'Configure',

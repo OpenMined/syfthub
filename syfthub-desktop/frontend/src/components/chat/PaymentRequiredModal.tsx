@@ -354,12 +354,13 @@ export function PaymentRequiredModal({
           </div>
         )}
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <Button
             type="button"
             variant="outline"
             onClick={handleCancel}
             disabled={submitting}
+            className="sm:mr-auto"
           >
             Cancel
           </Button>
@@ -385,7 +386,7 @@ export function PaymentRequiredModal({
                 onClick={() => setShowCapEditor(true)}
                 disabled={submitting || walletChecking || walletReady !== true}
               >
-                Always allow ≤ {hardCap} {shortenCurrency(currency)}
+                Always allow ≤ {hardCap}
               </Button>
               <Button
                 type="button"
