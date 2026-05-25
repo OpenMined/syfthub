@@ -461,6 +461,21 @@ export function listSharedEndpoints(collectiveId: number): Promise<CollectiveSha
   return request<CollectiveSharedEndpoint[]>(`/${collectiveId}/shared-endpoints`);
 }
 
+/**
+ * Bulk-list shared endpoints across multiple collectives in one request.
+ *
+ * Replaces the per-collective fan-out that the chat-view modal previously
+ * issued (N collectives → N GETs). Returns an empty list when ``collectiveIds``
+ * is empty so callers don't need to guard before invocation.
+ */
+export function listSharedEndpointsBulk(
+  collectiveIds: readonly number[]
+): Promise<CollectiveSharedEndpoint[]> {
+  if (collectiveIds.length === 0) return Promise.resolve([]);
+  const query = collectiveIds.map((id) => `collective_id=${id}`).join('&');
+  return request<CollectiveSharedEndpoint[]>(`/shared-endpoints/bulk?${query}`);
+}
+
 /** List a collective's shared endpoints by parent slug. Public-readable.
  *
  * Returns an empty array on 404 so callers can render "no card" identically

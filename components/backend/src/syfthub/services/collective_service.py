@@ -24,6 +24,7 @@ from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.collective import (
+    RESERVED_SHARED_ENDPOINT_SLUGS,
     CollectiveCreate,
     CollectiveMemberResponse,
     CollectiveResponse,
@@ -817,6 +818,29 @@ class CollectiveService(BaseService):
         rows = self.shared_endpoint_repo.list_for_collective(collective_id)
         return self._enrich_shared_endpoints(collective_id, rows)
 
+    def list_shared_endpoints_bulk(
+        self, collective_ids: Sequence[int]
+    ) -> List[CollectiveSharedEndpointResponse]:
+        """Bulk-list shared endpoints for several collectives in one shot.
+
+        Powers the chat-view's add-sources modal — a single request replaces
+        the prior fan-out of one GET per collective. Unknown collective ids
+        are silently skipped (they contribute zero rows) rather than 404ing
+        the whole batch.
+        """
+        if not collective_ids:
+            return []
+        rows = self.shared_endpoint_repo.list_for_collectives(collective_ids)
+        # Enrichment is per-collective (active membership is collective-
+        # scoped), so bucket rows by parent before enriching.
+        by_collective: dict[int, List[CollectiveSharedEndpointResponse]] = {}
+        for row in rows:
+            by_collective.setdefault(row.collective_id, []).append(row)
+        enriched: List[CollectiveSharedEndpointResponse] = []
+        for collective_id, group in by_collective.items():
+            enriched.extend(self._enrich_shared_endpoints(collective_id, group))
+        return enriched
+
     def list_shared_endpoints_by_slug(
         self, collective_slug: str
     ) -> List[CollectiveSharedEndpointResponse]:
@@ -1001,11 +1025,23 @@ class CollectiveService(BaseService):
             return data.slug
 
         base = slugify_shared_endpoint_name(data.name)
-        if not self.shared_endpoint_repo.slug_exists(collective_id, base):
+        # Reserved slugs (e.g. ``all``) short-circuit the resolver before the
+        # row is consulted, so a persisted reserved slug is unreachable. Treat
+        # the collision the same way as a duplicate and fall through.
+        if (
+            base not in RESERVED_SHARED_ENDPOINT_SLUGS
+            and not self.shared_endpoint_repo.slug_exists(collective_id, base)
+        ):
             return base
+        # Strip the trailing '-' that ``[:56]`` may have exposed so the
+        # appended random token doesn't introduce a forbidden '--' sequence.
+        prefix = base[:56].rstrip("-") or "shared"
         for _ in range(5):
-            candidate = f"{base[:56]}-{secrets.token_hex(3)}"
-            if not self.shared_endpoint_repo.slug_exists(collective_id, candidate):
+            candidate = f"{prefix}-{secrets.token_hex(3)}"
+            if (
+                candidate not in RESERVED_SHARED_ENDPOINT_SLUGS
+                and not self.shared_endpoint_repo.slug_exists(collective_id, candidate)
+            ):
                 return candidate
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1096,8 +1132,23 @@ class CollectiveService(BaseService):
             for endpoint_id in ids:
                 endpoint = endpoint_map.get(endpoint_id)
                 if endpoint is None:
-                    # Endpoint was hard-deleted (CASCADE removed the join row)
-                    # so this should never fire in practice, but be defensive.
+                    # Endpoint is configured but missing from endpoint_repo —
+                    # owner soft-deleted it (is_active=False) so the join row
+                    # outlived the endpoint. Emit a placeholder so the owner
+                    # can still see and remove the dangling configuration; an
+                    # endpoint that is missing cannot be approved, so it
+                    # contributes to ``member_count`` but never to
+                    # ``active_member_count``.
+                    members.append(
+                        CollectiveSharedEndpointMemberSummary(
+                            endpoint_id=endpoint_id,
+                            endpoint_name=None,
+                            endpoint_slug=None,
+                            endpoint_owner_username=None,
+                            endpoint_type=None,
+                            is_active=False,
+                        )
+                    )
                     continue
                 is_active = endpoint_id in approved_ids
                 if is_active:
@@ -1119,7 +1170,10 @@ class CollectiveService(BaseService):
                 row.model_copy(
                     update={
                         "members": members,
-                        "member_count": len(members),
+                        # ``len(ids)`` rather than ``len(members)`` so the
+                        # count matches the schema's "Total configured
+                        # members" contract even when an endpoint is missing.
+                        "member_count": len(ids),
                         "active_member_count": active,
                     }
                 )

@@ -122,6 +122,32 @@ async def get_collective_endpoint_paths(
 
 
 @router.get(
+    "/shared-endpoints/bulk",
+    response_model=List[CollectiveSharedEndpointResponse],
+)
+async def list_shared_endpoints_bulk(
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+    collective_ids: Annotated[
+        Optional[List[int]],
+        Query(
+            alias="collective_id",
+            description=(
+                "Repeat the parameter to request multiple collectives in one "
+                "shot, e.g. ``?collective_id=1&collective_id=2``."
+            ),
+        ),
+    ] = None,
+) -> List[CollectiveSharedEndpointResponse]:
+    """Bulk list of shared endpoints for a set of collectives (public).
+
+    Powers the chat-view's add-sources modal — collapses N per-collective
+    fetches into one round trip. Unknown ids are silently skipped so a
+    stale id doesn't 404 the whole batch.
+    """
+    return service.list_shared_endpoints_bulk(collective_ids or [])
+
+
+@router.get(
     "/by-slug/{slug}/shared-endpoints",
     response_model=List[CollectiveSharedEndpointResponse],
 )

@@ -502,6 +502,30 @@ class CollectiveSharedEndpointRepository(BaseRepository[CollectiveSharedEndpoint
         except SQLAlchemyError:
             return []
 
+    def list_for_collectives(
+        self, collective_ids: Sequence[int]
+    ) -> List[CollectiveSharedEndpointResponse]:
+        """Bulk-list shared endpoints across multiple collectives.
+
+        Powers the chat-view modal's single-shot fetch (replaces the
+        per-collective fan-out). Rows are returned newest-first overall —
+        callers that need them grouped by parent should bucket by
+        ``collective_id`` themselves.
+        """
+        if not collective_ids:
+            return []
+        try:
+            stmt = (
+                select(self.model, CollectiveModel.slug)
+                .join(CollectiveModel, CollectiveModel.id == self.model.collective_id)
+                .where(self.model.collective_id.in_(list(collective_ids)))
+                .order_by(self.model.created_at.desc())
+            )
+            rows = self.session.execute(stmt).all()
+            return [self._to_response(model, slug) for model, slug in rows]
+        except SQLAlchemyError:
+            return []
+
     def list_for_collective_slug(
         self, collective_slug: str
     ) -> List[CollectiveSharedEndpointResponse]:
@@ -569,9 +593,16 @@ class CollectiveSharedEndpointRepository(BaseRepository[CollectiveSharedEndpoint
 
         When ``endpoint_ids`` is ``None`` the member rows are untouched;
         otherwise the membership is fully replaced with the provided set.
+
+        The parent row is locked with ``FOR UPDATE`` so two concurrent owner
+        PATCHes can't interleave the DELETE+INSERT replacement step — the
+        second waiter sees the first writer's committed state before
+        applying its own change.
         """
         try:
-            model = self.session.get(self.model, shared_endpoint_id)
+            model = self.session.get(
+                self.model, shared_endpoint_id, with_for_update=True
+            )
             if model is None:
                 return None
             for key, value in fields.items():
@@ -632,10 +663,16 @@ class CollectiveSharedEndpointMemberRepository(
         super().__init__(session, CollectiveSharedEndpointMemberModel)
 
     def list_endpoint_ids(self, shared_endpoint_id: int) -> List[int]:
-        """List the endpoint ids configured into a shared endpoint."""
+        """List the endpoint ids configured into a shared endpoint.
+
+        Returned in insertion order (id ASC) so the fan-out order matches the
+        order surfaced by ``list_endpoint_ids_bulk`` (which the admin UI uses).
+        """
         try:
-            stmt = select(self.model.endpoint_id).where(
-                self.model.shared_endpoint_id == shared_endpoint_id
+            stmt = (
+                select(self.model.endpoint_id)
+                .where(self.model.shared_endpoint_id == shared_endpoint_id)
+                .order_by(self.model.id.asc())
             )
             return [row[0] for row in self.session.execute(stmt).all()]
         except SQLAlchemyError:

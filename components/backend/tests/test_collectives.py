@@ -1453,3 +1453,103 @@ def test_deleting_collective_cascades_to_shared_endpoints(
         f"{API}/collectives/by-slug/{collective['slug']}/shared-endpoints"
     )
     assert resp.status_code == 404
+
+
+# ----------------------------------------------------------------------
+# Regression tests for the post-review hardening pass
+# ----------------------------------------------------------------------
+
+
+def test_auto_derived_reserved_slug_falls_through(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """A name that slugifies to a reserved slug must not persist as that slug.
+
+    Without the resolver guard, ``name='All'`` would slugify to ``'all'`` and
+    create an unaddressable subset (the resolver short-circuits on ``all``).
+    Expect either a generated fallback slug (NOT in the reserved set) or a
+    rejection — never the reserved slug itself.
+    """
+    collective = collective_with_two_members
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={
+            "name": "All",
+            "endpoint_ids": [collective["endpoint_one"]],
+        },
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["slug"] != "all"
+
+
+def test_patch_explicit_null_description_rejected_as_422(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """PATCH ``{"description": null}`` must 422, not 500.
+
+    The DB column is NOT NULL; passing an explicit null used to bubble up as
+    a generic 500 IntegrityError because the schema accepted ``Optional[str]
+    = None`` as a valid explicit value.
+    """
+    collective = collective_with_two_members
+    client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={"name": "Doc", "endpoint_ids": [collective["endpoint_one"]]},
+        headers=owner_headers,
+    )
+    resp = client.patch(
+        f"{API}/collectives/{collective['id']}/shared-endpoints/doc",
+        json={"description": None},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    resp = client.patch(
+        f"{API}/collectives/{collective['id']}/shared-endpoints/doc",
+        json={"name": None},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_bulk_list_shared_endpoints(
+    client: TestClient,
+    owner_headers: dict,
+    collective_with_two_members: dict,
+) -> None:
+    """``GET /shared-endpoints/bulk`` returns rows across every requested collective.
+
+    The chat-view modal relies on this endpoint to avoid the
+    one-request-per-collective fan-out.
+    """
+    collective = collective_with_two_members
+    # Create one shared endpoint to be discovered by the bulk read.
+    create = client.post(
+        f"{API}/collectives/{collective['id']}/shared-endpoints",
+        json={"name": "First", "endpoint_ids": [collective["endpoint_one"]]},
+        headers=owner_headers,
+    )
+    assert create.status_code == 201
+
+    # An unknown id is silently skipped rather than 404ing the whole batch.
+    resp = client.get(
+        f"{API}/collectives/shared-endpoints/bulk",
+        params=[("collective_id", collective["id"]), ("collective_id", 999_999)],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["slug"] == "first"
+    assert body[0]["collective_id"] == collective["id"]
+
+
+def test_bulk_list_empty_request(client: TestClient) -> None:
+    """No ``collective_id`` query params → empty list (no 422)."""
+    resp = client.get(f"{API}/collectives/shared-endpoints/bulk")
+    assert resp.status_code == 200
+    assert resp.json() == []

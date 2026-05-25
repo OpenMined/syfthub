@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -315,7 +315,7 @@ def _validate_shared_endpoint_slug(v: str) -> str:
     and don't share the public URL space.
     """
     if v != v.lower():
-        raise ValueError("Slug must contain only lowercase letters")
+        raise ValueError("Slug must be lowercase")
     if v in RESERVED_SHARED_ENDPOINT_SLUGS:
         raise ValueError(f"'{v}' is a reserved shared-endpoint slug")
     if "--" in v:
@@ -408,6 +408,21 @@ class CollectiveSharedEndpointUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     endpoint_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def reject_explicit_null(cls, v: Any) -> Any:
+        """Reject ``{"name": null}`` / ``{"description": null}`` PATCH bodies.
+
+        ``Optional[str] = None`` is the schema's way of marking the field
+        unset; an explicit null would hit a NOT NULL column at the repository
+        layer and surface as a generic 500. ``mode='before'`` only fires when
+        the field is supplied, so the default ``None`` (field omitted) still
+        round-trips cleanly.
+        """
+        if v is None:
+            raise ValueError("must not be null")
+        return v
 
     @field_validator("endpoint_ids")
     @classmethod

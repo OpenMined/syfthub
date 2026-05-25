@@ -498,18 +498,41 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     [availableSources]
   );
 
-  // Collectives filtered locally by search query
+  // Collectives filtered locally by search query. A collective is included
+  // when EITHER the parent fields match OR at least one of its shared
+  // endpoints matches — shared endpoints are first-class selectable items,
+  // so 'health-news' must surface its parent collective even when the
+  // parent name doesn't mention 'health-news'.
   const filteredCollectives = useMemo(() => {
     if (!debouncedSearchQuery.trim()) return availableCollectives;
     const q = debouncedSearchQuery.toLowerCase();
-    return availableCollectives.filter(
-      (c) =>
+    const sharedByParentSlug = new Map<string, CollectiveSharedEndpoint[]>();
+    for (const { collective, shared } of availableSharedEndpoints) {
+      const list = sharedByParentSlug.get(collective.slug);
+      if (list) {
+        list.push(shared);
+      } else {
+        sharedByParentSlug.set(collective.slug, [shared]);
+      }
+    }
+    return availableCollectives.filter((c) => {
+      if (
         c.name.toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q) ||
         c.slug.toLowerCase().includes(q) ||
         c.tags.some((t) => t.toLowerCase().includes(q))
-    );
-  }, [availableCollectives, debouncedSearchQuery]);
+      ) {
+        return true;
+      }
+      const shared = sharedByParentSlug.get(c.slug) ?? [];
+      return shared.some(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.slug.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q)
+      );
+    });
+  }, [availableCollectives, availableSharedEndpoints, debouncedSearchQuery]);
 
   // Sorted endpoints: selected bubble to top
   const sortedSources = useMemo(() => {

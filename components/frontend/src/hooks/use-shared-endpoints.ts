@@ -13,13 +13,14 @@ import type {
   CollectiveSharedEndpointUpdateInput
 } from '@/lib/collectives-api';
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   createSharedEndpoint,
   deleteSharedEndpoint,
   getSharedEndpoint,
   listSharedEndpoints,
+  listSharedEndpointsBulk,
   listSharedEndpointsByCollectiveSlug,
   updateSharedEndpoint
 } from '@/lib/collectives-api';
@@ -52,30 +53,31 @@ export function useSharedEndpointsByCollectiveSlug(collectiveSlug: string | unde
 }
 
 /**
- * Bulk-load shared endpoints for an array of collectives.
+ * Bulk-load shared endpoints for an array of collectives in a single request.
  *
- * Fans out one cached query per collective so each result is cached + revalidated
- * independently (`useSharedEndpoints` consumers also benefit from the cache).
- * Combines the per-collective results into a flat list of
- * `{ collective, shared }` pairs convenient for rendering in the chat
- * add-sources modal.
+ * Uses the `/shared-endpoints/bulk` endpoint so the chat-view modal can pay
+ * one round trip regardless of how many collectives the user can see (the
+ * older per-collective fan-out scaled linearly with collective count). The
+ * cache key is derived from the sorted collective ids — the list shape, not
+ * the array reference identity — so re-renders that pass a new array but the
+ * same ids don't refetch.
  */
 export function useSharedEndpointsForCollectives(collectives: Collective[]) {
-  return useQueries({
-    queries: collectives.map((collective) => ({
-      queryKey: sharedEndpointKeys.byCollective(collective.id),
-      queryFn: () => listSharedEndpoints(collective.id),
-      staleTime: 60_000
-    })),
-    combine: (results) => ({
-      data: results.flatMap((result, index) => {
-        const collective = collectives[index];
-        if (!collective) return [];
-        return (result.data ?? []).map((shared) => ({ collective, shared }));
-      }),
-      isLoading: results.some((result) => result.isLoading)
-    })
+  const collectivesBySlug = new Map(collectives.map((c) => [c.slug, c]));
+  const collectivesById = new Map(collectives.map((c) => [c.id, c]));
+  const collectiveIds = collectives.map((c) => c.id).toSorted((a, b) => a - b);
+  const query = useQuery({
+    queryKey: [...sharedEndpointKeys.all, 'bulk', collectiveIds],
+    queryFn: () => listSharedEndpointsBulk(collectiveIds),
+    enabled: collectiveIds.length > 0,
+    staleTime: 60_000
   });
+  const data = (query.data ?? []).flatMap((shared) => {
+    const parent =
+      collectivesById.get(shared.collective_id) ?? collectivesBySlug.get(shared.collective_slug);
+    return parent ? [{ collective: parent, shared }] : [];
+  });
+  return { data, isLoading: query.isLoading };
 }
 
 /** Get a single shared endpoint by parent id + own slug. */
@@ -96,22 +98,19 @@ export function useSharedEndpoint(
 // =============================================================================
 
 /**
- * Invalidator shared across mutations: every CUD operation invalidates the
- * collective's list view AND the collective's detail (so the sidebar count
- * stays consistent with the admin tab) AND the by-slug list (the public
- * detail page reads via slug, not id).
+ * Invalidator shared across mutations: every CUD operation invalidates every
+ * shared-endpoint cache (list-by-id, list-by-slug, AND single-detail) plus
+ * the collective's detail (so the sidebar count stays consistent with the
+ * admin tab). Invalidating ``sharedEndpointKeys.all`` covers the detail key
+ * too — its prefix doesn't share ``byCollective`` / ``byCollectiveSlug`` so
+ * a narrower invalidation would leave ``useSharedEndpoint`` stale.
  */
 function useInvalidateForCollective() {
   const queryClient = useQueryClient();
   return useCallback(
-    (collectiveId: number, collectiveSlug?: string) => {
-      void queryClient.invalidateQueries({
-        queryKey: sharedEndpointKeys.byCollective(collectiveId)
-      });
+    (_collectiveId: number, collectiveSlug?: string) => {
+      void queryClient.invalidateQueries({ queryKey: sharedEndpointKeys.all });
       if (collectiveSlug) {
-        void queryClient.invalidateQueries({
-          queryKey: sharedEndpointKeys.byCollectiveSlug(collectiveSlug)
-        });
         void queryClient.invalidateQueries({
           queryKey: collectiveKeys.detail(collectiveSlug)
         });
