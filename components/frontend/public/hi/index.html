@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SyftHub — Attribution Infrastructure for Fair AI</title>
+  <title>SyftHub | Attribution Infrastructure for Fair AI</title>
   <meta name="description" content="Every AI prediction is a transaction. Without attribution, you're not part of it. Syft is the infrastructure for sovereign participation in the AI economy.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -125,7 +125,7 @@
       overflow: hidden;
     }
 
-    /* Gradient mesh — mimics OpenMined's colorful background */
+    /* Gradient mesh, mimics OpenMined's colorful background */
     .hero-wrap::before {
       content: '';
       position: absolute;
@@ -253,6 +253,8 @@
     /* ── Screenshot gradient ring ── */
 
     .screenshot-wrap {
+      width: min(100%, 720px);
+      margin: 0 auto;
       padding: 3px;
       background: linear-gradient(135deg,
         oklch(0.78 0.18 35 / 0.5),
@@ -557,6 +559,34 @@
     .modal-form select:focus { outline: none; border-color: var(--primary); }
     .modal-form textarea { resize: vertical; min-height: 4.5rem; line-height: 1.55; }
 
+    .modal-form .field-checks {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.6rem 0.7rem;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .modal-form .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.92rem;
+      color: var(--subtle);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .modal-form .check-row input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.6rem; }
 
     .modal-submit {
@@ -572,6 +602,16 @@
       transition: background 0.15s ease;
     }
     .modal-submit:hover { background: var(--dark-btn-hover); }
+    .modal-submit:disabled { opacity: 0.65; cursor: wait; }
+
+    .modal-error {
+      display: none;
+      margin-top: 0.75rem;
+      font-size: 0.82rem;
+      color: oklch(0.45 0.14 25);
+      line-height: 1.5;
+    }
+    .modal-error.visible { display: block; }
 
     .modal-cancel {
       cursor: pointer;
@@ -698,7 +738,7 @@
                 .dn4 { color: oklch(0.52 0.09 345); }
               </style>
 
-              <!-- Orbit ring — rx=105 ry=46, nodes at cardinal points -->
+              <!-- Orbit ring (rx=105 ry=46), nodes at cardinal points -->
               <ellipse cx="160" cy="120" rx="105" ry="46"
                 stroke="var(--faint)" stroke-width="1" stroke-dasharray="4 3"
                 transform="rotate(30 160 120)"/>
@@ -799,9 +839,9 @@
 
       <figure class="reveal">
         <div class="screenshot-wrap">
-          <img src="shapley-attribution.png" alt="Per-word attribution breakdown across contributing sources for an AI response">
+          <img src="/hi/shapley-attribution.png" alt="Per-word attribution breakdown across contributing sources for an AI response">
         </div>
-        <figcaption>Attribution breakdown showing which sources contributed to which words in an AI response, measured per query.</figcaption>
+        <figcaption>Attribution breakdown showing which sources contributed to each part of an AI response.</figcaption>
       </figure>
     </section>
   </div>
@@ -940,7 +980,7 @@
     </footer>
   </div>
 
-  <!-- Modal — populated dynamically by the script below -->
+  <!-- Modal, populated dynamically by the script below -->
   <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
     <div class="modal" role="document">
       <div class="modal-head">
@@ -949,6 +989,7 @@
       </div>
       <p class="modal-note" id="modal-note"></p>
       <form class="modal-form" id="modal-form" novalidate></form>
+      <p class="modal-error" id="modal-error" role="alert"></p>
       <div class="modal-success" id="modal-success"></div>
     </div>
   </div>
@@ -964,64 +1005,77 @@
     document.querySelectorAll('.hero .reveal').forEach(el => el.classList.add('visible'));
     document.querySelectorAll('section .reveal, footer .reveal').forEach(el => observer.observe(el));
 
+    // ── HubSpot (existing form) ────────────────────────────────────
+    const HUBSPOT = {
+      portalId: '6487402',
+      formId: '4022c866-8042-4849-a8f8-02cef2b0cc51',
+      region: 'na1',
+      fields: {
+        firstname: 'firstname',
+        email: 'email',
+        company: 'company',
+        intent: 'syfthub_intent',
+        message: 'message'
+      }
+    };
+
+    const HUBSPOT_SUBMIT_URL = 'https://api.hsforms.com/submissions/v3/integration/submit/'
+      + HUBSPOT.portalId + '/' + HUBSPOT.formId;
+
     // ── Modal config ───────────────────────────────────────────────
-    // To wire to a backend later, swap the body of `submitModal` below
-    // with a fetch() to your endpoint and keep this config as the form spec.
+    const CATEGORY_OPTIONS = [
+      { value: 'Subscribe', label: 'Subscribe' },
+      { value: 'Join a collective', label: 'Join a collective' },
+      { value: 'Pilot', label: 'Pilot' },
+      { value: 'Coordinate publicly', label: 'Coordinate publicly' }
+    ];
+
+    function coreFields(defaultCategory) {
+      return [
+        { name: 'name', label: 'Name', type: 'text', placeholder: 'Your name', required: true, autocomplete: 'name' },
+        { name: 'email', label: 'Email', type: 'email', placeholder: 'you@domain.com', required: true, autocomplete: 'email' },
+        { name: 'organization', label: 'Organization', type: 'text', placeholder: 'Company, institution, or collective', required: true, autocomplete: 'organization' },
+        { name: 'category', label: 'Category', type: 'checkboxes', required: true, options: CATEGORY_OPTIONS, defaultValues: [defaultCategory] },
+        { name: 'message', label: 'Message', type: 'textarea', placeholder: 'A sentence or two is plenty.' }
+      ];
+    }
+
     const MODAL_CONFIG = {
       subscribe: {
         title: 'Subscribe for updates',
-        note: "Occasional updates as collectives form, pilots launch, and standards develop. No spam — unsubscribe any time.",
+        note: "Occasional updates as collectives form, pilots launch, and standards develop. No spam. Unsubscribe any time.",
         to: 'collective@syfthub.org',
-        subject: 'Track this — subscribe',
+        subject: 'Track this: subscribe',
         submitLabel: 'Subscribe',
-        success: "Thanks — we'll keep you posted.",
-        fields: [
-          { name: 'email', label: 'Email', type: 'email', placeholder: 'you@domain.com', required: true, autocomplete: 'email' }
-        ]
+        success: "Thanks. We'll keep you posted.",
+        fields: coreFields('Subscribe')
       },
       'join-collective': {
         title: 'Join a collective',
-        note: "We'll match you with a collective licensing organization in your craft and jurisdiction. They handle the gateway, payments, and negotiation — you set the policies on your own work.",
+        note: "We'll match you with a collective licensing organization in your craft and jurisdiction. They handle the gateway, payments, and negotiation. You set the policies on your own work.",
         to: 'collective@syfthub.org',
-        subject: 'Join a collective — express interest',
+        subject: 'Join a collective: express interest',
         submitLabel: 'Express interest',
-        success: "Thanks — a collective lead will be in touch about a match.",
-        fields: [
-          { name: 'name', label: 'Name', type: 'text', placeholder: 'Your name', required: true, autocomplete: 'name' },
-          { name: 'email', label: 'Email', type: 'email', placeholder: 'you@domain.com', required: true, autocomplete: 'email' },
-          { name: 'craft', label: 'Your craft', type: 'text', placeholder: 'Writer, researcher, photographer…', required: true },
-          { name: 'jurisdiction', label: 'Jurisdiction', type: 'text', placeholder: 'e.g. UK, EU, US' },
-          { name: 'notes', label: 'Anything else', type: 'textarea', placeholder: 'Existing collectives or unions you belong to, scale of your archive, etc.' }
-        ]
+        success: "Thanks. A collective lead will be in touch about a match.",
+        fields: coreFields('Join a collective')
       },
       pilot: {
         title: 'Pilot the infrastructure',
         note: "Pilots are small in scope and reversible. Tell us what you'd like to test and we'll follow up about fit. For technical context first, see the docs.",
         to: 'partners@syfthub.org',
-        subject: 'Pilot — application',
+        subject: 'Pilot: application',
         submitLabel: 'Apply',
-        success: "Thanks — we'll reach out about pilot fit and next steps.",
-        fields: [
-          { name: 'name', label: 'Name', type: 'text', placeholder: 'Your name', required: true, autocomplete: 'name' },
-          { name: 'email', label: 'Work email', type: 'email', placeholder: 'you@org.com', required: true, autocomplete: 'email' },
-          { name: 'organization', label: 'Organization', type: 'text', placeholder: 'Company or institution', required: true, autocomplete: 'organization' },
-          { name: 'role', label: 'Role', type: 'text', placeholder: 'e.g. AI lead, rights manager' },
-          { name: 'use_case', label: 'What you’d like to pilot', type: 'textarea', placeholder: 'Briefly — what you’d run, scope, what success looks like.', required: true }
-        ]
+        success: "Thanks. We'll reach out about pilot fit and next steps.",
+        fields: coreFields('Pilot')
       },
       coordinate: {
         title: 'Coordinate publicly',
-        note: "Tell us where you'd advocate — outlets, unions, conferences, professional associations — and we'll share resources and align messaging.",
+        note: "Tell us where you'd advocate (outlets, unions, conferences, professional associations) and we'll share resources and align messaging.",
         to: 'collective@syfthub.org',
-        subject: 'Coordinate publicly — express interest',
+        subject: 'Coordinate publicly: express interest',
         submitLabel: 'Express interest',
-        success: "Thanks — let's coordinate. We'll be in touch with materials and intros.",
-        fields: [
-          { name: 'name', label: 'Name', type: 'text', placeholder: 'Your name', required: true, autocomplete: 'name' },
-          { name: 'email', label: 'Email', type: 'email', placeholder: 'you@domain.com', required: true, autocomplete: 'email' },
-          { name: 'audience', label: 'Where you’d advocate', type: 'text', placeholder: 'Outlet, union, conference, association…', required: true },
-          { name: 'angle', label: 'Your angle', type: 'textarea', placeholder: 'What you’d write, speak, or organize about — and on what timeline if any.' }
-        ]
+        success: "Thanks. Let's coordinate. We'll be in touch with materials and intros.",
+        fields: coreFields('Coordinate publicly')
       }
     };
 
@@ -1032,8 +1086,68 @@
     const noteEl = document.getElementById('modal-note');
     const formEl = document.getElementById('modal-form');
     const successEl = document.getElementById('modal-success');
+    const errorEl = document.getElementById('modal-error');
     let activeKey = null;
     let lastTrigger = null;
+    let submitBtn = null;
+
+    function getHubspotUtk() {
+      const match = document.cookie.match(/(?:^|;)\s*hubspotutk=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
+    }
+
+    function hsField(name, value) {
+      if (value == null || String(value).trim() === '') return null;
+      return { objectTypeId: '0-1', name, value: String(value) };
+    }
+
+    function collectFormValues() {
+      const valuesByKey = new Map();
+      new FormData(formEl).forEach((value, key) => {
+        const v = String(value ?? '').trim();
+        if (!v) return;
+        const arr = valuesByKey.get(key) || [];
+        arr.push(v);
+        valuesByKey.set(key, arr);
+      });
+      return valuesByKey;
+    }
+
+    function buildHubspotPayload(valuesByKey) {
+      const f = HUBSPOT.fields;
+      const categories = valuesByKey.get('category') || [];
+      const fields = [
+        hsField(f.firstname, (valuesByKey.get('name') || [])[0]),
+        hsField(f.email, (valuesByKey.get('email') || [])[0]),
+        hsField(f.company, (valuesByKey.get('organization') || [])[0]),
+        hsField(f.intent, categories.join(';')),
+        hsField(f.message, (valuesByKey.get('message') || [])[0])
+      ].filter(Boolean);
+
+      const context = {
+        pageUri: window.location.href,
+        pageName: document.title
+      };
+      const hutk = getHubspotUtk();
+      if (hutk) context.hutk = hutk;
+
+      return { fields, context };
+    }
+
+    async function submitToHubspot(payload) {
+      const res = await fetch(HUBSPOT_SUBMIT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return;
+      let detail = '';
+      try {
+        const data = await res.json();
+        detail = data.message || data.errors?.map(e => e.message).join(' ') || '';
+      } catch (_) {}
+      throw new Error(detail || ('Submission failed (' + res.status + ')'));
+    }
 
     function buildField(f) {
       const wrap = document.createElement('div');
@@ -1050,14 +1164,73 @@
       }
       wrap.appendChild(label);
 
-      const input = document.createElement(f.type === 'textarea' ? 'textarea' : 'input');
-      if (f.type !== 'textarea') input.type = f.type;
-      input.id = 'mf-' + f.name;
-      input.name = f.name;
-      if (f.placeholder) input.placeholder = f.placeholder;
-      if (f.required) input.required = true;
-      if (f.autocomplete) input.autocomplete = f.autocomplete;
-      if (f.type === 'textarea') input.rows = 3;
+      let input;
+      if (f.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = 3;
+      } else if (f.type === 'select') {
+        input = document.createElement('select');
+        if (f.multiple) input.multiple = true;
+        if (f.size) input.size = f.size;
+        (f.options || []).forEach(opt => {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label ?? opt.value;
+          input.appendChild(o);
+        });
+        const defaults = Array.isArray(f.defaultValues)
+          ? f.defaultValues
+          : (f.defaultValue != null ? [f.defaultValue] : []);
+        if (defaults.length) {
+          Array.from(input.options).forEach(o => { o.selected = defaults.includes(o.value); });
+        }
+      } else if (f.type === 'checkboxes') {
+        input = document.createElement('div');
+        input.className = 'field-checks';
+        input.setAttribute('role', 'group');
+
+        const defaults = Array.isArray(f.defaultValues) ? f.defaultValues : [];
+
+        (f.options || []).forEach((opt, idx) => {
+          const row = document.createElement('label');
+          row.className = 'check-row';
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.name = f.name;
+          cb.value = opt.value;
+          cb.checked = defaults.includes(opt.value);
+          cb.required = !!f.required; // for groups, we'll manage validity below
+          cb.addEventListener('change', () => {
+            const anyChecked = input.querySelector('input[type="checkbox"]:checked');
+            input.querySelectorAll('input[type="checkbox"]').forEach(x => { x.required = !anyChecked && !!f.required; });
+          });
+
+          const text = document.createElement('span');
+          text.textContent = opt.label ?? opt.value;
+
+          row.appendChild(cb);
+          row.appendChild(text);
+          input.appendChild(row);
+
+          if (idx === 0) {
+            // initialize required state
+            const anyChecked = input.querySelector('input[type="checkbox"]:checked');
+            input.querySelectorAll('input[type="checkbox"]').forEach(x => { x.required = !anyChecked && !!f.required; });
+          }
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = f.type;
+      }
+
+      if (f.type !== 'checkboxes') {
+        input.id = 'mf-' + f.name;
+        input.name = f.name;
+        if (f.placeholder) input.placeholder = f.placeholder;
+        if (f.required) input.required = true;
+        if (f.autocomplete) input.autocomplete = f.autocomplete;
+      }
       wrap.appendChild(input);
 
       return wrap;
@@ -1069,6 +1242,8 @@
       activeKey = key;
       lastTrigger = trigger;
       modal.classList.remove('is-sent');
+      errorEl.textContent = '';
+      errorEl.classList.remove('visible');
       titleEl.textContent = cfg.title;
       noteEl.textContent = cfg.note || '';
       successEl.textContent = cfg.success || 'Thanks.';
@@ -1082,12 +1257,12 @@
       cancel.className = 'modal-cancel';
       cancel.textContent = 'Cancel';
       cancel.setAttribute('data-modal-close', '');
-      const submit = document.createElement('button');
-      submit.type = 'submit';
-      submit.className = 'modal-submit';
-      submit.textContent = cfg.submitLabel + ' →';
+      submitBtn = document.createElement('button');
+      submitBtn.type = 'submit';
+      submitBtn.className = 'modal-submit';
+      submitBtn.textContent = cfg.submitLabel + ' →';
       actions.appendChild(cancel);
-      actions.appendChild(submit);
+      actions.appendChild(submitBtn);
       formEl.appendChild(actions);
 
       overlay.hidden = false;
@@ -1105,22 +1280,30 @@
       activeKey = null;
     }
 
-    function submitModal(e) {
+    async function submitModal(e) {
       e.preventDefault();
-      if (!activeKey) return;
-      const cfg = MODAL_CONFIG[activeKey];
-      // TODO: replace this mailto handoff with a fetch() to your backend.
-      const lines = [];
-      new FormData(formEl).forEach((value, key) => {
-        const f = cfg.fields.find(x => x.name === key);
-        const label = f ? f.label : key;
-        if (value && String(value).trim()) lines.push(label + ': ' + value);
-      });
-      const href = 'mailto:' + cfg.to
-        + '?subject=' + encodeURIComponent(cfg.subject)
-        + '&body=' + encodeURIComponent(lines.join('\n'));
-      window.location.href = href;
-      modal.classList.add('is-sent');
+      if (!activeKey || !submitBtn) return;
+
+      errorEl.textContent = '';
+      errorEl.classList.remove('visible');
+      submitBtn.disabled = true;
+      const prevLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Sending…';
+
+      try {
+        const valuesByKey = collectFormValues();
+        const payload = buildHubspotPayload(valuesByKey);
+        await submitToHubspot(payload);
+        modal.classList.add('is-sent');
+      } catch (err) {
+        errorEl.textContent = err?.message
+          ? ('Could not submit right now. ' + err.message)
+          : 'Could not submit right now. Please try again or email us directly.';
+        errorEl.classList.add('visible');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = prevLabel;
+      }
     }
 
     document.querySelectorAll('[data-modal]').forEach(btn => {

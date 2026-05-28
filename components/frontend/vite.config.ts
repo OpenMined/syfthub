@@ -17,6 +17,25 @@ export default defineConfig({
   plugins: [
     react(),
     {
+      name: 'hi-route-rewrite',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === '/hi' || req.url === '/hi/') {
+            req.url = '/hi/index.html';
+          }
+          next();
+        });
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === '/hi' || req.url === '/hi/') {
+            req.url = '/hi/index.html';
+          }
+          next();
+        });
+      },
+    },
+    {
       name: 'dynamic-html',
       transformIndexHtml(html) {
         return html
