@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
+import { RoleBasedRoute } from './components/auth/role-based-route';
 import RootProvider from './components/providers/root';
 import { RouteBoundary } from './components/route-boundary';
 import { ScrollToTop } from './components/scroll-to-top';
@@ -33,6 +34,7 @@ const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-deta
 const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
 const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
 const CollectiveInvitationPage = lazyWithRetry(() => import('./pages/collective-invitation'));
+const AdminPage = lazyWithRetry(() => import('./pages/admin'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -209,6 +211,21 @@ export default function App() {
                           <ProtectedRoute>
                             <RouteBoundary>
                               <EndpointsPage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Admin-only dashboard. Must precede the `:username`
+                          catch-all so "/admin" isn't read as a username. */}
+                      <Route
+                        path='admin'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <RoleBasedRoute requiredRole='admin'>
+                                <AdminPage />
+                              </RoleBasedRoute>
                             </RouteBoundary>
                           </ProtectedRoute>
                         }
