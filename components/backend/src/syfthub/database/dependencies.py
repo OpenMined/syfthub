@@ -15,6 +15,7 @@ from syfthub.repositories import (
     UserXenditSubscriptionRepository,
 )
 from syfthub.repositories.endpoint import EndpointStarRepository
+from syfthub.services.admin_stats_service import AdminStatsService
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.collective_service import CollectiveService
@@ -115,3 +116,10 @@ def get_api_token_service(
 ) -> APITokenService:
     """Get APITokenService dependency."""
     return APITokenService(session)
+
+
+def get_admin_stats_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> AdminStatsService:
+    """Get AdminStatsService dependency."""
+    return AdminStatsService(session)

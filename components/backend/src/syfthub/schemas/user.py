@@ -75,6 +75,10 @@ class User(UserBase):
     heartbeat_expires_at: Optional[datetime] = Field(
         None, description="Timestamp when heartbeat expires"
     )
+    last_login_at: Optional[datetime] = Field(
+        None,
+        description="Timestamp of the user's last successful login (null if never)",
+    )
     # MPP wallet fields (Tempo blockchain)
     wallet_address: Optional[str] = Field(
         None, description="Tempo wallet address (Ethereum-format)"
@@ -134,6 +138,10 @@ class UserResponse(BaseModel):
     )
     heartbeat_expires_at: Optional[datetime] = Field(
         None, description="Timestamp when heartbeat expires"
+    )
+    last_login_at: Optional[datetime] = Field(
+        None,
+        description="Timestamp of the user's last successful login (null if never)",
     )
     # X25519 public key for NATS tunnel encryption (base64url-encoded)
     encryption_public_key: Optional[str] = Field(
