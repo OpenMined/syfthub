@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from syfthub.api.endpoints import (
+    admin,
     collectives,
     endpoints,
     errors,
@@ -21,6 +22,7 @@ api_router = APIRouter()
 # Include endpoint routers
 api_router.include_router(auth_router.router, tags=["authentication"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(
     user_aggregators.router, prefix="/users", tags=["user-aggregators"]
 )

@@ -224,6 +224,10 @@ class AuthService(BaseService):
         if settings.smtp_configured and not user.is_email_verified:
             raise EmailNotVerifiedError()
 
+        # Best-effort: stamp last successful login. Never breaks the login flow
+        # (update_last_login swallows its own errors and returns a bool).
+        self.user_repository.update_last_login(user.id)
+
         return self._build_auth_response(user)
 
     def refresh_tokens(self, refresh_data: RefreshTokenRequest) -> AuthResponse:
@@ -516,5 +520,8 @@ class AuthService(BaseService):
             )
 
         logger.info(f"Google OAuth login successful: {user.username} ({user.email})")
+
+        # Best-effort: stamp last successful login (see login_user).
+        self.user_repository.update_last_login(user.id)
 
         return self._build_auth_response(user)
