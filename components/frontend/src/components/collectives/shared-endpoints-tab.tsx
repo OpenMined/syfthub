@@ -145,11 +145,16 @@ function SharedEndpointsList({
     );
   }
   if (sharedEndpoints.length === 0) {
+    // No empty-state card when there are members but no custom subsets: every
+    // collective always exposes the implicit `/all` shared endpoint (rendered
+    // by DefaultAllRow above), so "no shared endpoints yet" would be wrong.
+    // Only surface guidance when there are no approved members to pick from.
+    if (!noMembers) {
+      return null;
+    }
     return (
       <Card className='text-muted-foreground p-12 text-center text-sm'>
-        {noMembers
-          ? 'Approve at least one data-source endpoint to start creating shared subsets.'
-          : 'No custom shared endpoints yet. Create one to fan out chats to a specific subset of members.'}
+        Approve at least one data-source endpoint to start creating shared subsets.
       </Card>
     );
   }
