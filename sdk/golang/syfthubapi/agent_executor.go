@@ -145,21 +145,27 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	}
 
 	// Spawn the raw agent runtime against a private inner session.
-	// AttachmentDir is intentionally omitted — relaying attachments through
-	// the policy boundary is a follow-up; under policy v1 agents do not
-	// exchange attachments.
+	//
+	// AttachmentDir is propagated from the outer session so the inner session
+	// reports AttachmentsEnabled() == true to the runtime handler (which gates
+	// container/filemode attachment plumbing on that predicate). The directory
+	// is owned by the outer session; cleanup happens through the session
+	// manager when the outer session ends. Policy v1 does not gate attachments,
+	// so the relay below is a straight pass-through — the hook stays open for
+	// a future attachment-policy gate analogous to gateTurn.
 	//
 	// The inner ID uses an underscore (not a slash) as the suffix separator:
 	// containermode/agent_handler.go's HTTP/SSE routes embed the session id
 	// as a URL path segment ("/session/<id>/events" expects 3 segments).
 	inner := NewAgentSession(ctx, AgentSessionParams{
-		ID:           outer.ID + "_inner",
-		Prompt:       outer.InitialPrompt,
-		EndpointSlug: outer.EndpointSlug,
-		Messages:     outer.Messages,
-		Config:       outer.Config,
-		User:         outer.User,
-		Capabilities: outer.Capabilities,
+		ID:            outer.ID + "_inner",
+		Prompt:        outer.InitialPrompt,
+		EndpointSlug:  outer.EndpointSlug,
+		Messages:      outer.Messages,
+		Config:        outer.Config,
+		User:          outer.User,
+		Capabilities:  outer.Capabilities,
+		AttachmentDir: outer.AttachmentDir,
 	})
 	inner.RunHandler(a.inner)
 
@@ -167,6 +173,10 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	relays.Add(2)
 	go func() { defer relays.Done(); a.watchCancel(outer, inner) }()
 	go func() { defer relays.Done(); a.relayInbound(ctx, outer, inner, tracker) }()
+	if outer.AttachmentsEnabled() {
+		relays.Add(1)
+		go func() { defer relays.Done(); a.relayAttachments(ctx, outer, inner) }()
+	}
 
 	// Outbound relay runs on this goroutine; it returns when the inner
 	// runtime finishes (inner SendCh closes).
@@ -277,6 +287,34 @@ func (a *AgentExecutor) deliverInbound(inner *AgentSession, msg UserMessage) {
 	if !inner.DeliverMessage(msg) {
 		a.logger.Warn("[AGENT-POLICY] inbound message dropped — inner session full or closing",
 			"slug", a.slug, "type", msg.Type)
+	}
+}
+
+// relayAttachments forwards inbound user attachments from the outer session
+// (where the NATS bridge materializes them) to the inner session (where the
+// agent runtime's attachment writer is listening). Policy v1 does not gate
+// attachments, so this is a straight pass-through. The relay exits on outer
+// session cancel — the recvAttachCh is never closed by the session itself.
+func (a *AgentExecutor) relayAttachments(ctx context.Context, outer, inner *AgentSession) {
+	ch := outer.AttachmentCh()
+	if ch == nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-outer.Context().Done():
+			return
+		case att, ok := <-ch:
+			if !ok {
+				return
+			}
+			if !inner.DeliverAttachment(att) {
+				a.logger.Warn("[AGENT-POLICY] inner attachment channel full, dropping",
+					"slug", a.slug, "session_id", outer.ID, "file_id", att.FileID)
+			}
+		}
 	}
 }
 
