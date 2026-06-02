@@ -74,6 +74,10 @@ func TestDialMintsSessionAttachmentKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentDialer: %v", err)
 	}
+	// Wire an attachment store so requesting AttachmentCapability does not
+	// fail at dial time. The host's NATSTransport doubles as the client-side
+	// object-store source for this in-process test.
+	dialer.WithAttachmentStore(hostT)
 
 	ctx := t.Context()
 	sess, err := dialer.Dial(ctx, DialParams{
@@ -197,5 +201,47 @@ func TestDialDoesNotMintKeyWithoutAttachmentCapability(t *testing.T) {
 
 	if sess.sessionAESKey != nil {
 		t.Fatalf("expected nil sessionAESKey when AttachmentCapability not requested, got %d bytes", len(sess.sessionAESKey))
+	}
+}
+
+// TestDialRequiresAttachmentStoreWhenCapabilityRequested asserts the dialer
+// refuses to advertise AttachmentCapability when WithAttachmentStore was not
+// called. Without this fail-closed check, the host accepts the session,
+// allocates per-session attachment state, and the first object-store transfer
+// blows up mid-stream with an opaque "dialer not configured" error after the
+// chip has already been shown to the user as in-flight.
+func TestDialRequiresAttachmentStoreWhenCapabilityRequested(t *testing.T) {
+	srv := runEmbeddedNATS(t)
+	defer srv.Shutdown()
+	natsURL := srv.ClientURL()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	clientKey, err := GenerateX25519Keypair()
+	if err != nil {
+		t.Fatalf("client keypair: %v", err)
+	}
+	clientConn, err := NewNATSConn(&syfthubapi.NATSCredentials{URL: natsURL}, "key-test-client3", logger)
+	if err != nil {
+		t.Fatalf("client NATSConn: %v", err)
+	}
+	defer clientConn.Close()
+
+	dialer, err := NewAgentDialer(clientConn, clientKey, logger)
+	if err != nil {
+		t.Fatalf("NewAgentDialer: %v", err)
+	}
+	// Deliberately do NOT call WithAttachmentStore.
+
+	_, err = dialer.Dial(t.Context(), DialParams{
+		TargetUsername:   "any",
+		HostPublicKeyB64: base64.StdEncoding.EncodeToString(make([]byte, 32)),
+		PeerChannel:      "ch",
+		SatelliteToken:   "fake",
+		Prompt:           "hi",
+		EndpointSlug:     "agent1",
+		Capabilities:     []string{syfthubapi.AttachmentCapability},
+	})
+	if err == nil {
+		t.Fatalf("expected Dial to fail when AttachmentCapability is requested without WithAttachmentStore")
 	}
 }

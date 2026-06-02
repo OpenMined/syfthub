@@ -159,8 +159,9 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 	// 32-byte key is held client-side (for uploader/downloader construction)
 	// and shipped, base64-encoded, in the session_start payload so the host
 	// can build the matching encryptor.
+	wantAttachments := slices.Contains(p.Capabilities, syfthubapi.AttachmentCapability)
 	var sessionAESKey []byte
-	if slices.Contains(p.Capabilities, syfthubapi.AttachmentCapability) {
+	if wantAttachments {
 		sessionAESKey = p.SessionAttachmentKey
 		if sessionAESKey == nil {
 			sessionAESKey = make([]byte, 32)
@@ -173,16 +174,25 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 	}
 
 	// Acquire the JetStream Object Store handle for object_store-tier
-	// attachments. Failure is non-fatal — the session still works for inline
-	// attachments; only large-file transfers will error at send/receive time.
+	// attachments. When the caller asked for attachments but we cannot
+	// produce an object store, fail closed: advertising the capability
+	// without backing storage means inline transfers work but any spill
+	// over InlineMaxBytes blows up mid-send with an opaque error, after
+	// the host has already minted state on the assumption that large
+	// transfers are supported. Better to refuse at dial time so the
+	// caller can either wire WithAttachmentStore or drop the capability.
 	var attachmentStore AttachmentObjectStore
-	if d.transport != nil && sessionAESKey != nil {
-		if store, storeErr := d.transport.getAttachmentObjectStore(); storeErr == nil {
-			attachmentStore = store
-		} else {
-			d.logger.Warn("[AGENT] failed to acquire attachment object store; large-file attachments will fail",
-				"session_id", sessionID, "error", storeErr)
+	if wantAttachments {
+		if d.transport == nil {
+			return nil, fmt.Errorf(
+				"dialer has no attachment store — requested capability %q requires WithAttachmentStore(transport)",
+				syfthubapi.AttachmentCapability)
 		}
+		store, storeErr := d.transport.getAttachmentObjectStore()
+		if storeErr != nil {
+			return nil, fmt.Errorf("acquire attachment object store: %w", storeErr)
+		}
+		attachmentStore = store
 	}
 
 	s := &AgentClientSession{
