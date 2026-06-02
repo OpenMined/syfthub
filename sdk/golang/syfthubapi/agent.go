@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -219,11 +218,12 @@ func (s *AgentSession) setLastTurnMetadata(metadata map[string]any) {
 	s.lastTurnMetadata = metadata
 }
 
-// AttachmentsEnabled reports whether the attachments capability is active
-// for this session AND a tempdir is configured. Handlers SHOULD gate calls
-// to attachment helpers on this.
+// AttachmentsEnabled reports whether attachments are active for this session.
+// The session manager only sets AttachmentDir when both the endpoint declared
+// AcceptsAttachments and the caller advertised the attachment capability, so
+// AttachmentDir != "" is the single canonical gate.
 func (s *AgentSession) AttachmentsEnabled() bool {
-	return s.AttachmentDir != "" && slices.Contains(s.Capabilities, AttachmentCapability)
+	return s.AttachmentDir != ""
 }
 
 // AttachmentCh returns the channel of inbound user attachments. Returns nil
@@ -324,9 +324,7 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 func (s *AgentSession) seedTranscript() {
 	s.transcriptMu.Lock()
 	defer s.transcriptMu.Unlock()
-	if len(s.Messages) > 0 {
-		s.transcript = append(s.transcript, s.Messages...)
-	}
+	s.transcript = append(s.transcript, s.Messages...)
 	if s.InitialPrompt == "" {
 		return
 	}

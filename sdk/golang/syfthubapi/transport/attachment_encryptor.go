@@ -1,8 +1,6 @@
 package transport
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -14,6 +12,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	syfthubapi "github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/internal/cryptocore"
 )
 
 // AttachmentChunkSize is the per-chunk plaintext size for the streaming
@@ -110,7 +109,7 @@ func (e *AttachmentEncryptor) WrapFileKey(fileID string, fileKey []byte) (cipher
 	if err != nil {
 		return nil, nil, err
 	}
-	gcm, err := newGCM(kek)
+	gcm, err := cryptocore.NewAESGCM(kek)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,7 +130,7 @@ func (e *AttachmentEncryptor) UnwrapFileKey(fileID string, ciphertext, nonce []b
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := newGCM(kek)
+	gcm, err := cryptocore.NewAESGCM(kek)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +161,7 @@ func (e *AttachmentEncryptor) EncryptStream(
 	if len(baseNonce) != AttachmentBaseNonceSize {
 		return 0, "", fmt.Errorf("base nonce must be %d bytes, got %d", AttachmentBaseNonceSize, len(baseNonce))
 	}
-	gcm, err := newGCM(fileKey)
+	gcm, err := cryptocore.NewAESGCM(fileKey)
 	if err != nil {
 		return 0, "", err
 	}
@@ -171,6 +170,13 @@ func (e *AttachmentEncryptor) EncryptStream(
 	hash := sha256.New()
 	var counter uint32
 	var total int64
+
+	// Pre-allocate nonce and AAD buffers once; only the 4-byte counter suffix
+	// changes per chunk, so we mutate in place instead of allocating per chunk.
+	nonce := make([]byte, nonceSize)
+	copy(nonce, baseNonce)
+	aad := make([]byte, len(fileID)+AttachmentChunkCounterSize)
+	copy(aad, fileID)
 
 	for {
 		n, readErr := io.ReadFull(src, buf)
@@ -189,8 +195,8 @@ func (e *AttachmentEncryptor) EncryptStream(
 		hash.Write(chunk)
 		total += int64(n)
 
-		nonce := makeChunkNonce(baseNonce, counter)
-		aad := makeChunkAAD(fileID, counter)
+		binary.BigEndian.PutUint32(nonce[AttachmentBaseNonceSize:], counter)
+		binary.BigEndian.PutUint32(aad[len(fileID):], counter)
 		ct := gcm.Seal(nil, nonce, chunk, aad)
 		if _, err := dst.Write(ct); err != nil {
 			return 0, "", fmt.Errorf("write chunk %d: %w", counter, err)
@@ -224,7 +230,7 @@ func (e *AttachmentEncryptor) DecryptStream(
 	if len(baseNonce) != AttachmentBaseNonceSize {
 		return 0, "", fmt.Errorf("base nonce must be %d bytes, got %d", AttachmentBaseNonceSize, len(baseNonce))
 	}
-	gcm, err := newGCM(fileKey)
+	gcm, err := cryptocore.NewAESGCM(fileKey)
 	if err != nil {
 		return 0, "", err
 	}
@@ -236,6 +242,12 @@ func (e *AttachmentEncryptor) DecryptStream(
 	hash := sha256.New()
 	var counter uint32
 	var total int64
+
+	// Pre-allocate nonce and AAD buffers once; only the counter suffix changes.
+	nonce := make([]byte, nonceSize)
+	copy(nonce, baseNonce)
+	aad := make([]byte, len(fileID)+AttachmentChunkCounterSize)
+	copy(aad, fileID)
 
 	for {
 		n, readErr := io.ReadFull(src, buf)
@@ -253,8 +265,8 @@ func (e *AttachmentEncryptor) DecryptStream(
 			return 0, "", fmt.Errorf("chunk %d truncated: %d bytes", counter, n)
 		}
 		chunk := buf[:n]
-		nonce := makeChunkNonce(baseNonce, counter)
-		aad := makeChunkAAD(fileID, counter)
+		binary.BigEndian.PutUint32(nonce[AttachmentBaseNonceSize:], counter)
+		binary.BigEndian.PutUint32(aad[len(fileID):], counter)
 		pt, err := gcm.Open(nil, nonce, chunk, aad)
 		if err != nil {
 			return 0, "", fmt.Errorf("decrypt chunk %d: %w", counter, err)
@@ -274,32 +286,4 @@ func (e *AttachmentEncryptor) DecryptStream(
 		return total, "", fmt.Errorf("plaintext size mismatch: declared %d, actual %d", declaredSize, total)
 	}
 	return total, hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func makeChunkNonce(baseNonce []byte, counter uint32) []byte {
-	out := make([]byte, nonceSize)
-	copy(out, baseNonce)
-	binary.BigEndian.PutUint32(out[AttachmentBaseNonceSize:], counter)
-	return out
-}
-
-func makeChunkAAD(fileID string, counter uint32) []byte {
-	out := make([]byte, 0, len(fileID)+AttachmentChunkCounterSize)
-	out = append(out, []byte(fileID)...)
-	cb := make([]byte, AttachmentChunkCounterSize)
-	binary.BigEndian.PutUint32(cb, counter)
-	out = append(out, cb...)
-	return out
-}
-
-func newGCM(key []byte) (cipher.AEAD, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("aes: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("gcm: %w", err)
-	}
-	return gcm, nil
 }
