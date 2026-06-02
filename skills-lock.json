@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tool-ui": {
+      "source": "assistant-ui/tool-ui",
+      "sourceType": "github",
+      "skillPath": "packages/agent/plugin/skills/tool-ui/SKILL.md",
+      "computedHash": "ef3b319307a8fd68cf3e29a4431c5a85990aa478d1f2632646936a778aa2ff24"
+    }
+  }
+}
