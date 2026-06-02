@@ -133,15 +133,23 @@ func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, ci
 		return
 	}
 
+	// Only emit the accept-ack when the runtime actually accepted the
+	// attachment. Materializing the file but failing to enqueue it is
+	// indistinguishable from the agent never seeing it — telling the client
+	// the file is "delivered" in that case produces a green check on a file
+	// the agent cannot reference. Surface a recoverable agent.error instead
+	// so the chip shows the failure and the user can resend.
 	if !sess.DeliverAttachment(info) {
 		b.logger.Warn("[AGENT] attachment channel full, dropping",
 			"session_id", sess.ID, "file_id", info.FileID)
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{
+				Code:        string(syfthubapi.TunnelErrorCodeAttachmentNotAccepted),
+				Message:     "host attachment queue full; please retry",
+				Recoverable: true,
+			})
+		return
 	}
-
-	// Emit the accept-ack regardless of DeliverAttachment's boolean return —
-	// the file is materialized on disk either way; the boolean only reports
-	// whether the runner-side receive channel had room. Clients use this
-	// event to mark the staged-attachment chip as delivered.
 	b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeUserAttachment,
 		agenttypes.UserAttachmentEvent{FileID: info.FileID, SizeBytes: info.SizeBytes})
 }

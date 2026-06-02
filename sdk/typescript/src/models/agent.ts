@@ -118,6 +118,56 @@ export interface AgentErrorEvent {
 }
 
 /**
+ * Attachment emitted by the agent (host → client). Bytes are either inline
+ * (`transport: "inline"`, base64 in `inline_data_b64`) or in JetStream Object
+ * Store (`transport: "object_store"`). Object-store payloads carry the
+ * `base_nonce`, `wrapped_key`, and `object_bucket`/`object_key` needed to
+ * fetch and decrypt the ciphertext.
+ */
+export interface AgentAttachmentEvent {
+  type: 'agent.attachment';
+  payload: {
+    file_id: string;
+    name: string;
+    mime: string;
+    size_bytes: number;
+    plaintext_sha256: string;
+    transport: 'inline' | 'object_store';
+    // Inline tier:
+    inline_data_b64?: string;
+    // Object-store tier:
+    object_bucket?: string;
+    object_key?: string;
+    chunk_size?: number;
+    /**
+     * 8-byte base nonce, base64-encoded. Combined with a 4-byte BE chunk
+     * counter to form the 12-byte GCM nonce. Required for object_store.
+     */
+    base_nonce?: string;
+    wrapped_key?: {
+      algorithm: string;
+      ciphertext: string;
+      nonce: string;
+      info: string;
+    };
+  };
+}
+
+/**
+ * Emitted by the host after it has received and materialized a client-staged
+ * attachment. The accept-ack for a prior user attachment — used by the UI to
+ * flip the staged chip to ✓ delivered. Only emitted when the runtime actually
+ * accepted the file; queue-full drops surface as `agent.error` instead.
+ */
+export interface UserAttachmentEvent {
+  type: 'user.attachment';
+  payload: {
+    file_id: string;
+    size_bytes: number;
+  };
+}
+
+/**
  * Union type of all possible agent events.
  */
 export type AgentEvent =
@@ -131,7 +181,9 @@ export type AgentEvent =
   | SessionCreatedEvent
   | SessionCompletedEvent
   | SessionFailedEvent
-  | AgentErrorEvent;
+  | AgentErrorEvent
+  | AgentAttachmentEvent
+  | UserAttachmentEvent;
 
 // =============================================================================
 // Session Options
