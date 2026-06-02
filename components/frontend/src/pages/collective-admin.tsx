@@ -4,15 +4,18 @@ import type { Collective, CollectiveMember } from '@/lib/collectives-api';
 import type { ChatSource } from '@/lib/types';
 import type { ReactNode } from 'react';
 
+import ArrowDownLeft from 'lucide-react/dist/esm/icons/arrow-down-left';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Clock from 'lucide-react/dist/esm/icons/clock';
+import Inbox from 'lucide-react/dist/esm/icons/inbox';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import UserCheck from 'lucide-react/dist/esm/icons/user-check';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
-import UserX from 'lucide-react/dist/esm/icons/user-x';
 import Users from 'lucide-react/dist/esm/icons/users';
-import X from 'lucide-react/dist/esm/icons/x';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { SharedEndpointsTab } from '@/components/collectives/shared-endpoints-tab';
@@ -37,9 +40,9 @@ import {
 } from '@/hooks/use-collectives';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { isJoinableEndpointType, parseTags } from '@/lib/collectives-api';
-import { formatDate } from '@/lib/date-utils';
+import { formatRelativeTime } from '@/lib/date-utils';
 
-type AdminTab = 'members' | 'requests' | 'invitations' | 'shared' | 'settings';
+type AdminTab = 'members' | 'pending' | 'shared' | 'settings';
 
 /**
  * Collective administration (`/c/:slug/admin`). Owner only — the route is
@@ -105,8 +108,10 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
 
   const tabs: { id: AdminTab; label: string; badge?: number }[] = [
     { id: 'members', label: 'Members' },
-    { id: 'requests', label: 'Requests', badge: requests.length },
-    { id: 'invitations', label: 'Invitations', badge: invitations.length },
+    // One unified "Pending" tab covers both inbound join requests and outbound
+    // invitations. The badge counts ONLY requests — the items awaiting *your*
+    // review — because invitations are waiting on the other party, not you.
+    { id: 'pending', label: 'Pending', badge: requests.length },
     { id: 'shared', label: 'Shared Endpoints' },
     { id: 'settings', label: 'Settings' }
   ];
@@ -185,7 +190,10 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
           >
             {tab.label}
             {tab.badge != null && tab.badge > 0 && (
-              <Badge variant='destructive' className='ml-2 text-xs'>
+              <Badge
+                variant='outline'
+                className='border-primary/20 bg-primary/10 text-primary ml-2 text-xs'
+              >
                 {tab.badge}
               </Badge>
             )}
@@ -235,110 +243,17 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         </div>
       )}
 
-      {activeTab === 'requests' && (
-        <div className='space-y-3'>
-          {requests.length > 0 ? (
-            requests.map((request) => (
-              <MemberRow
-                key={request.id}
-                member={request}
-                subtitle={
-                  <>
-                    {request.endpoint_owner_username
-                      ? `@${request.endpoint_owner_username}`
-                      : 'owner unknown'}{' '}
-                    · requested {formatDate(request.requested_at)}
-                  </>
-                }
-                actions={
-                  <div className='flex shrink-0 gap-2'>
-                    <Button
-                      size='sm'
-                      disabled={reviewRequest.isPending}
-                      onClick={() => {
-                        reviewRequest.mutate({
-                          collectiveId: collective.id,
-                          endpointId: request.endpoint_id,
-                          decision: 'approve'
-                        });
-                      }}
-                    >
-                      <UserCheck className='mr-1 h-4 w-4' />
-                      Approve
-                    </Button>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      disabled={reviewRequest.isPending}
-                      onClick={() => {
-                        reviewRequest.mutate({
-                          collectiveId: collective.id,
-                          endpointId: request.endpoint_id,
-                          decision: 'reject'
-                        });
-                      }}
-                    >
-                      <UserX className='mr-1 h-4 w-4' />
-                      Reject
-                    </Button>
-                  </div>
-                }
-              />
-            ))
-          ) : (
-            <Card className='text-muted-foreground p-12 text-center text-sm'>
-              No pending join requests.
-            </Card>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'invitations' && (
-        <div className='space-y-3'>
-          {invitations.length > 0 ? (
-            invitations.map((invitation) => (
-              <MemberRow
-                key={invitation.id}
-                member={invitation}
-                subtitle={
-                  <>
-                    {invitation.endpoint_owner_username
-                      ? `@${invitation.endpoint_owner_username}`
-                      : 'owner unknown'}{' '}
-                    · invited {formatDate(invitation.requested_at)}
-                  </>
-                }
-                actions={
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    disabled={removeMember.isPending}
-                    onClick={() => {
-                      removeMember.mutate({
-                        collectiveId: collective.id,
-                        endpointId: invitation.endpoint_id
-                      });
-                    }}
-                    title='Cancel invitation'
-                  >
-                    <X className='mr-1 h-4 w-4' />
-                    Cancel
-                  </Button>
-                }
-              />
-            ))
-          ) : (
-            <Card className='text-muted-foreground p-12 text-center text-sm'>
-              <Mail className='mx-auto mb-3 h-8 w-8 opacity-50' />
-              <p>No pending invitations.</p>
-              <p className='mt-2 text-xs'>
-                Use the "Invite endpoint" button above to invite an endpoint by its
-                <code className='mx-1'>owner/slug</code>
-                path.
-              </p>
-            </Card>
-          )}
-        </div>
+      {activeTab === 'pending' && (
+        <PendingTab
+          collectiveId={collective.id}
+          requests={requests}
+          invitations={invitations}
+          reviewRequest={reviewRequest}
+          removeMember={removeMember}
+          onInvite={() => {
+            setInviteModalOpen(true);
+          }}
+        />
       )}
 
       {activeTab === 'shared' && (
@@ -355,7 +270,7 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         }}
         onInvited={() => {
           setInviteModalOpen(false);
-          setActiveTab('invitations');
+          setActiveTab('pending');
         }}
       />
     </div>
@@ -383,6 +298,210 @@ function MemberRow({
         {actions}
       </div>
     </Card>
+  );
+}
+
+/**
+ * Unified "Pending" tab — merges what used to be the separate Requests and
+ * Invitations tabs into a single view organised by *whose action is needed*:
+ *
+ * - "Needs your review" (inbound join requests, status `pending`) — the owner
+ *   approves or rejects. Pinned first because it's blocking on the owner.
+ * - "Awaiting response" (outbound invitations, status `invited`) — waiting on
+ *   the invited endpoint's owner; the collective owner can only cancel.
+ *
+ * Empty sections are omitted; only when BOTH are empty is the all-caught-up
+ * state shown.
+ */
+function PendingTab({
+  collectiveId,
+  requests,
+  invitations,
+  reviewRequest,
+  removeMember,
+  onInvite
+}: Readonly<{
+  collectiveId: number;
+  requests: CollectiveMember[];
+  invitations: CollectiveMember[];
+  reviewRequest: ReturnType<typeof useReviewRequest>;
+  removeMember: ReturnType<typeof useRemoveMember>;
+  onInvite: () => void;
+}>) {
+  if (requests.length === 0 && invitations.length === 0) {
+    return (
+      <Card className='flex flex-col items-center gap-3 p-12 text-center'>
+        <div className='bg-muted text-muted-foreground rounded-xl p-3'>
+          <Inbox className='h-6 w-6' />
+        </div>
+        <div>
+          <p className='text-foreground text-sm font-medium'>You're all caught up</p>
+          <p className='text-muted-foreground mt-1 text-sm'>No pending requests or invitations.</p>
+        </div>
+        <Button variant='outline' size='sm' className='mt-2' onClick={onInvite}>
+          <UserPlus className='mr-2 h-4 w-4' />
+          Invite an endpoint
+        </Button>
+      </Card>
+    );
+  }
+
+  return (
+    <div className='space-y-8'>
+      {requests.length > 0 && (
+        <PendingSection
+          title='Needs your review'
+          hint='endpoint owners asking to join'
+          count={requests.length}
+        >
+          {requests.map((request) => (
+            <PendingRow
+              key={request.id}
+              member={request}
+              variant='inbound'
+              actions={
+                <div className='flex gap-2'>
+                  <Button
+                    size='sm'
+                    disabled={reviewRequest.isPending}
+                    onClick={() => {
+                      reviewRequest.mutate({
+                        collectiveId,
+                        endpointId: request.endpoint_id,
+                        decision: 'approve'
+                      });
+                    }}
+                  >
+                    <Check className='mr-1 h-4 w-4' />
+                    Approve
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={reviewRequest.isPending}
+                    onClick={() => {
+                      reviewRequest.mutate({
+                        collectiveId,
+                        endpointId: request.endpoint_id,
+                        decision: 'reject'
+                      });
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              }
+            />
+          ))}
+        </PendingSection>
+      )}
+
+      {invitations.length > 0 && (
+        <PendingSection
+          title='Awaiting response'
+          hint='invitations you sent'
+          count={invitations.length}
+        >
+          {invitations.map((invitation) => (
+            <PendingRow
+              key={invitation.id}
+              member={invitation}
+              variant='outbound'
+              actions={
+                <div className='flex items-center gap-3'>
+                  <span className='flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400'>
+                    <Clock className='h-3.5 w-3.5' />
+                    Pending their reply
+                  </span>
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    disabled={removeMember.isPending}
+                    className='text-muted-foreground hover:text-destructive'
+                    title='Cancel invitation'
+                    onClick={() => {
+                      removeMember.mutate({
+                        collectiveId,
+                        endpointId: invitation.endpoint_id
+                      });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              }
+            />
+          ))}
+        </PendingSection>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A labelled group inside the Pending tab. The uppercase header + count states
+ * whose move it is; member rows are collected into one bordered, divided card
+ * (rather than separate floating cards) so the group reads as a single queue.
+ */
+function PendingSection({
+  title,
+  hint,
+  count,
+  children
+}: Readonly<{ title: string; hint: string; count: number; children: ReactNode }>) {
+  return (
+    <section>
+      <div className='mb-3 flex items-baseline justify-between gap-3'>
+        <h2 className='text-muted-foreground flex items-center gap-2 text-xs font-semibold tracking-wider uppercase'>
+          {title}
+          <span className='bg-primary/10 text-primary rounded-full px-2 py-0.5 text-[11px] font-medium'>
+            {count}
+          </span>
+        </h2>
+        <span className='text-muted-foreground text-xs'>{hint}</span>
+      </div>
+      <Card className='divide-border gap-0 divide-y overflow-hidden p-0'>{children}</Card>
+    </section>
+  );
+}
+
+/**
+ * A single pending-membership row. The direction glyph (inbound ↘ / outbound ↗)
+ * reinforces the section grouping; on narrow screens the actions wrap below the
+ * endpoint info, indented past the glyph.
+ */
+function PendingRow({
+  member,
+  variant,
+  actions
+}: Readonly<{
+  member: CollectiveMember;
+  variant: 'inbound' | 'outbound';
+  actions: ReactNode;
+}>) {
+  const DirectionIcon = variant === 'inbound' ? ArrowDownLeft : ArrowUpRight;
+  const verb = variant === 'inbound' ? 'requested' : 'invited';
+  return (
+    <div className='flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center'>
+      <div className='flex min-w-0 flex-1 items-center gap-3'>
+        <div className='bg-muted text-muted-foreground shrink-0 rounded-md p-1.5' aria-hidden>
+          <DirectionIcon className='h-4 w-4' />
+        </div>
+        <div className='min-w-0'>
+          <p className='text-foreground truncate text-sm font-medium'>
+            {member.endpoint_name ?? `Endpoint #${member.endpoint_id}`}
+          </p>
+          <p className='text-muted-foreground truncate text-xs'>
+            {member.endpoint_owner_username
+              ? `@${member.endpoint_owner_username}`
+              : 'owner unknown'}
+            {member.endpoint_type ? ` · ${member.endpoint_type}` : ''} · {verb}{' '}
+            {formatRelativeTime(member.requested_at)}
+          </p>
+        </div>
+      </div>
+      <div className='shrink-0 pl-10 sm:pl-0'>{actions}</div>
+    </div>
   );
 }
 
