@@ -887,19 +887,50 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
         file_id = body.get("file_id", "")
-        # Materialize under the session's workspace (which IS bound into
-        # the bwrap child) so the handler can read it.
+        raw_name = body.get("name", "") or ""
+
+        # Pick a sanitized on-disk basename. Prefer the original filename
+        # (so LLM-driven agents can use the friendly name in read_file calls
+        # without hallucinating a path) and fall back to file_id when the
+        # name is missing or sanitizes to nothing. _safe_segment REPLACES
+        # dots with underscores (not strips), so split the extension off,
+        # sanitize stem and ext separately, then reassemble — otherwise
+        # "report.pdf" would collide with "report_pdf" in the unsplit path.
+        basename_input = os.path.basename(raw_name) if raw_name else ""
+        stem, ext_raw = os.path.splitext(basename_input)
+        safe_stem = _safe_segment(stem, fallback="")
+        safe_ext_body = _safe_segment(ext_raw.lstrip("."), fallback="")
+        safe_ext = "." + safe_ext_body if safe_ext_body else ""
+        if not safe_stem:
+            safe_stem = _safe_segment(file_id)
+        basename = safe_stem + safe_ext
+
+        # Materialize under the session's workspace. The workspace is bound
+        # into the bwrap child at GUEST_WORKSPACE_DIR, so we write to the
+        # host-container path here but deliver the bwrap-visible path to the
+        # handler — otherwise the audit hook denies the read (the host path
+        # is neither bind-mounted at the same location nor in the allow-list).
         attachments_subdir = os.path.join(s._workspace, ".attachments")
         os.makedirs(attachments_subdir, mode=0o700, exist_ok=True)
-        ext = os.path.splitext(body.get("name", "") or "")[1]
-        path = os.path.join(attachments_subdir,
-                            _safe_segment(file_id) + ext)
-        with open(path, "wb") as f:
+        host_path = os.path.join(attachments_subdir, basename)
+        # Two attachments with the same filename (different file_ids)
+        # coexist — suffix the loser with a slice of its file_id rather
+        # than overwrite. O_EXCL makes the create-or-collide check atomic.
+        try:
+            fd = os.open(host_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            short_id = _safe_segment(file_id)[:12]
+            basename = f"{safe_stem}_{short_id}{safe_ext}"
+            host_path = os.path.join(attachments_subdir, basename)
+            fd = os.open(host_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
             f.write(raw)
         try:
-            os.chmod(path, 0o600)
+            os.chmod(host_path, 0o600)
         except OSError:
             pass
+
+        guest_path = os.path.join(GUEST_WORKSPACE_DIR, ".attachments", basename)
 
         delivered = s.deliver_attachment({
             "file_id": file_id,
@@ -907,14 +938,33 @@ class RequestHandler(BaseHTTPRequestHandler):
             "mime": body.get("mime", "application/octet-stream"),
             "size_bytes": len(raw),
             "sha256": declared_sha,
-            "path": path,
+            "path": guest_path,
         })
         if not delivered:
+            # The file is on disk but the runner queue rejected it. Clean
+            # up so we don't leak a stray attachment for a delivery that
+            # never happened.
+            try:
+                os.unlink(host_path)
+            except OSError:
+                pass
             self._send_json(503, {"success": False,
                                   "error": "attachment queue full"})
             return
-        self._send_json(200, {"success": True, "file_id": file_id,
-                              "path": path})
+        # Return BOTH the host-side path (for host-process audit / retry /
+        # observability — outside bwrap) and the guest-side path (what the
+        # handler will see inside bwrap). The historical "path" key kept
+        # for backwards compatibility currently maps to guest_path because
+        # that is what the protocol layer hands to the handler; new
+        # consumers that need to stat the file from the host process
+        # should use "host_path".
+        self._send_json(200, {
+            "success": True,
+            "file_id": file_id,
+            "path": guest_path,
+            "guest_path": guest_path,
+            "host_path": host_path,
+        })
 
     def _handle_session_cancel(self, session_id: str) -> None:
         s = sessions.get(session_id)
