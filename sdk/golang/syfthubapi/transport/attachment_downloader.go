@@ -92,13 +92,16 @@ func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, 
 		return fmt.Errorf("downloader called for transport=%q", info.Transport)
 	}
 	if info.WrappedKey == nil {
-		return fmt.Errorf("wrapped_key missing")
+		return fmt.Errorf("wrapped_key missing on object_store attachment %s — peer may be running an SDK older than the base_nonce/wrapped_key wire format", info.FileID)
 	}
 	if info.BaseNonceB64 == "" {
-		return fmt.Errorf("base_nonce missing")
+		// base_nonce was introduced alongside chunked AES-GCM streaming. A
+		// peer that omits it is on a pre-cutover SDK build; surface that
+		// explicitly so operators don't chase a phantom decryption bug.
+		return fmt.Errorf("base_nonce missing on object_store attachment %s — peer SDK is too old; please upgrade the producer", info.FileID)
 	}
 	if info.ObjectBucket == "" || info.ObjectKey == "" {
-		return fmt.Errorf("object_bucket/key missing")
+		return fmt.Errorf("object_bucket/object_key missing on attachment %s", info.FileID)
 	}
 
 	wrappedCT, err := base64.StdEncoding.DecodeString(info.WrappedKey.Ciphertext)
