@@ -792,7 +792,7 @@ func (a *AgentExecutor) captureManualReviewRouting(outer *AgentSession, reviewID
 		InboxSubject:    manualreview.InboxSubjectFor(outer.User.Username),
 		SessionID:       outer.ID,
 		PeerChannel:     outer.CallerReplyTo,
-		CapturedAt:      time.Now().UTC().Format(manualreview.ISOMicroLayout),
+		CapturedAt:      manualreview.NowISO(),
 	}
 	if err := a.routingRecorder.Record(row); err != nil {
 		// A capture failure must not block the user from learning the request

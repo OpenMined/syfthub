@@ -1,5 +1,7 @@
 package manualreview
 
+import "time"
+
 // ProtocolVersion is the on-wire protocol identifier for manual-review
 // resolution envelopes. New schemes must use a new version string so an
 // older client that decodes a future envelope can fail fast.
@@ -49,6 +51,11 @@ const HKDFInfo = "syfthub-mr-resolution-v1"
 // on-wire contract carried by ResolvedPayload.ResolvedAt — every component
 // that stamps a manual-review timestamp MUST use this layout.
 const ISOMicroLayout = "2006-01-02T15:04:05.000000-07:00"
+
+// NowISO returns the current UTC time formatted with ISOMicroLayout.
+// Use this everywhere a manual-review timestamp is stamped so the layout
+// is never accidentally swapped for a different format.
+func NowISO() string { return time.Now().UTC().Format(ISOMicroLayout) }
 
 // ResolvedEnvelope is the wire shape published to a recipient's inbox subject.
 //
