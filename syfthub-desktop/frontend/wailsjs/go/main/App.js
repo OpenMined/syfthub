@@ -86,10 +86,6 @@ export function DeleteSentReview(arg1) {
   return window['go']['main']['App']['DeleteSentReview'](arg1);
 }
 
-export function SaveAttachmentAs(arg1, arg2) {
-  return window['go']['main']['App']['SaveAttachmentAs'](arg1, arg2);
-}
-
 export function DownloadUpdate() {
   return window['go']['main']['App']['DownloadUpdate']();
 }
@@ -310,6 +306,10 @@ export function SaveAgentAttachment(arg1, arg2) {
   return window['go']['main']['App']['SaveAgentAttachment'](arg1, arg2);
 }
 
+export function SaveAttachmentAs(arg1, arg2) {
+  return window['go']['main']['App']['SaveAttachmentAs'](arg1, arg2);
+}
+
 export function SavePolicyFileYaml(arg1, arg2, arg3) {
   return window['go']['main']['App']['SavePolicyFileYaml'](arg1, arg2, arg3);
 }
@@ -408,6 +408,10 @@ export function UpdateEndpointOverview(arg1, arg2, arg3, arg4, arg5) {
 
 export function UpdateSettlement(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['UpdateSettlement'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ValidateAttachmentPath(arg1) {
+  return window['go']['main']['App']['ValidateAttachmentPath'](arg1);
 }
 
 export function WalletBalance() {

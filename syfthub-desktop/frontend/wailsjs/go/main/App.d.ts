@@ -46,8 +46,6 @@ export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteSentReview(arg1:string):Promise<void>;
 
-export function SaveAttachmentAs(arg1:string,arg2:string):Promise<string>;
-
 export function DownloadUpdate():Promise<void>;
 
 export function EvaluatePaymentDecision(arg1:string,arg2:string,arg3:string):Promise<main.PaymentDecision>;
@@ -158,6 +156,8 @@ export function RunEndpointSetup(arg1:string,arg2:boolean):Promise<void>;
 
 export function SaveAgentAttachment(arg1:string,arg2:string):Promise<string>;
 
+export function SaveAttachmentAs(arg1:string,arg2:string):Promise<string>;
+
 export function SavePolicyFileYaml(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveReadme(arg1:string,arg2:string):Promise<void>;
@@ -207,6 +207,8 @@ export function TransactionHistoryExportCSV(arg1:main.TransactionFilter):Promise
 export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function UpdateSettlement(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
+
+export function ValidateAttachmentPath(arg1:string):Promise<main.AttachmentSummary>;
 
 export function WalletBalance():Promise<main.WalletBalance>;
 

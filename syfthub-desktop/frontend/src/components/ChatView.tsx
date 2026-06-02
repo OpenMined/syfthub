@@ -9,7 +9,7 @@ import {
 } from '../../wailsjs/go/main/App';
 
 import { AttachmentChip } from '@/components/chat/AttachmentChip';
-import { useAttachments, type AttachmentSummary } from '@/hooks/use-attachments';
+import { useAttachments, type AttachmentSummary, type PendingAttachment } from '@/hooks/use-attachments';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import {
@@ -193,9 +193,10 @@ export interface ChatInputAreaProps {
   // staged list / handlers are provided, the input renders the paperclip
   // button + the staged-files chip strip.
   staged?: AttachmentSummary[];
-  // pending lists host-paths queued before a session was live; rendered as a
-  // small banner so the user knows they'll auto-upload on session start.
-  pending?: string[];
+  // pending lists pre-validated descriptors of host paths queued before a
+  // session was live; rendered as a small banner so the user knows they'll
+  // auto-upload on session start.
+  pending?: PendingAttachment[];
   // Per-file download progress for inbound chips (downloaded/total bytes).
   attachmentProgress?: Record<string, { downloaded: number; total: number }>;
   onPickAttachment?: () => void;
@@ -499,11 +500,13 @@ function AgentChatContent() {
       if (sessionActive) {
         await attach(path);
       } else {
-        // Queue for upload after the session starts.
-        stagePath(path);
+        // Queue for upload after the session starts. stagePath runs the
+        // host-side validation (size, exists, regular file) and will throw
+        // if rejected — the hook records the error for the UI to show.
+        await stagePath(path);
       }
     } catch {
-      /* attach() already records the error via the hook */
+      /* attach() / stagePath() already record the error via the hook */
     }
   }, [sessionActive, attach, stagePath]);
 
@@ -525,9 +528,10 @@ function AgentChatContent() {
   );
 
   // Clear all pending (queued) attachments — used when the user dismisses
-  // the "queued" banner.
+  // the "queued" banner. pending entries are descriptors; pass the
+  // host_path to the removePending callback.
   const handleClearPending = useCallback(() => {
-    pending?.forEach((p) => clearAllPending(p));
+    pending?.forEach((p) => clearAllPending(p.host_path));
   }, [pending, clearAllPending]);
 
   // Flush queued attachments once a session goes live. Runs at most once
@@ -543,19 +547,13 @@ function AgentChatContent() {
   useEffect(() => {
     OnFileDrop((_x, _y, paths) => {
       setDragActive(false);
-      if (!sessionActive) {
-        for (const p of paths) stagePath(p);
-        return;
-      }
-      void (async () => {
-        for (const p of paths) {
-          try {
-            await attach(p);
-          } catch {
-            /* hook records the per-file error; keep iterating */
-          }
-        }
-      })();
+      // Pre-session: validate+queue each path so a rejected file (too large,
+      // missing, directory) surfaces at drop time. Live session: upload now.
+      // Either way run all dropped paths concurrently so one slow or failing
+      // file doesn't hold up the rest — the hook records per-file errors and
+      // allSettled keeps a single rejection from dropping the others.
+      const handleOne = sessionActive ? attach : stagePath;
+      void Promise.allSettled(paths.map((p) => handleOne(p)));
     }, /* useDropTarget */ true);
 
     // HTML5 drag events are needed to flash the overlay; the actual drop is

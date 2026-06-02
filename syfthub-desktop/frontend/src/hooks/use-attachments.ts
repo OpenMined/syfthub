@@ -3,8 +3,19 @@ import {
   AttachToActiveSession,
   SaveAttachmentAs,
   AttachmentInlineBytes,
+  ValidateAttachmentPath,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+
+// PendingAttachment is a queued, pre-validated host path. The validation
+// runs at queue time (size/type/exists) so the user learns about a bad path
+// at drop time, not when the session starts.
+export interface PendingAttachment {
+  host_path: string;
+  name: string;
+  mime: string;
+  size_bytes: number;
+}
 
 // AttachmentSummary mirrors the Go struct returned by AttachToActiveSession.
 // The bytes live on the host's side of the tunnel — no local_path exists on
@@ -45,9 +56,11 @@ export interface AttachmentProgress {
  */
 export function useAttachments() {
   const [staged, setStaged] = useState<AttachmentSummary[]>([]);
-  // pending holds host-path strings dropped/picked before a session was live.
-  // flushPending() promotes them to staged once a session starts.
-  const [pending, setPending] = useState<string[]>([]);
+  // pending holds pre-validated descriptors of host paths queued before a
+  // session was live. Validation (exists, not a directory, within
+  // MaxAttachmentBytes) runs at stage time so the user gets immediate
+  // feedback rather than discovering a 5 GiB drop only at session start.
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [progress, setProgress] = useState<Record<string, AttachmentProgress>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,18 +109,34 @@ export function useAttachments() {
     }
   }, []);
 
-  // stagePath queues a host path for upload after the session starts. The
-  // caller is responsible for invoking flushPending() once the session is
-  // live (typically via a useEffect on isRunning).
-  const stagePath = useCallback((hostPath: string) => {
-    setPending(prev => [...prev, hostPath]);
+  // stagePath validates the host path (exists, regular file, within the
+  // size cap) BEFORE queuing it. Returns the resolved descriptor on success
+  // so the caller can render a real chip; throws on rejection so the UI
+  // surfaces the failure at drop time instead of at session start.
+  const stagePath = useCallback(async (hostPath: string): Promise<PendingAttachment> => {
+    setError(null);
+    try {
+      const summary = await ValidateAttachmentPath(hostPath);
+      const entry: PendingAttachment = {
+        host_path: hostPath,
+        name: summary.name,
+        mime: summary.mime,
+        size_bytes: summary.size_bytes,
+      };
+      setPending(prev => [...prev, entry]);
+      return entry;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      throw e;
+    }
   }, []);
 
   // flushPending promotes every queued path to a real attachment by calling
   // attach() for each. Per-path failures are recorded in `error` but do not
   // abort the loop. Returns the count successfully uploaded.
   const flushPending = useCallback(async () => {
-    let snapshot: string[] = [];
+    let snapshot: PendingAttachment[] = [];
     setPending(prev => {
       snapshot = prev;
       return [];
@@ -116,7 +145,7 @@ export function useAttachments() {
     let count = 0;
     for (const p of snapshot) {
       try {
-        await attach(p);
+        await attach(p.host_path);
         count++;
       } catch {
         /* attach() records the error; keep iterating */
@@ -126,7 +155,7 @@ export function useAttachments() {
   }, [attach]);
 
   const removePending = useCallback((hostPath: string) => {
-    setPending(prev => prev.filter(p => p !== hostPath));
+    setPending(prev => prev.filter(p => p.host_path !== hostPath));
   }, []);
 
   // saveAs opens the native save-as dialog and writes the attachment to the

@@ -212,6 +212,17 @@ func (a *App) attachmentProgressEmitter(fileID string, sessionID string) func(do
 	}
 }
 
+// safeAttachmentName reduces a caller-supplied name to a bare basename, falling
+// back to fileID when the result is empty or a path-traversal token. Only the
+// basename ever reaches the filesystem.
+func safeAttachmentName(suggestedName, fileID string) string {
+	name := filepath.Base(strings.TrimSpace(suggestedName))
+	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+		return fileID
+	}
+	return name
+}
+
 // SaveAgentAttachment writes an agent-emitted attachment into ~/Downloads
 // under its original filename (with " (n)" suffix on collision). Inline-tier
 // bytes are served from the in-memory cache; object_store-tier attachments
@@ -231,10 +242,7 @@ func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) 
 	}
 
 	// Path-traversal guard: only the basename ever lands in Downloads.
-	name := filepath.Base(strings.TrimSpace(suggestedName))
-	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
-		name = fileID
-	}
+	name := safeAttachmentName(suggestedName, fileID)
 	dest := uniqueDestPath(downloads, name)
 
 	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -266,10 +274,7 @@ func (a *App) SaveAttachmentAs(fileID, suggestedName string) (string, error) {
 		return "", err
 	}
 
-	name := filepath.Base(strings.TrimSpace(suggestedName))
-	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
-		name = fileID
-	}
+	name := safeAttachmentName(suggestedName, fileID)
 	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		DefaultFilename: name,
 		Title:           "Save attachment",
@@ -321,6 +326,40 @@ func (a *App) OpenInDefaultApp(path string) error {
 	}
 	go func() { _ = cmd.Wait() }()
 	return nil
+}
+
+// ValidateAttachmentPath stats hostPath and reports whether it is a file the
+// app will accept as an attachment: it must exist, be a regular file (not a
+// directory), and be ≤ MaxAttachmentBytes. Returns the resolved metadata on
+// success so the frontend can render a queued chip with a real size before a
+// session is live; rejects loudly at drop time so the user does not learn at
+// session-start that one of the queued paths cannot be sent.
+func (a *App) ValidateAttachmentPath(hostPath string) (*AttachmentSummary, error) {
+	if hostPath == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	st, err := os.Stat(hostPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat: %w", err)
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("attachments must be files, not directories")
+	}
+	if st.Size() > syfthubapi.MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment too large: %d bytes (max %d)", st.Size(), syfthubapi.MaxAttachmentBytes)
+	}
+	mimeType := mime.TypeByExtension(filepath.Ext(hostPath))
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	// FileID is left empty — the real id is minted when the file is actually
+	// sent. SHA256 is left empty (computing it would re-read the whole file
+	// just for a queued chip).
+	return &AttachmentSummary{
+		Name:      filepath.Base(hostPath),
+		MIME:      mimeType,
+		SizeBytes: st.Size(),
+	}, nil
 }
 
 // BrowseForAttachment opens a native file picker and returns the absolute path
@@ -379,7 +418,14 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 
 	ctx, cancel := a.attachmentContext()
 	defer cancel()
-	info, err := sc.SendAttachment(ctx, f, transport.AttachmentOpts{
+	// Defence-in-depth against TOCTOU: the file may grow between the stat
+	// above and the streaming read below (log files, sparse writers, an
+	// attacker-controlled path racing the upload). Wrap the source in an
+	// io.LimitReader at MaxAttachmentBytes+1 so we never stream past the
+	// cap regardless of what happens to the file on disk. The SDK also
+	// enforces the cap as a second line of defence.
+	bounded := io.LimitReader(f, syfthubapi.MaxAttachmentBytes+1)
+	info, err := sc.SendAttachment(ctx, bounded, transport.AttachmentOpts{
 		Name: name,
 		MIME: mimeType,
 	})
