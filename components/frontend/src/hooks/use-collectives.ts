@@ -174,6 +174,34 @@ export function useRequestJoin() {
   });
 }
 
+/**
+ * Run `fn` against every item in parallel and partition the outcomes. The
+ * backend exposes only single-item routes, so batch operations fan out here and
+ * report a partial result. Shared by {@link useRequestJoinMany} and
+ * {@link useInviteEndpointsByPath}.
+ */
+async function settleAll<T>(
+  items: T[],
+  fn: (item: T) => Promise<unknown>
+): Promise<{ succeeded: T[]; failed: { item: T; error: Error }[] }> {
+  const settled = await Promise.allSettled(items.map((item) => fn(item)));
+  const succeeded: T[] = [];
+  const failed: { item: T; error: Error }[] = [];
+  for (const [index, outcome] of settled.entries()) {
+    const item = items[index];
+    if (item === undefined) continue;
+    if (outcome.status === 'fulfilled') {
+      succeeded.push(item);
+    } else {
+      failed.push({
+        item,
+        error: outcome.reason instanceof Error ? outcome.reason : new Error(String(outcome.reason))
+      });
+    }
+  }
+  return { succeeded, failed };
+}
+
 /** Outcome of a {@link useRequestJoinMany} call. */
 export interface RequestJoinManyResult {
   /** Endpoints whose join request succeeded. */
@@ -194,25 +222,13 @@ export function useRequestJoinMany() {
   return useMutation<RequestJoinManyResult, Error, { collectiveId: number; endpointIds: number[] }>(
     {
       mutationFn: async ({ collectiveId, endpointIds }) => {
-        const settled = await Promise.allSettled(
-          endpointIds.map((endpointId) => requestJoin(collectiveId, endpointId))
+        const { succeeded, failed } = await settleAll(endpointIds, (endpointId) =>
+          requestJoin(collectiveId, endpointId)
         );
-        const succeeded: number[] = [];
-        const failed: { endpointId: number; error: Error }[] = [];
-        for (const [index, outcome] of settled.entries()) {
-          const endpointId = endpointIds[index];
-          if (endpointId === undefined) continue;
-          if (outcome.status === 'fulfilled') {
-            succeeded.push(endpointId);
-          } else {
-            failed.push({
-              endpointId,
-              error:
-                outcome.reason instanceof Error ? outcome.reason : new Error(String(outcome.reason))
-            });
-          }
-        }
-        return { succeeded, failed };
+        return {
+          succeeded,
+          failed: failed.map(({ item, error }) => ({ endpointId: item, error }))
+        };
       },
       onSuccess: (_data, { collectiveId }) => {
         invalidateMembers(collectiveId);
@@ -280,6 +296,45 @@ export function useInviteEndpointByPath() {
       ownerUsername: string;
       slug: string;
     }) => inviteEndpointByPath(collectiveId, ownerUsername, slug),
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
+    }
+  });
+}
+
+/** Outcome of a {@link useInviteEndpointsByPath} batch invite. */
+export interface InviteEndpointsByPathResult {
+  /** Endpoints that were successfully invited. */
+  succeeded: { owner: string; slug: string }[];
+  /** Per-endpoint failures (e.g. already a member), surfaced for a partial summary. */
+  failed: { owner: string; slug: string; error: Error }[];
+}
+
+/**
+ * Invite many endpoints into a collective by `owner/slug` path in parallel.
+ *
+ * The backend exposes only the single-endpoint invite route, so we fan out and
+ * gather with `Promise.allSettled` — each endpoint succeeds or fails on its own
+ * and the caller renders a partial-success summary. Backs the multi-select
+ * invite modal, including the "invite every endpoint of an owner" (`owner/*`)
+ * action.
+ */
+export function useInviteEndpointsByPath() {
+  const invalidateMembers = useInvalidateMembers();
+  return useMutation<
+    InviteEndpointsByPathResult,
+    Error,
+    { collectiveId: number; targets: { owner: string; slug: string }[] }
+  >({
+    mutationFn: async ({ collectiveId, targets }) => {
+      const { succeeded, failed } = await settleAll(targets, (target) =>
+        inviteEndpointByPath(collectiveId, target.owner, target.slug)
+      );
+      return {
+        succeeded,
+        failed: failed.map(({ item, error }) => ({ ...item, error }))
+      };
+    },
     onSuccess: (_data, { collectiveId }) => {
       invalidateMembers(collectiveId);
     }
