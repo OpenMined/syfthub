@@ -26,7 +26,7 @@ func TestObjectStoreUploaderRoundTrip(t *testing.T) {
 	plaintext := make([]byte, 100*1024)
 	rand.Read(plaintext)
 
-	info, err := up.Upload("att-up-1", "blob.bin", "application/octet-stream", -1, bytes.NewReader(plaintext))
+	info, err := up.Upload(ctx, "att-up-1", "blob.bin", "application/octet-stream", -1, bytes.NewReader(plaintext))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestObjectStoreUploaderInfoEncodesAsValidJSON(t *testing.T) {
 	store := NewMemoryAttachmentObjectStore()
 	up, _ := NewObjectStoreUploader(ctx, sessionKey, store, "sess-json")
 
-	info, err := up.Upload("att-json", "x.bin", "application/octet-stream", -1, bytes.NewReader(make([]byte, 70*1024)))
+	info, err := up.Upload(ctx, "att-json", "x.bin", "application/octet-stream", -1, bytes.NewReader(make([]byte, 70*1024)))
 	if err != nil {
 		t.Fatal(err)
 	}

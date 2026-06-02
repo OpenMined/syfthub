@@ -62,6 +62,15 @@ func (m *MemoryAttachmentObjectStore) Get(_ context.Context, bucket, key string,
 	return nil
 }
 
+func (m *MemoryAttachmentObjectStore) Delete(_ context.Context, bucket, key string) error {
+	m.mu.Lock()
+	if b, ok := m.buckets[bucket]; ok {
+		delete(b, key)
+	}
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *MemoryAttachmentObjectStore) DeleteBucket(_ context.Context, bucket string) error {
 	m.mu.Lock()
 	delete(m.buckets, bucket)

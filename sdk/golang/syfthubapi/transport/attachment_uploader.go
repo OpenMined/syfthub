@@ -22,7 +22,10 @@ type ObjectStoreUploader struct {
 	encryptor *AttachmentEncryptor
 	store     AttachmentObjectStore
 	bucket    string
-	ctx       context.Context
+	// setupCtx is used only for bucket creation in NewObjectStoreUploader;
+	// per-upload contexts are passed into Upload directly so callers can
+	// cancel individual transfers without affecting the bucket lifecycle.
+	setupCtx context.Context
 }
 
 // NewObjectStoreUploader returns an uploader bound to a specific session
@@ -46,7 +49,7 @@ func NewObjectStoreUploader(
 		encryptor: enc,
 		store:     store,
 		bucket:    bucket,
-		ctx:       ctx,
+		setupCtx:  ctx,
 	}, nil
 }
 
@@ -56,7 +59,14 @@ func NewObjectStoreUploader(
 //
 // declaredSize is informational only and may be -1; the true size is
 // derived from the stream and written into the returned AttachmentInfo.
+//
+// ctx is propagated to the underlying object-store Put. Cancelling it
+// aborts the in-flight transfer; the partial ciphertext may have already
+// been written and is the caller's responsibility to clean up via
+// DeleteOrphan (Upload itself never deletes — the caller is the only one
+// who knows whether retention of the object is desired).
 func (u *ObjectStoreUploader) Upload(
+	ctx context.Context,
 	fileID, name, mime string,
 	declaredSize int64,
 	r io.Reader,
@@ -79,7 +89,7 @@ func (u *ObjectStoreUploader) Upload(
 		return syfthubapi.AttachmentInfo{}, fmt.Errorf("encrypt stream: %w", err)
 	}
 
-	if err := u.store.Put(u.ctx, u.bucket, fileID, &ct); err != nil {
+	if err := u.store.Put(ctx, u.bucket, fileID, &ct); err != nil {
 		return syfthubapi.AttachmentInfo{}, fmt.Errorf("object-store put: %w", err)
 	}
 

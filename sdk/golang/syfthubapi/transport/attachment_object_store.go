@@ -37,6 +37,11 @@ type AttachmentObjectStore interface {
 	// Get streams ciphertext for (bucket, key) to w.
 	Get(ctx context.Context, bucket, key string, w io.Writer) error
 
+	// Delete removes a single object from a bucket. Idempotent: a missing
+	// object is treated as success. Used to clean up an orphan ciphertext
+	// when the metadata publish that would have referenced it failed.
+	Delete(ctx context.Context, bucket, key string) error
+
 	// DeleteBucket removes the bucket and all its objects. Idempotent.
 	DeleteBucket(ctx context.Context, bucket string) error
 }
@@ -138,6 +143,24 @@ func (s *NATSAttachmentObjectStore) Get(_ context.Context, bucket, key string, w
 	defer rc.Close()
 	if _, err := io.Copy(w, rc); err != nil {
 		return fmt.Errorf("stream %s/%s: %w", bucket, key, err)
+	}
+	return nil
+}
+
+// Delete removes a single object from the bucket. Idempotent — a missing
+// object is reported as success because the caller is reconciling state, not
+// asserting prior presence.
+func (s *NATSAttachmentObjectStore) Delete(_ context.Context, bucket, key string) error {
+	os, err := s.getStore(bucket)
+	if err != nil {
+		// No bucket → no object to delete. Treat as success.
+		return nil
+	}
+	if err := os.Delete(key); err != nil {
+		if errors.Is(err, nats.ErrObjectNotFound) {
+			return nil
+		}
+		return fmt.Errorf("delete %s/%s: %w", bucket, key, err)
 	}
 	return nil
 }

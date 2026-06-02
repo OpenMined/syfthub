@@ -53,7 +53,10 @@ func (s *AgentClientSession) SendAttachmentBytes(ctx context.Context, data []byt
 //     WithAttachmentStore(transport) AND the session opened with the
 //     AttachmentCapability; otherwise this returns an error and the file
 //     is NOT sent.
-func (s *AgentClientSession) SendAttachment(_ context.Context, r io.Reader, opts AttachmentOpts) (syfthubapi.AttachmentInfo, error) {
+func (s *AgentClientSession) SendAttachment(ctx context.Context, r io.Reader, opts AttachmentOpts) (syfthubapi.AttachmentInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	name := opts.Name
 	if name == "" {
 		name = "attachment.bin"
@@ -95,15 +98,49 @@ func (s *AgentClientSession) SendAttachment(_ context.Context, r io.Reader, opts
 		return syfthubapi.AttachmentInfo{}, fmt.Errorf("attachment exceeds inline limit (%d bytes): %w",
 			syfthubapi.InlineMaxBytes, err)
 	}
-	combined := io.MultiReader(bytes.NewReader(head), r)
-	info, err := up.Upload(fileID, name, mimeType, -1, combined)
+	// Cap the upload stream at MaxAttachmentBytes+1. The +1 lets us detect
+	// "exactly at the cap" vs "over the cap" without depending on a flaky
+	// pre-upload stat. The desktop wrapper already pre-checks stat size,
+	// but every non-desktop SDK caller (CLI, third-party) goes through this
+	// path — without this guard, the documented 2 GiB hard cap is purely
+	// advisory.
+	limit := syfthubapi.MaxAttachmentBytes + 1
+	combined := io.MultiReader(bytes.NewReader(head), io.LimitReader(r, limit-int64(len(head))))
+	info, err := up.Upload(ctx, fileID, name, mimeType, -1, combined)
 	if err != nil {
 		return syfthubapi.AttachmentInfo{}, fmt.Errorf("object-store upload: %w", err)
 	}
+	if info.SizeBytes > syfthubapi.MaxAttachmentBytes {
+		// The stream was longer than the hard cap. The ciphertext is
+		// already in the bucket — clean it up before returning so we
+		// don't leak storage on a refused upload.
+		s.deleteOrphanObject(ctx, fileID)
+		return syfthubapi.AttachmentInfo{}, fmt.Errorf("attachment exceeds maximum size %d bytes",
+			syfthubapi.MaxAttachmentBytes)
+	}
 	if err := s.publishUserAttachment(info); err != nil {
+		// The ciphertext is in the bucket but the metadata never reached
+		// the peer — the host can never find it. Best-effort cleanup so
+		// we don't accumulate orphans across many failed publishes.
+		s.deleteOrphanObject(ctx, fileID)
 		return syfthubapi.AttachmentInfo{}, err
 	}
 	return info, nil
+}
+
+// deleteOrphanObject best-effort removes a ciphertext blob that was uploaded
+// but whose metadata publish failed or whose size exceeded the cap. Errors
+// are logged and swallowed — the caller has already produced a user-facing
+// error and a leaked blob will eventually be reaped by the bucket TTL.
+func (s *AgentClientSession) deleteOrphanObject(ctx context.Context, fileID string) {
+	if s.attachmentStore == nil {
+		return
+	}
+	bucket := bucketNameForSession(s.SessionID)
+	if err := s.attachmentStore.Delete(ctx, bucket, fileID); err != nil && s.logger != nil {
+		s.logger.Warn("agent client: orphan attachment cleanup failed",
+			"session_id", s.SessionID, "file_id", fileID, "error", err)
+	}
 }
 
 func (s *AgentClientSession) publishUserAttachment(info syfthubapi.AttachmentInfo) error {

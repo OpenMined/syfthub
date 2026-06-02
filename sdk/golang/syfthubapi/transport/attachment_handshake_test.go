@@ -64,7 +64,7 @@ func TestObjectStoreUploaderBindsToSessionAttachmentKey(t *testing.T) {
 	// Use the uploader to wrap a per-file key, then have the aggregator-
 	// side encryptor unwrap it. Cross-side keying succeeds.
 	body := []byte("handshake body")
-	info, err := uploader.Upload("att-handshake", "x.txt", "text/plain", -1, bytes.NewReader(body))
+	info, err := uploader.Upload(context.Background(), "att-handshake", "x.txt", "text/plain", -1, bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
@@ -192,6 +192,9 @@ func TestHandleUserAttachmentEmitsAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentDialer: %v", err)
 	}
+	// AttachmentCapability now requires a wired object store; reuse the
+	// host transport's store handle for this in-process integration test.
+	dialer.WithAttachmentStore(hostT)
 
 	sess, err := dialer.Dial(ctx, DialParams{
 		TargetUsername:   hostUser,

@@ -1,6 +1,7 @@
 package syfthubapi
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 
@@ -193,8 +194,12 @@ const AttachmentHKDFInfoV1 = "syfthub-attachment-v1"
 // AttachmentUploader routes outbound files via JetStream Object Store
 // instead of riding them inline. The transport package supplies the real
 // implementation; the syfthubapi package only knows the interface.
+//
+// ctx is the caller's cancellation scope — passed through to the underlying
+// object-store Put so an in-flight upload can be aborted when the caller's
+// context is cancelled (UI cancel, parent shutdown).
 type AttachmentUploader interface {
-	Upload(fileID, name, mime string, sizeBytes int64, r io.Reader) (AttachmentInfo, error)
+	Upload(ctx context.Context, fileID, name, mime string, sizeBytes int64, r io.Reader) (AttachmentInfo, error)
 }
 
 // AttachmentDownloader is the inbound counterpart to AttachmentUploader.

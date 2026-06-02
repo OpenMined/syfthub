@@ -577,7 +577,7 @@ func (s *AgentSession) SendAttachment(r io.Reader, name, mime string) (string, e
 	combined := io.MultiReader(bytes.NewReader(head), r)
 	// We don't know the exact size yet — pass -1 so the uploader streams
 	// and computes the true size from the stream.
-	info, err := s.AttachmentUploader.Upload(fileID, name, mime, -1, combined)
+	info, err := s.AttachmentUploader.Upload(s.ctx, fileID, name, mime, -1, combined)
 	if err != nil {
 		return "", fmt.Errorf("object-store upload: %w", err)
 	}
