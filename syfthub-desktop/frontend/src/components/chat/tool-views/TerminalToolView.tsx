@@ -10,10 +10,10 @@
  *   - exitCode →  0 or 1 (we don't carry the real exit yet; status drives it)
  */
 
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-
 import { Terminal } from '@/components/tool-ui/terminal';
 import type { ToolView } from '@/lib/tool-display';
+
+import { RunningSpinner } from './RunningSpinner';
 
 type TerminalView = Extract<ToolView, { kind: 'terminal' }>;
 
@@ -34,12 +34,7 @@ export function TerminalToolView({ view }: { view: TerminalView }) {
         maxCollapsedLines={20}
         defaultExpanded={false}
       />
-      {isRunning && (
-        <div className='text-muted-foreground flex items-center gap-1.5 px-1 text-xs'>
-          <Loader2 className='h-3 w-3 animate-spin' aria-hidden='true' />
-          <span>Running…</span>
-        </div>
-      )}
+      {isRunning && <RunningSpinner />}
     </div>
   );
 }

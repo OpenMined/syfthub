@@ -8,11 +8,12 @@
  */
 
 import FileText from 'lucide-react/dist/esm/icons/file-text';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Pencil from 'lucide-react/dist/esm/icons/pencil';
 
 import { CodeBlock } from '@/components/tool-ui/code-block';
 import type { ToolView } from '@/lib/tool-display';
+
+import { RunningSpinner } from './RunningSpinner';
 
 type CodeView = Extract<ToolView, { kind: 'code' }>;
 
@@ -49,12 +50,7 @@ export function CodeToolView({ view }: { view: CodeView }) {
           {isRunning ? 'Reading…' : 'No content'}
         </div>
       )}
-      {isRunning && (
-        <div className='text-muted-foreground flex items-center gap-1.5 px-1 text-xs'>
-          <Loader2 className='h-3 w-3 animate-spin' aria-hidden='true' />
-          <span>Running…</span>
-        </div>
-      )}
+      {isRunning && <RunningSpinner />}
     </div>
   );
 }
