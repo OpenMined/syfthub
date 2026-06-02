@@ -189,7 +189,7 @@ func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 		rejectReason = reason
 	}
 
-	resolvedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
+	resolvedAt := manualreview.NowISO()
 
 	res, err := db.Exec(
 		`UPDATE manual_reviews
@@ -293,13 +293,13 @@ func (a *App) publishResolution(slug, reviewID, status, reason, resolvedAt strin
 	if err != nil {
 		a.logWarn("publishResolution: %s -> %s: %v", reviewID, routing.InboxSubject, err)
 		if rerr := recorder.RecordAttempt(reviewID,
-			time.Now().UTC().Format(manualreview.ISOMicroLayout), err.Error()); rerr != nil {
+			manualreview.NowISO(), err.Error()); rerr != nil {
 			a.logWarn("publishResolution: record attempt: %v", rerr)
 		}
 		return
 	}
 	if err := recorder.MarkDelivered(reviewID,
-		time.Now().UTC().Format(manualreview.ISOMicroLayout)); err != nil {
+		manualreview.NowISO()); err != nil {
 		a.logWarn("publishResolution: mark delivered: %v", err)
 	}
 	a.logDebug("publishResolution: delivered %s seq=%d", reviewID, seq)

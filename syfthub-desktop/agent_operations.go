@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -109,11 +108,10 @@ func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []a
 		return "", fmt.Errorf("agent sessions require NATS tunnel mode")
 	}
 
-	parts := strings.SplitN(endpointPath, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	owner, slug := splitEndpointPath(endpointPath)
+	if owner == "" || slug == "" {
 		return "", fmt.Errorf("endpoint must be in 'owner/slug' format, got: %s", endpointPath)
 	}
-	owner, slug := parts[0], parts[1]
 
 	// Swap out any previous session under the agent mutex. Marking the previous
 	// session as cancelled BEFORE closing it ensures the drain goroutine rewrites
@@ -122,11 +120,7 @@ func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []a
 	a.agentMu.Lock()
 	prev := a.agentSession
 	a.agentSession = nil
-	prevSessionID := ""
-	if prev != nil {
-		prevSessionID = prev.SessionID
-	}
-	a.emitAttachmentsExpiringLocked(prevSessionID)
+	a.emitAttachmentsExpiringLocked(sessionIDOf(prev))
 	a.agentAttachments = nil
 	if prev != nil {
 		a.agentCancelledID = prev.SessionID
@@ -306,11 +300,7 @@ func (a *App) StopAgentSession() error {
 	a.agentMu.Lock()
 	sc := a.agentSession
 	a.agentSession = nil
-	prevSessionID := ""
-	if sc != nil {
-		prevSessionID = sc.SessionID
-	}
-	a.emitAttachmentsExpiringLocked(prevSessionID)
+	a.emitAttachmentsExpiringLocked(sessionIDOf(sc))
 	a.agentAttachments = nil
 	if sc != nil {
 		a.agentCancelledID = sc.SessionID
@@ -337,6 +327,14 @@ func (a *App) consumeAgentCancelled(sessionID string) bool {
 		return true
 	}
 	return false
+}
+
+// sessionIDOf returns the SessionID of sc, or "" when sc is nil.
+func sessionIDOf(sc *transport.AgentClientSession) string {
+	if sc == nil {
+		return ""
+	}
+	return sc.SessionID
 }
 
 // emitAttachmentsExpiringLocked snapshots the current agentAttachments map

@@ -26,7 +26,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 )
@@ -101,7 +100,7 @@ func tryUpdateExistingReview(
 		    AND identity  = ?
 		    AND (delivery_seq IS NULL OR delivery_seq < ?)`,
 		payload.Status,
-		time.Now().UTC().Format(manualreview.ISOMicroLayout),
+		manualreview.NowISO(),
 		payload.ResolvedAt,
 		nullIfEmpty(payload.ResponseText),
 		nullIfEmpty(payload.RejectReason),

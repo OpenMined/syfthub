@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -318,41 +317,34 @@ func migrateSentReviewsSchema(db *sql.DB) error {
 		return nil
 	}
 
-	// Version 0 (pre-v2 install) → version 2: add host_resolved_at and
-	// delivery_seq. We add columns only if they don't already exist — a DB
-	// created fresh by sentReviewsCreateTable above already has them, so the
-	// ALTER would error.
-	hasHost, err := columnExists(db, "sent_reviews", "host_resolved_at")
-	if err != nil {
-		return err
-	}
-	if !hasHost {
-		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN host_resolved_at TEXT`); err != nil {
-			return fmt.Errorf("add host_resolved_at: %w", err)
+	// addColumn is a no-op when the column already exists (fresh installs get
+	// the column from CREATE TABLE; only upgrades need the ALTER).
+	addColumn := func(col, def string) error {
+		has, err := columnExists(db, "sent_reviews", col)
+		if err != nil || has {
+			return err
 		}
-	}
-	hasSeq, err := columnExists(db, "sent_reviews", "delivery_seq")
-	if err != nil {
-		return err
-	}
-	if !hasSeq {
-		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN delivery_seq INTEGER`); err != nil {
-			return fmt.Errorf("add delivery_seq: %w", err)
+		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE sent_reviews ADD COLUMN %s %s", col, def)); err != nil {
+			return fmt.Errorf("add %s: %w", col, err)
 		}
+		return nil
 	}
 
+	// Version 0 (pre-v2 install) → version 2: add host_resolved_at and
+	// delivery_seq. We add columns only if they don't already exist — a DB
+	// created fresh by sentReviewsCreateTable above already has them.
+	if err := addColumn("host_resolved_at", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumn("delivery_seq", "INTEGER"); err != nil {
+		return err
+	}
 	// v2 → v3: add parent_review_id so continuation reviews can be grouped
 	// into threads on the client. NULL on all existing rows; back-filled
 	// from useAgentWorkflow.originReviewIdRef going forward, with a
 	// transcript-prefix fallback in the store for legacy/synth rows.
-	hasParent, err := columnExists(db, "sent_reviews", "parent_review_id")
-	if err != nil {
+	if err := addColumn("parent_review_id", "TEXT"); err != nil {
 		return err
-	}
-	if !hasParent {
-		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN parent_review_id TEXT`); err != nil {
-			return fmt.Errorf("add parent_review_id: %w", err)
-		}
 	}
 
 	// Stamp the version. PRAGMA user_version takes a bare integer, no params.
@@ -439,7 +431,7 @@ func (a *App) RecordSentReview(input SentReviewInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode request messages: %w", err)
 	}
-	submittedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
+	submittedAt := manualreview.NowISO()
 
 	db, err := a.sentReviewsDB()
 	if err != nil {
@@ -608,7 +600,7 @@ func (a *App) SetSentReviewStatus(reviewID, status, reason string) error {
 	if status == manualreview.StatusRejected {
 		rejectReason = reason
 	}
-	resolvedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
+	resolvedAt := manualreview.NowISO()
 
 	res, err := db.Exec(
 		`UPDATE sent_reviews
