@@ -69,7 +69,7 @@ type App struct {
 	libraryClientURL string                        // URL the cached client was created for
 	updater          *updater.Checker              // Auto-update checker; nil until startup completes
 	downloader       *updater.Downloader           // Update-artifact downloader; nil until startup completes
-	installer        *updater.Installer            // In-place binary installer; nil on macOS until Phase 4
+	installer        *updater.Installer            // In-place installer (binary swap on Linux/Windows, .app-bundle swap on macOS)
 
 	// reviewPublisher delivers manual-review resolutions to caller inboxes
 	// over JetStream. Set once the NATS transport is up (post-Setup); nil in

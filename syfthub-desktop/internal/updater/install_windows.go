@@ -68,3 +68,19 @@ func startDetached(cmd *exec.Cmd) error {
 	}
 	return cmd.Start()
 }
+
+// relaunch starts the freshly swapped binary detached, forwarding the
+// post-update cleanup flag.
+func relaunch(exePath string) error {
+	cmd := exec.Command(exePath, PostUpdateFlag)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	return startDetached(cmd)
+}
+
+// cleanupPlatformArtifact is a no-op on Windows — the generic
+// PostUpdateCleanup already removes the sibling ".old.exe" binary.
+func cleanupPlatformArtifact(string) {}
+
+// rollbackPlatformArtifact returns handled=false on Windows so
+// PerformRollback uses its generic ".old.exe" restore logic.
+func rollbackPlatformArtifact(string) (string, bool, error) { return "", false, nil }

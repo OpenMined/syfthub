@@ -4,6 +4,7 @@
 //
 // Phase 2 adds streaming download with SHA-256 verification.
 // Phase 3 adds in-place binary replace on Linux + Windows.
+// Phase 4 adds in-place .app-bundle replace on signed/notarized macOS.
 // Phase 5 adds Ed25519 manifest signature verification.
 package updater
 

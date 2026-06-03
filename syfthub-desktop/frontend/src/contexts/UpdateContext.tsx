@@ -22,7 +22,7 @@ interface UpdateContextValue {
   install: InstallState | null;
   /** Manually dismissed banner version. Resets when a new latest_version arrives. */
   dismissedVersion: string | null;
-  /** True when the platform supports in-place install (Linux/Windows). */
+  /** True when the platform supports in-place install (Linux, Windows, macOS). */
   inPlaceInstallSupported: boolean;
   dismissBanner: () => void;
   checkNow: () => Promise<void>;
@@ -119,9 +119,13 @@ export function UpdateProvider({ children }: UpdateProviderProps) {
     await InstallUpdate();
   }, []);
 
-  // In-place install is supported on Linux + Windows only. Detect from
-  // the manifest platform string.
-  const inPlaceInstallSupported = state?.platform === 'linux/amd64' || state?.platform === 'windows/amd64';
+  // In-place install is supported on every shipped platform: Linux,
+  // Windows, and macOS (now that release builds are signed + notarized).
+  // Detect from the manifest platform string.
+  const inPlaceInstallSupported =
+    state?.platform === 'linux/amd64' ||
+    state?.platform === 'windows/amd64' ||
+    state?.platform === 'darwin/arm64';
 
   return (
     <UpdateContext.Provider value={{
@@ -165,15 +169,18 @@ export function shouldShowBanner(state: UpdateState | null, dismissedVersion: st
   return state.latest_version !== dismissedVersion;
 }
 
-/** Per-platform install instructions surfaced in the assisted-download UI. */
+/**
+ * Per-platform install instructions for the manual (non-in-place)
+ * download path. All shipped platforms now install in place, so this is
+ * only surfaced for platforms without a one-click installer; it is no
+ * longer shown for macOS, which is signed, notarized, and self-installs.
+ */
 export function platformInstructions(platform?: string): string {
   switch (platform) {
     case 'linux/amd64':
       return 'Linux: make the binary executable (chmod +x) and run it. Optionally move it into your PATH.';
     case 'windows/amd64':
       return 'Windows: just run the .exe — SmartScreen may warn on first launch; click "More info" → "Run anyway".';
-    case 'darwin/arm64':
-      return 'macOS: extract the .zip, drag SyftHub Desktop.app to /Applications. First launch: right-click → Open to bypass Gatekeeper.';
     default:
       return 'See the release page for install instructions.';
   }

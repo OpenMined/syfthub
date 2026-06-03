@@ -1,7 +1,7 @@
-// install.go wires the updater.Installer (Phase 3) into Wails App
-// bindings. It owns the drain sequence, install state events, and
-// in-place binary swap on Linux + Windows. macOS routes through the
-// Phase 2 assisted-download path.
+// install.go wires the updater.Installer into Wails App bindings. It
+// owns the drain sequence, install state events, and the in-place
+// update — a binary swap on Linux/Windows and an .app-bundle swap on
+// macOS (now that release builds are signed + notarized).
 package main
 
 import (
@@ -71,8 +71,8 @@ func (a *App) GetInstallState() updater.InstallState {
 	return updater.InstallState{Stage: updater.InstallIdle}
 }
 
-// InstallUpdate performs the in-place swap and relaunch.
-// Returns ErrUnsupportedPlatform on macOS until Phase 4.
+// InstallUpdate performs the in-place swap and relaunch on every shipped
+// platform (Linux, Windows, and signed/notarized macOS).
 func (a *App) InstallUpdate() error {
 	a.mu.RLock()
 	inst := a.installer

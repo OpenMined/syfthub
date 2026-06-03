@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -178,13 +177,11 @@ func (i *Installer) Install(
 		return fail("swap binary", err)
 	}
 
-	// Step 5: relaunch the new binary.
+	// Step 5: relaunch the new binary. The relaunch mechanism is
+	// platform-specific (a detached exec on Linux/Windows, `open -n` of
+	// the .app bundle on macOS) and lives behind the relaunch hook.
 	emit(InstallRestart, "launching new version", nil)
-	newProc := exec.Command(exePath, PostUpdateFlag)
-	newProc.Stdin = nil
-	newProc.Stdout = nil
-	newProc.Stderr = nil
-	if err := startDetached(newProc); err != nil {
+	if err := relaunch(exePath); err != nil {
 		return fail("start new process", err)
 	}
 
@@ -199,9 +196,10 @@ func (i *Installer) Install(
 	return nil
 }
 
-// PostUpdateCleanup deletes sibling .old / .old.exe binaries left over
-// from a recent install. Called from main.go when the --post-update
-// flag is present.
+// PostUpdateCleanup deletes the leftover from a recent install. On
+// Linux/Windows that's the sibling .old / .old.exe binary; on macOS the
+// platform hook removes the moved-aside .app.old bundle. Called from
+// main.go when the --post-update flag is present.
 func PostUpdateCleanup(exePath string) {
 	candidates := []string{
 		exePath + ".old",
@@ -217,4 +215,6 @@ func PostUpdateCleanup(exePath string) {
 		}
 		_ = os.Remove(p)
 	}
+	// Bundle-granularity cleanup (macOS); no-op elsewhere.
+	cleanupPlatformArtifact(exePath)
 }

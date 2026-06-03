@@ -103,10 +103,19 @@ func (g *BootGuard) MarkCleanBoot() {
 	_ = writeLaunchState(g.dir, s)
 }
 
-// PerformRollback attempts to restore the .old (Linux) / .old.exe
-// (Windows) binary. Returns the path to the binary that should be
-// exec'd, or an error if no rollback target exists.
+// PerformRollback attempts to restore the previous version. On macOS the
+// platform hook restores the moved-aside .app bundle; on Linux/Windows
+// the generic logic below restores the .old / .old.exe binary. Returns
+// the path to the executable that should be exec'd, or an error if no
+// rollback target exists.
 func PerformRollback(exePath string) (string, error) {
+	// macOS rolls back at .app-bundle granularity and owns the whole
+	// operation (handled=true). Linux/Windows return handled=false and
+	// fall through to the bare-binary restore below.
+	if restored, handled, err := rollbackPlatformArtifact(exePath); handled {
+		return restored, err
+	}
+
 	candidates := []string{exePath + ".old"}
 	if len(exePath) > 4 && exePath[len(exePath)-4:] == ".exe" {
 		base := exePath[:len(exePath)-4]

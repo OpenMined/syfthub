@@ -13,10 +13,11 @@ import { formatBytes } from '@/lib/utils';
  * no "Continue at my own risk", since a dismissable security gate is
  * not a security gate.
  *
- * Phase 2: the Download button triggers an in-app artifact download
- * with SHA-256 verification, then offers "Open in file browser" so the
- * user can complete the manual install step. (Phase 3 will install
- * automatically on Linux + Windows; Phase 4 covers signed macOS.)
+ * The Download button triggers an in-app artifact download with SHA-256
+ * verification, then "Install & restart" performs the in-place swap and
+ * relaunch on every shipped platform (Linux, Windows, and signed macOS).
+ * Platforms without a one-click installer fall back to a manual
+ * "Open downloaded file" step.
  */
 export function MustUpdateModal() {
   const {
@@ -111,8 +112,9 @@ export function MustUpdateModal() {
           </div>
         )}
 
-        {/* Install instructions */}
-        {downloadReady && (
+        {/* Manual install instructions — only for platforms without a
+            one-click installer. In-place platforms use "Install & restart". */}
+        {downloadReady && !inPlaceInstallSupported && (
           <p className="text-xs text-muted-foreground border-l-2 border-primary/30 pl-2">
             {platformInstructions(state.platform)}
           </p>
