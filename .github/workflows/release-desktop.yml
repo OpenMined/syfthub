@@ -70,7 +70,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: syfthub-desktop/go.mod
           cache-dependency-path: syfthub-desktop/go.sum
 
       - name: Install Linux dependencies
@@ -146,7 +146,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: syfthub-desktop/go.mod
           cache-dependency-path: syfthub-desktop/go.sum
 
       - name: Install Wails
@@ -204,16 +204,41 @@ jobs:
     defaults:
       run:
         working-directory: syfthub-desktop
-    env:
-      # Phase 4 toggles: set these via repository secrets to enable signing /
-      # notarization. While they are empty the macOS build ships unsigned,
-      # matching today's behavior.
-      HAS_APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 != '' && secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD != '' }}
-      HAS_APPLE_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY != '' }}
-      HAS_APPLE_NOTARY: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID != '' && secrets.APPLE_NOTARIZATION_TEAM_ID != '' && secrets.APPLE_NOTARIZATION_APP_PASSWORD != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # macOS releases ship signed + notarized ONLY. Fail fast (before the
+      # multi-minute build) if any required Apple secret is missing, rather
+      # than silently producing an unsigned bundle.
+      - name: Verify Apple signing secrets are configured
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+          APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+          APPLE_NOTARIZATION_APP_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          fail=0
+          require() {
+            if [ -z "$2" ]; then
+              echo "::error::Required Apple signing secret is not set: $1"
+              fail=1
+            fi
+          }
+          require APPLE_DEVELOPER_ID_CERT_P12_BASE64 "$APPLE_DEVELOPER_ID_CERT_P12_BASE64"
+          require APPLE_DEVELOPER_ID_CERT_PASSWORD   "$APPLE_DEVELOPER_ID_CERT_PASSWORD"
+          require APPLE_DEVELOPER_ID_IDENTITY        "$APPLE_DEVELOPER_ID_IDENTITY"
+          require APPLE_NOTARIZATION_APPLE_ID        "$APPLE_NOTARIZATION_APPLE_ID"
+          require APPLE_NOTARIZATION_TEAM_ID         "$APPLE_NOTARIZATION_TEAM_ID"
+          require APPLE_NOTARIZATION_APP_PASSWORD    "$APPLE_NOTARIZATION_APP_PASSWORD"
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::macOS releases must be signed + notarized. Configure the secret(s) above (see RELEASING.md) before tagging a release."
+            exit 1
+          fi
+          echo "All Apple signing secrets present."
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -225,7 +250,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: syfthub-desktop/go.mod
           cache-dependency-path: syfthub-desktop/go.sum
 
       - name: Install Wails
@@ -244,14 +269,11 @@ jobs:
             -o syfthub-desktop
 
       # ----------------------------------------------------------------
-      # Optional: code sign + notarize (Phase 4 scaffolding)
+      # Code sign + notarize. These run unconditionally — the preflight
+      # above guarantees the required secrets are present, and macOS
+      # releases ship signed + notarized only (no unsigned fallback).
       #
-      # These steps activate only when the required secrets are present.
-      # Until OpenMined provisions an Apple Developer ID + notarization
-      # credentials, they are skipped and macOS continues to ship
-      # unsigned (the existing Phase 2 manual-install UX).
-      #
-      # Required secrets to enable:
+      # Required secrets (validated in the preflight step):
       #   APPLE_DEVELOPER_ID_CERT_P12_BASE64  — base64 of the .p12 cert
       #   APPLE_DEVELOPER_ID_CERT_PASSWORD    — password for the .p12
       #   APPLE_DEVELOPER_ID_IDENTITY         — "Developer ID Application: <name> (<team>)"
@@ -260,7 +282,6 @@ jobs:
       #   APPLE_NOTARIZATION_APP_PASSWORD     — app-specific password
       # ----------------------------------------------------------------
       - name: Import code-signing certificate
-        if: ${{ env.HAS_APPLE_CERT == 'true' }}
         env:
           APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
           APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
@@ -279,7 +300,6 @@ jobs:
           echo "MAC_KEYCHAIN=$KEYCHAIN" >> $GITHUB_ENV
 
       - name: Codesign .app bundle
-        if: ${{ env.HAS_APPLE_IDENTITY == 'true' }}
         env:
           APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
         run: |
@@ -319,7 +339,6 @@ jobs:
           ls -la
 
       - name: Notarize and staple
-        if: ${{ env.HAS_APPLE_NOTARY == 'true' }}
         env:
           APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
           APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
@@ -425,7 +444,9 @@ jobs:
             1. Download the `.zip` file
             2. Extract the archive
             3. Move `SyftHub Desktop.app` to your Applications folder
-            4. On first run, right-click and select "Open" to bypass Gatekeeper
+            4. Double-click to open — the app is signed and notarized, so it launches without a Gatekeeper prompt
+
+            > Future updates install automatically from within the app.
 
             ### Checksum Verification
             SHA256 checksums are provided in `checksums.txt` for binary verification.
