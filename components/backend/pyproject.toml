@@ -152,6 +152,10 @@ markers = [
 [tool.mypy]
 python_version = "3.12"
 packages = ["src/syfthub"]
+# Pydantic v2's dataclass_transform support alone doesn't recognize positional
+# `Field(None, ...)` defaults, so optional fields look required at call sites.
+# The official plugin reads the FieldInfo defaults correctly.
+plugins = ["pydantic.mypy"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true
