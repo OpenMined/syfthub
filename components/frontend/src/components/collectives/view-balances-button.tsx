@@ -40,8 +40,7 @@ export function ViewBalancesButton({
   className
 }: Readonly<ViewBalancesButtonProps>) {
   const [open, setOpen] = useState(false);
-  const hasPaidMembers =
-    summary != null && (summary.prepaid_count > 0 || summary.mpp_count > 0);
+  const hasPaidMembers = summary != null && (summary.prepaid_count > 0 || summary.mpp_count > 0);
   const status = useCollectiveQueryReadiness(summary, hasPaidMembers);
 
   if (!hasPaidMembers) return null;

@@ -101,8 +101,7 @@ export function PrepaidAccountRow({
 
   const primaryEndpoint = pending.endpoints[0];
   const primaryLabel = label ?? primaryEndpoint?.path ?? 'Unknown endpoint';
-  const secondaryLabel =
-    sublabel ?? (primaryEndpoint?.role === 'model' ? 'Model' : 'Data source');
+  const secondaryLabel = sublabel ?? (primaryEndpoint?.role === 'model' ? 'Model' : 'Data source');
 
   const handleBuy = async () => {
     if (!selectedBundle || !primaryEndpoint) return;

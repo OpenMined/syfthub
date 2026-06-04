@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { CollectiveSharedEndpoint } from '@/lib/collectives-api';
 import type { EndpointType } from '@/lib/types';
 import type { ReactNode } from 'react';
 
@@ -13,8 +14,6 @@ import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import Users from 'lucide-react/dist/esm/icons/users';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-
-import type { CollectiveSharedEndpoint } from '@/lib/collectives-api';
 
 import { CollectiveAbout } from '@/components/collectives/collective-about';
 import { CollectiveIcon } from '@/components/collectives/collective-icon';
@@ -447,8 +446,8 @@ function SharedEndpointCard({
         </Badge>
       </div>
       <p className='text-muted-foreground mb-3 text-xs'>
-        One API that queries all {endpointCount}{' '}
-        {endpointCount === 1 ? 'endpoint' : 'endpoints'} in this collective at once.
+        One API that queries all {endpointCount} {endpointCount === 1 ? 'endpoint' : 'endpoints'} in
+        this collective at once.
       </p>
       <div className='space-y-3'>
         <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>

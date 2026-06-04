@@ -26,7 +26,7 @@ export function formatPriceSlice(entry: PriceByCurrency): string {
 
 /** Join per-currency slices into `10,000 IDR + 10 EUR`. */
 export function formatEstimatedPrice(entries: PriceByCurrency[]): string {
-  return entries.map(formatPriceSlice).join(' + ');
+  return entries.map((entry) => formatPriceSlice(entry)).join(' + ');
 }
 
 export interface CollectivePriceProps {
@@ -58,6 +58,7 @@ export function CollectivePrice({
 
   const entries = summary.estimated_price;
   const multiCurrency = entries.length > 1;
+  const [firstEntry] = entries;
   const tooltip = allFree
     ? 'No payment required'
     : multiCurrency
@@ -88,9 +89,9 @@ export function CollectivePrice({
           ))}
           <span className='text-muted-foreground font-normal'>per request</span>
         </>
-      ) : (
-        <span className='tabular-nums'>~{formatPriceSlice(entries[0]!)} / request</span>
-      )}
+      ) : firstEntry ? (
+        <span className='tabular-nums'>~{formatPriceSlice(firstEntry)} / request</span>
+      ) : null}
       {extras.length > 0 && (
         <span className='text-muted-foreground font-normal'>· {extras.join(' · ')}</span>
       )}

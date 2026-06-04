@@ -1,9 +1,8 @@
 import * as React from 'react';
 
-import { createPortal } from 'react-dom';
-
 import { AnimatePresence, motion } from 'framer-motion';
 import X from 'lucide-react/dist/esm/icons/x';
+import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/utils';
 
