@@ -97,6 +97,14 @@ def _pick(config: dict[str, Any], snake: str, camel: str) -> Any:
     return config.get(camel)
 
 
+def _parse_unit(config: dict[str, Any]) -> str:
+    """Read the billing unit from a policy config, defaulting to ``request``."""
+    unit_raw = _pick(config, "unit_type", "unitType")
+    if isinstance(unit_raw, str) and unit_raw.lower() in ("request", "document"):
+        return unit_raw.lower()
+    return "request"
+
+
 def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Normalize a prepaid policy ``config`` into billing-detail kwargs.
 
@@ -110,19 +118,14 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
         return None
 
     invoices_url = _pick(config, "invoices_url", "invoicesUrl")
-    currency = _pick(config, "currency", "currency")
+    currency = config.get("currency")
     # New publishers send a generic ``price``; legacy policies used
     # ``price_per_request``. Either yields the per-unit price.
-    price = _pick(config, "price", "price")
+    price = config.get("price")
     if not isinstance(price, (int, float)):
         price = _pick(config, "price_per_request", "pricePerRequest")
-    unit_raw = _pick(config, "unit_type", "unitType")
-    unit = (
-        unit_raw.lower()
-        if isinstance(unit_raw, str) and unit_raw.lower() in ("request", "document")
-        else "request"
-    )
-    raw_bundles = _pick(config, "bundles", "bundles")
+    unit = _parse_unit(config)
+    raw_bundles = config.get("bundles")
     bundles: list[MoneyBundle] = []
     if isinstance(raw_bundles, list):
         for entry in raw_bundles:
@@ -146,7 +149,9 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
     }
 
 
-def _parse_per_request_price(config: dict[str, Any]) -> tuple[str, Optional[float], str]:
+def _parse_per_request_price(
+    config: dict[str, Any],
+) -> tuple[str, Optional[float], str]:
     """Extract a per-request price + currency from a policy config.
 
     Every endpoint bills per request regardless of how it is settled, so MPP
@@ -154,18 +159,13 @@ def _parse_per_request_price(config: dict[str, Any]) -> tuple[str, Optional[floa
     ``(currency, price, unit)`` with ``price`` ``None`` when no flat per-request
     price is published.
     """
-    currency = _pick(config, "currency", "currency")
-    price = _pick(config, "price", "price")
+    currency = config.get("currency")
+    price = config.get("price")
     if not isinstance(price, (int, float)):
         price = _pick(config, "price_per_request", "pricePerRequest")
     if not isinstance(price, (int, float)):
         price = _pick(config, "price_per_call", "pricePerCall")
-    unit_raw = _pick(config, "unit_type", "unitType")
-    unit = (
-        unit_raw.lower()
-        if isinstance(unit_raw, str) and unit_raw.lower() in ("request", "document")
-        else "request"
-    )
+    unit = _parse_unit(config)
     return (
         currency if isinstance(currency, str) else "USD",
         float(price) if isinstance(price, (int, float)) else None,
