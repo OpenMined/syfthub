@@ -9,7 +9,8 @@ import {
   getPublicEndpointsByOwner,
   getPublicEndpointsPaginated,
   getTotalEndpointsCount,
-  getTrendingEndpoints
+  getTrendingEndpoints,
+  getUserEndpoints
 } from '@/lib/endpoint-utils';
 import { endpointKeys } from '@/lib/query-keys';
 
@@ -33,13 +34,15 @@ export function usePaginatedPublicEndpoints(
   page: number,
   pageSize = 12,
   endpointType?: EndpointType,
-  search?: string
+  search?: string,
+  enabled = true
 ) {
   return useQuery({
     queryKey: endpointKeys.publicPaginated(page, pageSize, endpointType, search),
     queryFn: () =>
       getPublicEndpointsPaginated({ page, limit: pageSize, endpoint_type: endpointType, search }),
-    placeholderData: keepPreviousData // Keep previous data while fetching new page
+    placeholderData: keepPreviousData, // Keep previous data while fetching new page
+    enabled
   });
 }
 
@@ -96,5 +99,13 @@ export function useEndpointsByOwner(owner: string | undefined) {
     queryKey: endpointKeys.byOwner(owner ?? ''),
     queryFn: () => (owner ? getPublicEndpointsByOwner(owner) : []),
     enabled: !!owner
+  });
+}
+
+export function useMyEndpoints(username: string, enabled = true) {
+  return useQuery({
+    queryKey: endpointKeys.myEndpoints(username),
+    queryFn: () => getUserEndpoints({}, username),
+    enabled
   });
 }

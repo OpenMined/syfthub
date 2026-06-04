@@ -109,6 +109,19 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             return None
 
+    def get_by_ids(self, endpoint_ids: List[int]) -> List[Endpoint]:
+        """Get active endpoints by a list of IDs in one query."""
+        if not endpoint_ids:
+            return []
+        try:
+            stmt = select(self.model).where(
+                and_(self.model.id.in_(endpoint_ids), self.model.is_active)
+            )
+            result = self.session.execute(stmt)
+            return [Endpoint.model_validate(m) for m in result.scalars().all()]
+        except SQLAlchemyError:
+            return []
+
     def get_by_user_and_slug(self, user_id: int, slug: str) -> Optional[Endpoint]:
         """Get endpoint by user ID and slug."""
         try:

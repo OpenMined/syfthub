@@ -2,7 +2,7 @@
  * Violet-themed bundle dropdown shared by the Xendit-policy sidebar card
  * and the chat-flow subscription gate modal.
  */
-import type { MoneyBundle } from '@/lib/xendit-client';
+import type { MoneyBundle, PolicyUnit } from '@/lib/xendit-client';
 
 import {
   Select,
@@ -12,7 +12,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { formatRequestEstimate } from '@/lib/xendit-client';
+import { formatUnitEstimate } from '@/lib/xendit-client';
 
 export interface BundlePickerProperties {
   bundles: MoneyBundle[];
@@ -21,21 +21,24 @@ export interface BundlePickerProperties {
   onChange: (name: string) => void;
   disabled?: boolean;
   triggerClassName?: string;
-  /** When set (>0), each option shows an estimated request count. */
-  pricePerRequest?: number | null;
+  /** When set (>0), each option shows an estimated unit count. */
+  pricePerUnit?: number | null;
+  /** Billing unit driven by policy.config.unit_type; defaults to request. */
+  unit?: PolicyUnit;
 }
 
-function RequestEstimate({
+function UnitEstimate({
   amount,
-  pricePerRequest
-}: Readonly<{ amount: number; pricePerRequest: number }>) {
+  pricePerUnit,
+  unit
+}: Readonly<{ amount: number; pricePerUnit: number; unit: PolicyUnit }>) {
   return (
     <>
       <span className='opacity-40' aria-hidden='true'>
         ·
       </span>
       <span className='text-[11px] font-normal opacity-75'>
-        {formatRequestEstimate(amount, pricePerRequest)}
+        {formatUnitEstimate(amount, pricePerUnit, unit)}
       </span>
     </>
   );
@@ -48,12 +51,13 @@ export function BundlePicker({
   onChange,
   disabled,
   triggerClassName,
-  pricePerRequest
+  pricePerUnit,
+  unit = 'request'
 }: Readonly<BundlePickerProperties>) {
   const selected = bundles.find((b) => b.name === value) ?? bundles[0];
   if (!selected) return null;
 
-  const showRequestEstimate = typeof pricePerRequest === 'number' && pricePerRequest > 0;
+  const showUnitEstimate = typeof pricePerUnit === 'number' && pricePerUnit > 0;
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
@@ -71,8 +75,8 @@ export function BundlePicker({
             <span className='font-medium tabular-nums'>
               {currency} {selected.amount.toLocaleString()}
             </span>
-            {showRequestEstimate && (
-              <RequestEstimate amount={selected.amount} pricePerRequest={pricePerRequest} />
+            {showUnitEstimate && (
+              <UnitEstimate amount={selected.amount} pricePerUnit={pricePerUnit} unit={unit} />
             )}
           </span>
         </SelectValue>
@@ -84,8 +88,8 @@ export function BundlePicker({
               <span className='font-medium tabular-nums'>
                 {currency} {bundle.amount.toLocaleString()}
               </span>
-              {showRequestEstimate && (
-                <RequestEstimate amount={bundle.amount} pricePerRequest={pricePerRequest} />
+              {showUnitEstimate && (
+                <UnitEstimate amount={bundle.amount} pricePerUnit={pricePerUnit} unit={unit} />
               )}
             </span>
           </SelectItem>

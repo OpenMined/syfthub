@@ -326,6 +326,29 @@ export class HubResource {
   }
 
   /**
+   * Get the owner/slug paths of a collective's approved member endpoints,
+   * optionally narrowed to a single shared-endpoint subset.
+   *
+   * Used by the chat resource to expand both `collective/<slug>` and
+   * `collective/<slug>/<shared-slug>` data-source references into the
+   * individual endpoint paths before building the aggregator request.
+   *
+   * @param slug - The collective slug (e.g. "genomics-research")
+   * @param sharedSlug - Optional curated-subset slug. When provided, only the
+   *   intersection of the subset's configured endpoints with the collective's
+   *   currently approved members is returned. Omit for "all approved members".
+   * @returns Array of "owner/slug" path strings
+   * @throws {NotFoundError} If the collective (or shared endpoint) does not exist
+   */
+  async getCollectiveEndpointPaths(slug: string, sharedSlug?: string): Promise<string[]> {
+    const base = `/api/v1/collectives/by-slug/${encodeURIComponent(slug)}`;
+    const path = sharedSlug
+      ? `${base}/shared-endpoints/${encodeURIComponent(sharedSlug)}/endpoint-paths`
+      : `${base}/endpoint-paths`;
+    return this.http.get<string[]>(path, {}, { includeAuth: false });
+  }
+
+  /**
    * Check if you have starred an endpoint.
    *
    * @param path - Endpoint path in "owner/slug" format

@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SyftHub | Attribution Infrastructure for Fair AI</title>
+  <meta name="description" content="Every AI prediction is a transaction. Without attribution, you're not part of it. Syft is the infrastructure for sovereign participation in the AI economy.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:            oklch(0.995 0.002 240);
+      --ink:           oklch(0.13 0.01 240);
+      --muted:         oklch(0.52 0.02 240);
+      --subtle:        oklch(0.38 0.015 240);
+      --faint:         oklch(0.91 0.005 240);
+      --primary:       oklch(0.55 0.12 180);
+      --primary-hover: oklch(0.48 0.12 180);
+      --dark-btn:      oklch(0.16 0.01 240);
+      --dark-btn-hover:oklch(0.24 0.01 240);
+      --radius:        0.35rem;
+      --container:     1120px;
+      --pad:           clamp(1.5rem, 5vw, 3.5rem);
+      --section-gap:   7rem;
+    }
+
+    html {
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 300;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.75;
+      overflow-x: hidden;
+    }
+
+    h1, h2, h3, h4 { font-family: 'Rubik', system-ui, sans-serif; }
+
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+    .container {
+      max-width: var(--container);
+      margin: 0 auto;
+      padding: 0 var(--pad);
+    }
+
+    /* ── Scroll animations ── */
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.65s ease, transform 0.65s ease;
+    }
+
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    .reveal-delay-1 { transition-delay: 0.10s; }
+    .reveal-delay-2 { transition-delay: 0.20s; }
+    .reveal-delay-3 { transition-delay: 0.30s; }
+    .reveal-delay-4 { transition-delay: 0.40s; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .reveal { opacity: 1; transform: none; transition: none; }
+    }
+
+    /* ── Nav ── */
+
+    nav {
+      padding: 1.5rem 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--faint);
+      position: relative;
+      z-index: 10;
+    }
+
+    .nav-logo {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .nav-logo:hover { text-decoration: none; }
+    .nav-logo .nav-logo-muted { color: var(--muted); font-weight: 400; }
+    .nav-logo svg { width: 1.4rem; height: 1.4rem; display: block; flex-shrink: 0; }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .nav-link {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.85rem;
+      font-weight: 400;
+      color: var(--subtle);
+    }
+    .nav-link:hover { color: var(--ink); text-decoration: none; }
+
+    @media (max-width: 560px) {
+      .nav-right { gap: 1rem; }
+      .nav-link.nav-link-hide-sm { display: none; }
+    }
+
+    /* ── Hero ── */
+
+    .hero-wrap {
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Gradient mesh, mimics OpenMined's colorful background */
+    .hero-wrap::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 55% 70% at -2% 85%,  oklch(0.78 0.20 35  / 0.55) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 55% at 28% 100%, oklch(0.68 0.22 320 / 0.45) 0%, transparent 55%),
+        radial-gradient(ellipse 35% 50% at 58% 95%,  oklch(0.65 0.18 270 / 0.35) 0%, transparent 50%),
+        radial-gradient(ellipse 45% 60% at 102% 75%, oklch(0.74 0.16 180 / 0.45) 0%, transparent 55%);
+      filter: blur(72px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero {
+      position: relative;
+      z-index: 1;
+      padding: 6.5rem 0 5.5rem;
+      border-bottom: 1px solid var(--faint);
+    }
+
+    .hero .eyebrow { margin-bottom: 1.5rem; }
+
+    .hero-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5rem;
+      align-items: center;
+      margin-top: 3rem;
+      padding-top: 2.5rem;
+      border-top: 1px solid var(--faint);
+    }
+
+    .hero-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .eyebrow {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1.75rem;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 3.3vw, 3.2rem);
+      font-weight: 500;
+      line-height: 1.15;
+      letter-spacing: -0.025em;
+      margin-bottom: 0;
+      color: var(--ink);
+    }
+
+    .hero-sub {
+      font-size: 1rem;
+      line-height: 1.75;
+      color: var(--muted);
+      margin-bottom: 0;
+      font-weight: 300;
+    }
+
+    .hero-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hero-diagram svg { display: block; width: min(100%, 400px); height: auto; margin: 0 auto; }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.7rem 1.5rem;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn:hover { text-decoration: none; }
+
+    .btn-primary {
+      background: var(--dark-btn);
+      color: white;
+    }
+
+    .btn-primary:hover { background: var(--dark-btn-hover); }
+
+    .btn-outline {
+      border: 1px solid oklch(0.80 0.005 240);
+      color: var(--ink);
+    }
+
+    .btn-outline:hover { border-color: oklch(0.65 0.015 240); }
+
+    /* ── Stack item pastel accents ── */
+
+    .stack-item:nth-child(1) { border-top: 3px solid oklch(0.78 0.18 35  / 0.7); }
+    .stack-item:nth-child(2) { border-top: 3px solid oklch(0.72 0.16 180 / 0.7); }
+    .stack-item:nth-child(3) { border-top: 3px solid oklch(0.72 0.18 290 / 0.7); }
+
+    /* ── Audience pastel washes ── */
+
+    .audience-item:nth-child(1) {
+      background: linear-gradient(150deg, oklch(0.98 0.012 35 / 0.9) 0%, var(--bg) 55%);
+    }
+
+    .audience-item:nth-child(2) {
+      background: linear-gradient(150deg, oklch(0.98 0.010 180 / 0.9) 0%, var(--bg) 55%);
+    }
+
+    /* ── Screenshot gradient ring ── */
+
+    .screenshot-wrap {
+      width: min(100%, 720px);
+      margin: 0 auto;
+      padding: 3px;
+      background: linear-gradient(135deg,
+        oklch(0.78 0.18 35 / 0.5),
+        oklch(0.72 0.18 290 / 0.4),
+        oklch(0.72 0.16 180 / 0.5)
+      );
+      border-radius: calc(var(--radius) + 3px);
+    }
+
+    .screenshot-wrap img {
+      border-radius: var(--radius);
+      border: none;
+    }
+
+
+    /* ── Sections ── */
+
+    section { padding: var(--section-gap) 0; border-top: 1px solid var(--faint); }
+
+    .section-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 2rem;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: start;
+      margin-bottom: 4rem;
+    }
+
+    h2 {
+      font-size: clamp(1.6rem, 2.8vw, 2.2rem);
+      font-weight: 500;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+
+    .section-prose { font-size: 1rem; color: var(--subtle); line-height: 1.75; }
+    .section-prose p + p { margin-top: 1rem; }
+
+    /* ── Protocol stack ── */
+
+    .stack {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--faint);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 3rem;
+    }
+
+    .stack-item {
+      background: var(--bg);
+      padding: 1.75rem 2rem;
+      transition: background 0.2s ease;
+    }
+
+    .stack-item:hover { background: oklch(0.975 0.004 240); }
+
+    .stack-name {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 0.5rem;
+    }
+
+    .stack-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.6; }
+
+    figure img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+    }
+
+    figcaption { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); line-height: 1.5; }
+
+    /* ── Audience ── */
+
+    .audience {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--faint);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .audience-item { background: var(--bg); padding: 2.5rem; }
+
+    .audience-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .audience-head {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 1.05rem;
+      font-weight: 500;
+      line-height: 1.35;
+      color: var(--ink);
+      margin-bottom: 1.5rem;
+      max-width: 28ch;
+    }
+
+    .audience-item ul { list-style: none; padding: 0; }
+
+    .audience-item li {
+      font-size: 0.88rem;
+      color: var(--subtle);
+      line-height: 1.65;
+      padding: 0.2rem 0 0.2rem 1.4rem;
+      position: relative;
+    }
+
+    .audience-item li::before {
+      content: '→';
+      position: absolute;
+      left: 0;
+      color: var(--primary);
+      font-size: 0.8rem;
+      top: 0.32rem;
+      line-height: 1;
+    }
+
+    /* ── Positions ── */
+
+    .positions-intro { font-size: 1rem; color: var(--muted); margin-top: 0.5rem; }
+
+    .pos-icon-num {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.6rem;
+      padding-top: 0.1em;
+    }
+
+    .pos-icon-num svg {
+      color: var(--primary);
+      flex-shrink: 0;
+      display: block;
+    }
+
+    .position {
+      display: grid;
+      grid-template-columns: 4.5rem 1fr 1fr auto;
+      column-gap: 2.5rem;
+      align-items: start;
+      padding: 2rem 0;
+      border-top: 1px solid var(--faint);
+    }
+
+
+    .pos-num {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--muted);
+      padding-top: 0.25em;
+      letter-spacing: 0.06em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pos-title {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--ink);
+      padding-top: 0.1em;
+    }
+
+    .pos-body { font-size: 0.9rem; color: var(--subtle); line-height: 1.65; }
+
+    .btn-row {
+      display: inline-block;
+      white-space: nowrap;
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+      color: var(--primary);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.78rem;
+      font-weight: 500;
+      transition: border-color 0.15s ease;
+    }
+
+    .btn-row:hover { border-color: var(--primary); text-decoration: none; }
+
+    button.btn-row {
+      cursor: pointer;
+      background: var(--bg);
+    }
+
+    /* ── Modal ── */
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: oklch(0.13 0.01 240 / 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1.5rem;
+      opacity: 0;
+      transition: opacity 0.18s ease;
+    }
+    .modal-overlay.open { display: flex; opacity: 1; }
+
+    .modal {
+      background: var(--bg);
+      border-radius: 0.5rem;
+      max-width: 28rem;
+      width: 100%;
+      max-height: calc(100vh - 3rem);
+      overflow-y: auto;
+      padding: 2rem;
+      box-shadow: 0 30px 60px -20px oklch(0.13 0.01 240 / 0.25), 0 0 0 1px var(--faint);
+      transform: translateY(8px);
+      transition: transform 0.18s ease;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+
+    .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem; }
+
+    .modal-title {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 1.15rem;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.3;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 1.4rem;
+      line-height: 1;
+      padding: 0 0.25rem;
+      margin: -0.25rem;
+    }
+    .modal-close:hover { color: var(--ink); }
+
+    .modal-note {
+      font-size: 0.85rem;
+      color: var(--subtle);
+      line-height: 1.55;
+      margin-bottom: 1.25rem;
+    }
+
+    .modal-form { display: flex; flex-direction: column; gap: 0.6rem; }
+
+    .modal-form .field-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 0.3rem;
+      display: block;
+    }
+    .modal-form .field-label span { color: var(--primary); margin-left: 0.15rem; }
+
+    .modal-form .field { display: flex; flex-direction: column; }
+
+    .modal-form input,
+    .modal-form textarea,
+    .modal-form select {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.88rem;
+      font-weight: 400;
+      transition: border-color 0.15s ease;
+    }
+    .modal-form input::placeholder,
+    .modal-form textarea::placeholder { color: var(--muted); }
+    .modal-form input:focus,
+    .modal-form textarea:focus,
+    .modal-form select:focus { outline: none; border-color: var(--primary); }
+    .modal-form textarea { resize: vertical; min-height: 4.5rem; line-height: 1.55; }
+
+    .modal-form .field-checks {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.6rem 0.7rem;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .modal-form .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.92rem;
+      color: var(--subtle);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .modal-form .check-row input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.6rem; }
+
+    .modal-submit {
+      cursor: pointer;
+      padding: 0.6rem 1.25rem;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--dark-btn);
+      color: var(--bg);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.82rem;
+      font-weight: 500;
+      transition: background 0.15s ease;
+    }
+    .modal-submit:hover { background: var(--dark-btn-hover); }
+    .modal-submit:disabled { opacity: 0.65; cursor: wait; }
+
+    .modal-error {
+      display: none;
+      margin-top: 0.75rem;
+      font-size: 0.82rem;
+      color: oklch(0.45 0.14 25);
+      line-height: 1.5;
+    }
+    .modal-error.visible { display: block; }
+
+    .modal-cancel {
+      cursor: pointer;
+      padding: 0.6rem 1rem;
+      border: 1px solid var(--faint);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--subtle);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+    .modal-cancel:hover { color: var(--ink); border-color: var(--subtle); }
+
+    .modal-success {
+      display: none;
+      padding: 1rem 0 0.25rem;
+      color: var(--ink);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+    .modal.is-sent .modal-form,
+    .modal.is-sent .modal-note { display: none; }
+    .modal.is-sent .modal-success { display: block; }
+
+    body.modal-open { overflow: hidden; }
+
+    /* ── Footer ── */
+
+    footer { border-top: 1px solid var(--faint); padding: 4.5rem 0 5rem; }
+
+    .footer-inner {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 4rem;
+      align-items: start;
+    }
+
+    .footer-tagline {
+      font-family: 'Rubik', system-ui, sans-serif;
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.4;
+      max-width: 26ch;
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-note { font-size: 0.8rem; color: var(--muted); }
+
+    .footer-col-label {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .footer-col a { display: block; font-size: 0.85rem; color: var(--subtle); line-height: 2.1; }
+    .footer-col a:hover { color: var(--primary); text-decoration: none; }
+
+    /* ── Mobile ── */
+
+    @media (max-width: 900px) {
+      .hero-body { grid-template-columns: 1fr; gap: 1.5rem; border-top: none; padding-top: 0; margin-top: 2rem; align-items: start; }
+      .hero-left { gap: 1.5rem; }
+      .section-head { grid-template-columns: 1fr; gap: 1.5rem; }
+      .position { grid-template-columns: 4rem 1fr; row-gap: 0.75rem; }
+      .pos-body { grid-column: 2; }
+      .pos-action { grid-column: 2; }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+      .footer-brand { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 620px) {
+      html { font-size: 16px; }
+      :root { --section-gap: 5rem; }
+      .hero { padding: 4rem 0 3.5rem; }
+      .stack { grid-template-columns: 1fr; }
+      .audience { grid-template-columns: 1fr; }
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <div class="container">
+    <nav>
+      <a class="nav-logo" href="#" aria-label="Syft by OpenMined">
+        <svg viewBox="0 0 397 397" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M177.8 11.9422L117.12 117.056L198.508 70.0654V70.0971L326.903 198.492L219.217 11.9581C210.006 -3.98604 186.995 -3.98604 177.784 11.9581L177.8 11.9422Z" fill="url(#om-g0)"/><path d="M279.912 117.056L326.919 198.476L326.871 198.492L198.508 326.855L385.042 219.184C400.986 209.974 400.986 186.963 385.042 177.752L279.912 117.056Z" fill="url(#om-g1)"/><path d="M70.1127 198.46L198.508 70.0654L11.9737 177.736C-3.97041 186.947 -3.97041 209.958 11.9737 219.169L117.148 279.864L70.0969 198.476L70.1127 198.46Z" fill="url(#om-g2)"/><path d="M198.524 326.871V326.839L70.1607 198.476H70.1289L177.815 385.01C187.026 400.954 210.037 400.954 219.248 385.01L279.96 279.864L198.556 326.871H198.524Z" fill="url(#om-g3)"/><path d="M198.523 198.492V275.497L275.529 198.492H198.523Z" fill="url(#om-g4)"/><path d="M198.524 198.492H121.519L198.524 275.497V198.492Z" fill="url(#om-g5)"/><path d="M198.524 198.492V121.487L121.519 198.492H198.524Z" fill="url(#om-g6)"/><path d="M198.523 198.492H275.529L198.523 121.487V198.492Z" fill="url(#om-g7)"/><defs><linearGradient id="om-g0" x1="117.104" y1="99.2222" x2="326.919" y2="99.2222" gradientUnits="userSpaceOnUse"><stop stop-color="#E6AF7B"/><stop offset="0.42" stop-color="#F3C07A"/><stop offset="0.8" stop-color="#C5A48A"/><stop offset="1" stop-color="#87A9A0"/></linearGradient><linearGradient id="om-g1" x1="297.778" y1="117.056" x2="297.778" y2="326.871" gradientUnits="userSpaceOnUse"><stop stop-color="#BACC9B"/><stop offset="0.29" stop-color="#9FCFA1"/><stop offset="0.52" stop-color="#81BEA5"/><stop offset="0.79" stop-color="#7EA3A3"/><stop offset="1" stop-color="#8D7997"/></linearGradient><linearGradient id="om-g2" x1="99.2537" y1="279.88" x2="99.2537" y2="70.0654" gradientUnits="userSpaceOnUse"><stop stop-color="#A85684"/><stop offset="0.27" stop-color="#C35074"/><stop offset="0.53" stop-color="#E27D69"/><stop offset="1" stop-color="#C9BC8F"/></linearGradient><linearGradient id="om-g3" x1="70.0971" y1="297.73" x2="279.928" y2="297.73" gradientUnits="userSpaceOnUse"><stop stop-color="#F6796C"/><stop offset="0.25" stop-color="#C5707C"/><stop offset="0.49" stop-color="#927393"/><stop offset="0.78" stop-color="#757FA3"/><stop offset="1" stop-color="#60A4AF"/></linearGradient><linearGradient id="om-g4" x1="179.276" y1="256.25" x2="256.281" y2="179.245" gradientUnits="userSpaceOnUse"><stop stop-color="#757FA3"/><stop offset="1" stop-color="#60A4AF"/></linearGradient><linearGradient id="om-g5" x1="217.787" y1="256.234" x2="140.782" y2="179.229" gradientUnits="userSpaceOnUse"><stop stop-color="#C5707C"/><stop offset="1" stop-color="#ED986C"/></linearGradient><linearGradient id="om-g6" x1="140.766" y1="217.739" x2="217.771" y2="140.734" gradientUnits="userSpaceOnUse"><stop stop-color="#F3C07A"/><stop offset="1" stop-color="#ED986C"/></linearGradient><linearGradient id="om-g7" x1="179.276" y1="140.734" x2="256.281" y2="217.739" gradientUnits="userSpaceOnUse"><stop stop-color="#5CB6A5"/><stop offset="1" stop-color="#99CC99"/></linearGradient></defs></svg>
+        <span>Syft <span class="nav-logo-muted">by OpenMined</span></span>
+      </a>
+      <div class="nav-right">
+        <a class="nav-link nav-link-hide-sm" href="https://syft.docs.openmined.org">Docs</a>
+        <a class="nav-link" href="https://syfthub.openmined.org">Open app →</a>
+        <a class="btn btn-primary" style="padding: 0.5rem 1.1rem; font-size: 0.8rem;" href="#get-involved">Get involved</a>
+      </div>
+    </nav>
+  </div>
+
+  <!-- Hero -->
+  <div class="hero-wrap">
+    <div class="container">
+      <div class="hero">
+        <p class="eyebrow reveal">Open protocol · Early access</p>
+        <h1 class="reveal reveal-delay-1">Every AI prediction is a transaction. Without attribution, you're not part of it.</h1>
+        <div class="hero-body reveal reveal-delay-2">
+          <div class="hero-left">
+            <p class="hero-sub">Every AI response draws its accuracy from someone's work. Syft is the live network of journalists, researchers, and specialists that AI queries at the moment of prediction. The infrastructure makes that transaction visible, fair, and on your terms.</p>
+            <div class="actions">
+              <a class="btn btn-primary" href="https://syfthub.openmined.org">Try it out</a>
+              <a class="btn btn-outline" href="https://syft.docs.openmined.org">Docs</a>
+            </div>
+          </div>
+          <div class="hero-diagram" aria-hidden="true">
+            <svg viewBox="-20 -10 360 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <style>
+                .dn1 { color: oklch(0.58 0.09 35);  }
+                .dn2 { color: oklch(0.50 0.08 225); }
+                .dn3 { color: oklch(0.52 0.09 285); }
+                .dn4 { color: oklch(0.52 0.09 345); }
+              </style>
+
+              <!-- Orbit ring (rx=105 ry=46), nodes at cardinal points -->
+              <ellipse cx="160" cy="120" rx="105" ry="46"
+                stroke="var(--faint)" stroke-width="1" stroke-dasharray="4 3"
+                transform="rotate(30 160 120)"/>
+
+              <!-- Radii node → hub
+                   t=0°  → (251,173)   t=270° → (183,80)
+                   t=180° → (69,68)    t=90°  → (137,160) -->
+              <line class="dn1" x1="251" y1="173" x2="160" y2="120" stroke="currentColor" stroke-width="0.75" opacity="0.4"/>
+              <line class="dn2" x1="183" y1="80"  x2="160" y2="120" stroke="currentColor" stroke-width="0.75" opacity="0.4"/>
+              <line class="dn3" x1="69"  y1="68"  x2="160" y2="120" stroke="currentColor" stroke-width="0.75" opacity="0.4"/>
+              <line class="dn4" x1="137" y1="160" x2="160" y2="120" stroke="currentColor" stroke-width="0.75" opacity="0.4"/>
+
+              <!-- Node 1 · amber · (251,173) · inward rotate(210) -->
+              <g class="dn1" transform="translate(251,173) rotate(210)">
+                <path d="M6.5 -11.26 A13 13 0 0 1 6.5 11.26" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <path d="M10 -17.32 A20 20 0 0 1 10 17.32"   stroke="currentColor" stroke-width="1.5"  stroke-linecap="round" opacity="0.45"/>
+                <path d="M13.5 -23.38 A27 27 0 0 1 13.5 23.38" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.2"/>
+                <circle r="9" stroke="currentColor" stroke-width="1.25" fill="currentColor" fill-opacity="0.1"/>
+              </g>
+
+              <!-- Node 2 · slate · (183,80) · inward rotate(120) -->
+              <g class="dn2" transform="translate(183,80) rotate(120)">
+                <path d="M6.5 -11.26 A13 13 0 0 1 6.5 11.26" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <path d="M10 -17.32 A20 20 0 0 1 10 17.32"   stroke="currentColor" stroke-width="1.5"  stroke-linecap="round" opacity="0.45"/>
+                <path d="M13.5 -23.38 A27 27 0 0 1 13.5 23.38" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.2"/>
+                <circle r="9" stroke="currentColor" stroke-width="1.25" fill="currentColor" fill-opacity="0.1"/>
+              </g>
+
+              <!-- Node 3 · violet · (69,68) · inward rotate(30) -->
+              <g class="dn3" transform="translate(69,68) rotate(30)">
+                <path d="M6.5 -11.26 A13 13 0 0 1 6.5 11.26" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <path d="M10 -17.32 A20 20 0 0 1 10 17.32"   stroke="currentColor" stroke-width="1.5"  stroke-linecap="round" opacity="0.45"/>
+                <path d="M13.5 -23.38 A27 27 0 0 1 13.5 23.38" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.2"/>
+                <circle r="9" stroke="currentColor" stroke-width="1.25" fill="currentColor" fill-opacity="0.1"/>
+              </g>
+
+              <!-- Node 4 · rose · (137,160) · inward rotate(300) -->
+              <g class="dn4" transform="translate(137,160) rotate(300)">
+                <path d="M6.5 -11.26 A13 13 0 0 1 6.5 11.26" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+                <path d="M10 -17.32 A20 20 0 0 1 10 17.32"   stroke="currentColor" stroke-width="1.5"  stroke-linecap="round" opacity="0.45"/>
+                <path d="M13.5 -23.38 A27 27 0 0 1 13.5 23.38" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" opacity="0.2"/>
+                <circle r="9" stroke="currentColor" stroke-width="1.25" fill="currentColor" fill-opacity="0.1"/>
+              </g>
+
+              <!-- Hub pie (amber 30%, rose 50%, violet 10%, slate 10%) -->
+              <path d="M160 120 L175 120 A15 15 0 0 1 155.4 134.3 Z" style="fill: oklch(0.58 0.09 35)"  opacity="0.7"/>
+              <path d="M160 120 L155.4 134.3 A15 15 0 0 1 145.7 115.4 A15 15 0 0 1 164.6 105.7 Z" style="fill: oklch(0.52 0.09 345)" opacity="0.7"/>
+              <path d="M160 120 L164.6 105.7 A15 15 0 0 1 172.1 111.2 Z" style="fill: oklch(0.52 0.09 285)" opacity="0.7"/>
+              <path d="M160 120 L172.1 111.2 A15 15 0 0 1 175 120 Z"     style="fill: oklch(0.50 0.08 225)" opacity="0.7"/>
+              <line x1="160" y1="120" x2="175"   y2="120"   stroke="var(--bg)" stroke-width="0.75" opacity="0.95"/>
+              <line x1="160" y1="120" x2="155.4" y2="134.3" stroke="var(--bg)" stroke-width="0.75" opacity="0.95"/>
+              <line x1="160" y1="120" x2="164.6" y2="105.7" stroke="var(--bg)" stroke-width="0.75" opacity="0.95"/>
+              <line x1="160" y1="120" x2="172.1" y2="111.2" stroke="var(--bg)" stroke-width="0.75" opacity="0.95"/>
+              <circle cx="160" cy="120" r="6" fill="var(--bg)"/>
+
+              <!-- Labels -->
+              <text x="261" y="191" font-family="Inter, system-ui, sans-serif" font-size="8.5" font-weight="500" letter-spacing="0.09em" fill="var(--muted)" opacity="0.7">PUBLISHERS</text>
+              <text x="187" y="64"  font-family="Inter, system-ui, sans-serif" font-size="8.5" font-weight="500" letter-spacing="0.09em" fill="var(--muted)" opacity="0.7">RESEARCHERS</text>
+              <text x="57"  y="51"  font-family="Inter, system-ui, sans-serif" font-size="8.5" font-weight="500" letter-spacing="0.09em" fill="var(--muted)" opacity="0.7" text-anchor="end">SCIENTISTS</text>
+              <text x="123" y="183" font-family="Inter, system-ui, sans-serif" font-size="8.5" font-weight="500" letter-spacing="0.09em" fill="var(--muted)" opacity="0.7" text-anchor="end">WRITERS</text>
+
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Protocol -->
+  <div class="container">
+    <section>
+      <p class="section-label reveal">The protocol</p>
+      <div class="section-head">
+        <h2 class="reveal reveal-delay-1">Attribution measured live at inference, not reconstructed after.</h2>
+        <div class="section-prose reveal reveal-delay-2">
+          <p>AI responses are built from specific sources. Those sources rarely know which responses used their work, and they aren't paid for them.</p>
+          <p>The standard approaches don't fix this. Influence functions can estimate how much a training example shaped a prediction, but they're expensive and brittle. Machine unlearning is no better — "erased" data resurfaces and the model degrades in the process. Neither holds up in production. Syft takes a different path: the model queries a live network of sources at inference time, and contribution is recorded as it happens, against the sources that actually answered.<sup style="font-size: 0.7em; color: var(--muted);">*</sup></p>
+          <p>The result is better predictions, grounded in live specialist knowledge, and a verifiable record of actual usage. That's what makes participation on your own terms possible.</p>
+          <p style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--faint); font-size: 0.88rem;"><a href="https://openmined.org/attribution-based-control">Read more on attribution-based control →</a></p>
+          <p style="margin-top: 0.5rem; font-size: 0.82rem; color: var(--muted); line-height: 1.6;"><span style="color: var(--muted);">*</span> We also work on methods for attribution-aware training, models that preserve source identity by design. <a href="mailto:partners@syfthub.org?subject=Attribution-aware training">Reach out for more.</a></p>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="stack-item reveal">
+          <p class="stack-name">Syft Protocol</p>
+          <p class="stack-desc">The open standard for how AI systems find, query, attribute, and pay live data sources.</p>
+        </div>
+        <div class="stack-item reveal reveal-delay-1">
+          <p class="stack-name">SyftHub</p>
+          <p class="stack-desc">The registry. Where sources publish their endpoints and AI systems discover what to query.</p>
+        </div>
+        <div class="stack-item reveal reveal-delay-2">
+          <p class="stack-name">SyftSpace</p>
+          <p class="stack-desc">The secure data node. Creators run it to protect their IP. AI systems query it for live, attributable knowledge.</p>
+        </div>
+      </div>
+
+      <figure class="reveal">
+        <div class="screenshot-wrap">
+          <img src="/hi/shapley-attribution.png" alt="Per-word attribution breakdown across contributing sources for an AI response">
+        </div>
+        <figcaption>Attribution breakdown showing which sources contributed to each part of an AI response.</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <!-- Audience -->
+  <div class="container">
+    <section>
+      <p class="section-label reveal">Who it's for</p>
+      <div class="section-head">
+        <h2 class="reveal reveal-delay-1">Rightsholders of every scale, and the AI teams that build with them.</h2>
+        <div class="section-prose reveal reveal-delay-2">
+          <p>AI development requires an abundance of trustworthy, high-quality data. Rightsholders require control, visibility, and fair terms for their IP. Syft is the inference-time infrastructure that unlocks this abundance, connecting both sides without compromise.</p>
+        </div>
+      </div>
+
+      <div class="audience">
+        <div class="audience-item reveal">
+          <p class="audience-label">Individual creators</p>
+          <p class="audience-head">Participate through a collective, with no infrastructure to run yourself.</p>
+          <ul>
+            <li>Set your own access policies</li>
+            <li>Get paid based on actual usage</li>
+            <li>Join a collective that negotiates leverage for you</li>
+            <li>Keep independence on terms</li>
+          </ul>
+        </div>
+        <div class="audience-item reveal reveal-delay-1">
+          <p class="audience-label">Media networks &amp; enterprise publishers</p>
+          <p class="audience-head">Turn your archives into a high-margin, programmatic API.</p>
+          <ul>
+            <li><strong>Granular IP control:</strong> Define access policies down to specific publications, topics, or real-time feeds.</li>
+            <li><strong>Audit-ready provenance:</strong> A cryptographic ledger of contribution for legal and regulatory compliance.</li>
+            <li><strong>Hosted or self-hosted:</strong> Deploy SyftSpace nodes natively within your existing cloud (AWS/GCP).</li>
+            <li><strong>Novel pricing models:</strong> Charge per request, document, or token, on your terms.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Positions -->
+  <div class="container">
+    <section id="get-involved">
+      <p class="section-label reveal">Ways to engage</p>
+      <div class="section-head" style="margin-bottom: 2rem;">
+        <h2 class="reveal reveal-delay-1">Four levels of involvement.</h2>
+        <p class="positions-intro reveal reveal-delay-2">We're in early access. Most people start at 01.</p>
+      </div>
+
+      <div class="position reveal">
+        <div class="pos-icon-num">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <circle cx="18" cy="18" r="2.5" fill="currentColor"/>
+            <circle cx="18" cy="18" r="8.5" stroke="currentColor" stroke-width="1.25" opacity="0.65"/>
+            <circle cx="18" cy="18" r="15.5" stroke="currentColor" stroke-width="1.25" opacity="0.28"/>
+          </svg>
+          <span class="pos-num">01</span>
+        </div>
+        <span class="pos-title">Track this.</span>
+        <span class="pos-body">Stay informed as collectives form, pilots launch, and standards develop. No commitment beyond receiving updates.</span>
+        <div class="pos-action"><button type="button" class="btn-row" data-modal="subscribe">Subscribe &rarr;</button></div>
+      </div>
+
+      <div class="position reveal">
+        <div class="pos-icon-num">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <circle cx="18" cy="18" r="3" fill="currentColor"/>
+            <line x1="18" y1="4" x2="18" y2="15" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+            <line x1="32" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+            <line x1="18" y1="32" x2="18" y2="21" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+            <line x1="4" y1="18" x2="15" y2="18" stroke="currentColor" stroke-width="1" opacity="0.45"/>
+            <circle cx="18" cy="4" r="2.25" stroke="currentColor" stroke-width="1.25"/>
+            <circle cx="32" cy="18" r="2.25" stroke="currentColor" stroke-width="1.25"/>
+            <circle cx="18" cy="32" r="2.25" stroke="currentColor" stroke-width="1.25"/>
+            <circle cx="4" cy="18" r="2.25" stroke="currentColor" stroke-width="1.25"/>
+          </svg>
+          <span class="pos-num">02</span>
+        </div>
+        <span class="pos-title">Join a collective.</span>
+        <span class="pos-body">Get matched with a collective licensing organization in your craft and jurisdiction. The collective runs the gateway, handles payments, and negotiates terms, while you set the policies that apply to your own work.</span>
+        <div class="pos-action"><button type="button" class="btn-row" data-modal="join-collective">Express interest &rarr;</button></div>
+      </div>
+
+      <div class="position reveal">
+        <div class="pos-icon-num">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="1.25" stroke-dasharray="3.5 2.5"/>
+            <circle cx="18" cy="18" r="6" stroke="currentColor" stroke-width="1.25"/>
+            <circle cx="18" cy="18" r="2.25" fill="currentColor"/>
+          </svg>
+          <span class="pos-num">03</span>
+        </div>
+        <span class="pos-title">Pilot the infrastructure.</span>
+        <span class="pos-body">Try per-query access on your own work, yourself or through a service that runs it for you. Pilots are small and reversible. <a href="https://syft.docs.openmined.org">Read the docs &rarr;</a></span>
+        <div class="pos-action"><button type="button" class="btn-row" data-modal="pilot">Apply &rarr;</button></div>
+      </div>
+
+      <div class="position reveal">
+        <div class="pos-icon-num">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <circle cx="6" cy="18" r="2.5" fill="currentColor"/>
+            <path d="M 12 14 A 6 6 0 0 1 12 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M 17 10 A 11 11 0 0 1 17 26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+            <path d="M 22 6 A 16 16 0 0 1 22 30" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+          </svg>
+          <span class="pos-num">04</span>
+        </div>
+        <span class="pos-title">Coordinate publicly.</span>
+        <span class="pos-body">Make the case, through your publications, channels, associations, or unions, that creators should keep control over how AI uses their work.</span>
+        <div class="pos-action"><button type="button" class="btn-row" data-modal="coordinate">Express interest &rarr;</button></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Footer -->
+  <div class="container">
+    <footer>
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <p class="footer-tagline">Open source, open protocol. Built by OpenMined.</p>
+          <p class="footer-note">SyftHub is an early-access project. The infrastructure is operational.</p>
+        </div>
+        <div class="footer-col">
+          <p class="footer-col-label">Links</p>
+          <a href="https://github.com/OpenMined/syfthub">GitHub</a>
+          <a href="https://syft.docs.openmined.org">Documentation</a>
+          <a href="https://openmined.org">OpenMined</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Modal, populated dynamically by the script below -->
+  <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+    <div class="modal" role="document">
+      <div class="modal-head">
+        <h3 class="modal-title" id="modal-title"></h3>
+        <button type="button" class="modal-close" aria-label="Close" data-modal-close>&times;</button>
+      </div>
+      <p class="modal-note" id="modal-note"></p>
+      <form class="modal-form" id="modal-form" novalidate></form>
+      <p class="modal-error" id="modal-error" role="alert"></p>
+      <div class="modal-success" id="modal-success"></div>
+    </div>
+  </div>
+
+  <script>
+    const observer = new IntersectionObserver(
+      entries => entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }
+      }),
+      { threshold: 0.08 }
+    );
+
+    document.querySelectorAll('.hero .reveal').forEach(el => el.classList.add('visible'));
+    document.querySelectorAll('section .reveal, footer .reveal').forEach(el => observer.observe(el));
+
+    // ── HubSpot (existing form) ────────────────────────────────────
+    const HUBSPOT = {
+      portalId: '6487402',
+      formId: '4022c866-8042-4849-a8f8-02cef2b0cc51',
+      region: 'na1',
+      fields: {
+        firstname: 'firstname',
+        email: 'email',
+        company: 'company',
+        intent: 'syfthub_intent',
+        message: 'message',
+        utmSource: 'utm_source',
+        utmMedium: 'utm_medium',
+        utmCampaign: 'utm_campaign',
+        utmContent: 'utm_content'
+      }
+    };
+
+    const HUBSPOT_SUBMIT_URL = 'https://api.hsforms.com/submissions/v3/integration/submit/'
+      + HUBSPOT.portalId + '/' + HUBSPOT.formId;
+
+    // ── Modal config ───────────────────────────────────────────────
+    const CATEGORY_OPTIONS = [
+      { value: 'Subscribe', label: 'Subscribe' },
+      { value: 'Join a collective', label: 'Join a collective' },
+      { value: 'Pilot', label: 'Pilot' },
+      { value: 'Coordinate publicly', label: 'Coordinate publicly' }
+    ];
+
+    function coreFields(defaultCategory) {
+      return [
+        { name: 'name', label: 'Name', type: 'text', placeholder: 'Your name', required: true, autocomplete: 'name' },
+        { name: 'email', label: 'Email', type: 'email', placeholder: 'you@domain.com', required: true, autocomplete: 'email' },
+        { name: 'organization', label: 'Organization', type: 'text', placeholder: 'Company, institution, or collective', required: true, autocomplete: 'organization' },
+        { name: 'category', label: 'Category', type: 'checkboxes', required: true, options: CATEGORY_OPTIONS, defaultValues: [defaultCategory] },
+        { name: 'message', label: 'Message', type: 'textarea', placeholder: 'A sentence or two is plenty.' }
+      ];
+    }
+
+    const MODAL_CONFIG = {
+      subscribe: {
+        title: 'Subscribe for updates',
+        note: "Occasional updates as collectives form, pilots launch, and standards develop. No spam. Unsubscribe any time.",
+        to: 'collective@syfthub.org',
+        subject: 'Track this: subscribe',
+        submitLabel: 'Subscribe',
+        success: "Thanks. We'll keep you posted.",
+        fields: coreFields('Subscribe')
+      },
+      'join-collective': {
+        title: 'Join a collective',
+        note: "We'll match you with a collective licensing organization in your craft and jurisdiction. They handle the gateway, payments, and negotiation. You set the policies on your own work.",
+        to: 'collective@syfthub.org',
+        subject: 'Join a collective: express interest',
+        submitLabel: 'Express interest',
+        success: "Thanks. A collective lead will be in touch about a match.",
+        fields: coreFields('Join a collective')
+      },
+      pilot: {
+        title: 'Pilot the infrastructure',
+        note: "Pilots are small in scope and reversible. Tell us what you'd like to test and we'll follow up about fit. For technical context first, see the docs.",
+        to: 'partners@syfthub.org',
+        subject: 'Pilot: application',
+        submitLabel: 'Apply',
+        success: "Thanks. We'll reach out about pilot fit and next steps.",
+        fields: coreFields('Pilot')
+      },
+      coordinate: {
+        title: 'Coordinate publicly',
+        note: "Tell us where you'd advocate (outlets, unions, conferences, professional associations) and we'll share resources and align messaging.",
+        to: 'collective@syfthub.org',
+        subject: 'Coordinate publicly: express interest',
+        submitLabel: 'Express interest',
+        success: "Thanks. Let's coordinate. We'll be in touch with materials and intros.",
+        fields: coreFields('Coordinate publicly')
+      }
+    };
+
+    // ── Modal driver ───────────────────────────────────────────────
+    const overlay = document.getElementById('modal-overlay');
+    const modal = overlay.querySelector('.modal');
+    const titleEl = document.getElementById('modal-title');
+    const noteEl = document.getElementById('modal-note');
+    const formEl = document.getElementById('modal-form');
+    const successEl = document.getElementById('modal-success');
+    const errorEl = document.getElementById('modal-error');
+    let activeKey = null;
+    let lastTrigger = null;
+    let submitBtn = null;
+
+    function getHubspotUtk() {
+      const match = document.cookie.match(/(?:^|;)\s*hubspotutk=([^;]*)/);
+      return match ? decodeURIComponent(match[1]) : undefined;
+    }
+
+    // Fixed UTM attribution for all /hi form submissions.
+    const UTM_SOURCE = 'syfthub.openmined.org';
+    const UTM_MEDIUM = 'form';
+    const UTM_CAMPAIGN = 'general traffic';
+    // utm_content = which involvement the visitor clicked to open the form.
+    const UTM_CONTENT_BY_MODAL = {
+      subscribe: 'Track this',
+      'join-collective': 'Join a collective',
+      pilot: 'Pilot the infrastructure',
+      coordinate: 'Coordinate publicly'
+    };
+
+    const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+    const UTM_STORAGE_KEY = 'syfthub_utm';
+
+    // Persist any UTM params from the landing URL so they survive navigation.
+    function captureUtmParams() {
+      const params = new URLSearchParams(window.location.search);
+      const captured = {};
+      UTM_KEYS.forEach(key => {
+        const value = params.get(key);
+        if (value) captured[key] = value;
+      });
+      if (Object.keys(captured).length === 0) return;
+      try {
+        const existing = JSON.parse(sessionStorage.getItem(UTM_STORAGE_KEY) || '{}');
+        sessionStorage.setItem(UTM_STORAGE_KEY, JSON.stringify({ ...existing, ...captured }));
+      } catch (_) { /* sessionStorage unavailable */ }
+    }
+
+    function getStoredUtm() {
+      try {
+        return JSON.parse(sessionStorage.getItem(UTM_STORAGE_KEY) || '{}');
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function getUtmParams() {
+      const params = new URLSearchParams(window.location.search);
+      const stored = getStoredUtm();
+      const pick = key => params.get(key) || stored[key];
+      return {
+        utmSource: pick('utm_source') || UTM_SOURCE,
+        utmMedium: pick('utm_medium') || UTM_MEDIUM,
+        utmCampaign: pick('utm_campaign') || UTM_CAMPAIGN,
+        utmContent: pick('utm_content') || UTM_CONTENT_BY_MODAL[activeKey] || undefined
+      };
+    }
+
+    captureUtmParams();
+
+    function hsField(name, value) {
+      if (value == null || String(value).trim() === '') return null;
+      return { objectTypeId: '0-1', name, value: String(value) };
+    }
+
+    function collectFormValues() {
+      const valuesByKey = new Map();
+      new FormData(formEl).forEach((value, key) => {
+        const v = String(value ?? '').trim();
+        if (!v) return;
+        const arr = valuesByKey.get(key) || [];
+        arr.push(v);
+        valuesByKey.set(key, arr);
+      });
+      return valuesByKey;
+    }
+
+    function buildHubspotPayload(valuesByKey) {
+      const f = HUBSPOT.fields;
+      const categories = valuesByKey.get('category') || [];
+      const utm = getUtmParams();
+      const fields = [
+        hsField(f.firstname, (valuesByKey.get('name') || [])[0]),
+        hsField(f.email, (valuesByKey.get('email') || [])[0]),
+        hsField(f.company, (valuesByKey.get('organization') || [])[0]),
+        hsField(f.intent, categories.join(';')),
+        hsField(f.message, (valuesByKey.get('message') || [])[0]),
+        hsField(f.utmSource, utm.utmSource),
+        hsField(f.utmMedium, utm.utmMedium),
+        hsField(f.utmCampaign, utm.utmCampaign),
+        hsField(f.utmContent, utm.utmContent)
+      ].filter(Boolean);
+
+      const context = {
+        pageUri: window.location.href,
+        pageName: document.title
+      };
+      const hutk = getHubspotUtk();
+      if (hutk) context.hutk = hutk;
+
+      return { fields, context };
+    }
+
+    async function submitToHubspot(payload) {
+      const res = await fetch(HUBSPOT_SUBMIT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return;
+      let detail = '';
+      try {
+        const data = await res.json();
+        detail = data.message || data.errors?.map(e => e.message).join(' ') || '';
+      } catch (_) {}
+      throw new Error(detail || ('Submission failed (' + res.status + ')'));
+    }
+
+    function buildField(f) {
+      const wrap = document.createElement('div');
+      wrap.className = 'field';
+
+      const label = document.createElement('label');
+      label.className = 'field-label';
+      label.htmlFor = 'mf-' + f.name;
+      label.textContent = f.label;
+      if (f.required) {
+        const star = document.createElement('span');
+        star.textContent = '*';
+        label.appendChild(star);
+      }
+      wrap.appendChild(label);
+
+      let input;
+      if (f.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = 3;
+      } else if (f.type === 'select') {
+        input = document.createElement('select');
+        if (f.multiple) input.multiple = true;
+        if (f.size) input.size = f.size;
+        (f.options || []).forEach(opt => {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label ?? opt.value;
+          input.appendChild(o);
+        });
+        const defaults = Array.isArray(f.defaultValues)
+          ? f.defaultValues
+          : (f.defaultValue != null ? [f.defaultValue] : []);
+        if (defaults.length) {
+          Array.from(input.options).forEach(o => { o.selected = defaults.includes(o.value); });
+        }
+      } else if (f.type === 'checkboxes') {
+        input = document.createElement('div');
+        input.className = 'field-checks';
+        input.setAttribute('role', 'group');
+
+        const defaults = Array.isArray(f.defaultValues) ? f.defaultValues : [];
+
+        (f.options || []).forEach((opt, idx) => {
+          const row = document.createElement('label');
+          row.className = 'check-row';
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.name = f.name;
+          cb.value = opt.value;
+          cb.checked = defaults.includes(opt.value);
+          cb.required = !!f.required; // for groups, we'll manage validity below
+          cb.addEventListener('change', () => {
+            const anyChecked = input.querySelector('input[type="checkbox"]:checked');
+            input.querySelectorAll('input[type="checkbox"]').forEach(x => { x.required = !anyChecked && !!f.required; });
+          });
+
+          const text = document.createElement('span');
+          text.textContent = opt.label ?? opt.value;
+
+          row.appendChild(cb);
+          row.appendChild(text);
+          input.appendChild(row);
+
+          if (idx === 0) {
+            // initialize required state
+            const anyChecked = input.querySelector('input[type="checkbox"]:checked');
+            input.querySelectorAll('input[type="checkbox"]').forEach(x => { x.required = !anyChecked && !!f.required; });
+          }
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = f.type;
+      }
+
+      if (f.type !== 'checkboxes') {
+        input.id = 'mf-' + f.name;
+        input.name = f.name;
+        if (f.placeholder) input.placeholder = f.placeholder;
+        if (f.required) input.required = true;
+        if (f.autocomplete) input.autocomplete = f.autocomplete;
+      }
+      wrap.appendChild(input);
+
+      return wrap;
+    }
+
+    function openModal(key, trigger) {
+      const cfg = MODAL_CONFIG[key];
+      if (!cfg) return;
+      activeKey = key;
+      lastTrigger = trigger;
+      modal.classList.remove('is-sent');
+      errorEl.textContent = '';
+      errorEl.classList.remove('visible');
+      titleEl.textContent = cfg.title;
+      noteEl.textContent = cfg.note || '';
+      successEl.textContent = cfg.success || 'Thanks.';
+      formEl.innerHTML = '';
+      cfg.fields.forEach(f => formEl.appendChild(buildField(f)));
+
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'modal-cancel';
+      cancel.textContent = 'Cancel';
+      cancel.setAttribute('data-modal-close', '');
+      submitBtn = document.createElement('button');
+      submitBtn.type = 'submit';
+      submitBtn.className = 'modal-submit';
+      submitBtn.textContent = cfg.submitLabel + ' →';
+      actions.appendChild(cancel);
+      actions.appendChild(submitBtn);
+      formEl.appendChild(actions);
+
+      overlay.hidden = false;
+      requestAnimationFrame(() => overlay.classList.add('open'));
+      document.body.classList.add('modal-open');
+      const firstInput = formEl.querySelector('input, textarea, select');
+      if (firstInput) setTimeout(() => firstInput.focus(), 50);
+    }
+
+    function closeModal() {
+      overlay.classList.remove('open');
+      document.body.classList.remove('modal-open');
+      setTimeout(() => { overlay.hidden = true; }, 180);
+      if (lastTrigger) lastTrigger.focus();
+      activeKey = null;
+    }
+
+    async function submitModal(e) {
+      e.preventDefault();
+      if (!activeKey || !submitBtn) return;
+
+      errorEl.textContent = '';
+      errorEl.classList.remove('visible');
+      submitBtn.disabled = true;
+      const prevLabel = submitBtn.textContent;
+      submitBtn.textContent = 'Sending…';
+
+      try {
+        const valuesByKey = collectFormValues();
+        const payload = buildHubspotPayload(valuesByKey);
+        await submitToHubspot(payload);
+        modal.classList.add('is-sent');
+      } catch (err) {
+        errorEl.textContent = err?.message
+          ? ('Could not submit right now. ' + err.message)
+          : 'Could not submit right now. Please try again or email us directly.';
+        errorEl.classList.add('visible');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = prevLabel;
+      }
+    }
+
+    document.querySelectorAll('[data-modal]').forEach(btn => {
+      btn.addEventListener('click', () => openModal(btn.dataset.modal, btn));
+    });
+
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) closeModal();
+      if (e.target.hasAttribute && e.target.hasAttribute('data-modal-close')) closeModal();
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && activeKey) closeModal();
+    });
+
+    formEl.addEventListener('submit', submitModal);
+  </script>
+
+</body>
+</html>

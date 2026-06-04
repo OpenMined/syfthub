@@ -17,6 +17,23 @@ import { syftClient } from '@/lib/sdk-client';
 
 export const POLL_INTERVAL_MS = 3000;
 
+// Billing unit on a payment policy. Syft Space publishes the field as
+// `unit_type` in policy.config; legacy policies omit it and bill per request.
+export type PolicyUnit = 'request' | 'document';
+
+export const UNIT_LABEL: Record<PolicyUnit, { singular: string; plural: string }> = {
+  request: { singular: 'request', plural: 'requests' },
+  document: { singular: 'document', plural: 'documents' }
+};
+
+export function normalizeUnit(raw: unknown): PolicyUnit {
+  if (typeof raw === 'string') {
+    const lower = raw.toLowerCase();
+    if (lower === 'request' || lower === 'document') return lower;
+  }
+  return 'request';
+}
+
 export interface MoneyBundle {
   name: string;
   amount: number;
@@ -28,7 +45,8 @@ export interface ParsedXenditConfig {
   invoicesUrl: string | null;
   bundles: MoneyBundle[];
   currency: string;
-  pricePerRequest: number | null;
+  pricePerUnit: number | null;
+  unit: PolicyUnit;
   country: string | null;
 }
 
@@ -65,12 +83,11 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
   const invoicesUrl = pickConfigValue(config, 'invoices_url', 'invoicesUrl', isValidUrl);
   const currency = pickConfigValue(config, 'currency', 'currency', isStringValue) ?? 'IDR';
   const country = pickConfigValue(config, 'country', 'country', isStringValue);
-  const pricePerRequest = pickConfigValue(
-    config,
-    'price_per_request',
-    'pricePerRequest',
-    isNumberValue
-  );
+  // New shape sends generic `price`; legacy policies used `price_per_request`.
+  const pricePerUnit =
+    pickConfigValue(config, 'price', 'price', isNumberValue) ??
+    pickConfigValue(config, 'price_per_request', 'pricePerRequest', isNumberValue);
+  const unit = normalizeUnit(pickConfigValue(config, 'unit_type', 'unitType', isStringValue));
   const rawBundles = pickConfigValue(config, 'bundles', 'bundles', isUnknownArray) ?? [];
   const bundles: MoneyBundle[] = rawBundles.filter(
     (b): b is MoneyBundle =>
@@ -79,12 +96,12 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
       typeof (b as Record<string, unknown>).name === 'string' &&
       typeof (b as Record<string, unknown>).amount === 'number'
   );
-  return { paymentUrl, creditsUrl, invoicesUrl, bundles, currency, pricePerRequest, country };
+  return { paymentUrl, creditsUrl, invoicesUrl, bundles, currency, pricePerUnit, unit, country };
 }
 
-export function formatRequestEstimate(amount: number, pricePerRequest: number): string {
-  const requests = Math.floor(amount / pricePerRequest);
-  return `~${requests.toLocaleString()} requests`;
+export function formatUnitEstimate(amount: number, pricePerUnit: number, unit: PolicyUnit): string {
+  const count = Math.floor(amount / pricePerUnit);
+  return `~${count.toLocaleString()} ${UNIT_LABEL[unit].plural}`;
 }
 
 export function openCheckoutWindow(url: string): void {

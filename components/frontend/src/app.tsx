@@ -1,8 +1,9 @@
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
+import { RoleBasedRoute } from './components/auth/role-based-route';
 import RootProvider from './components/providers/root';
 import { RouteBoundary } from './components/route-boundary';
 import { ScrollToTop } from './components/scroll-to-top';
@@ -29,6 +30,12 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
+const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
+const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
+const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
+const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
+const CollectiveInvitationPage = lazyWithRetry(() => import('./pages/collective-invitation'));
+const AdminPage = lazyWithRetry(() => import('./pages/admin'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -42,7 +49,7 @@ const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
  * - /chat : AI chat interface
  * - /build : Developer portal
  * - /profile : User profile (protected)
- * - /endpoints : Endpoint management with onboarding (protected)
+ * - /join : Endpoint management with onboarding (protected)
  * - /:username/:slug : GitHub-style endpoint detail
  * - * : 404 Not Found
  *
@@ -131,6 +138,64 @@ export default function App() {
                           }
                         />
 
+                        {/* Collectives — public discovery + protected create/admin */}
+                        <Route
+                          path='collectives'
+                          element={
+                            <RouteBoundary>
+                              <CollectivesPage />
+                            </RouteBoundary>
+                          }
+                        />
+                        {/* Browsing collectives now lives in the unified
+                            /browse page as a tab; keep the old path as a
+                            redirect for existing links and bookmarks. */}
+                        <Route
+                          path='collectives/browse'
+                          element={<Navigate to='/browse?tab=collectives' replace />}
+                        />
+                        <Route
+                          path='collectives/create'
+                          element={
+                            <ProtectedRoute>
+                              <RouteBoundary>
+                                <CreateCollectivePage />
+                              </RouteBoundary>
+                            </ProtectedRoute>
+                          }
+                        />
+                        {/* Invitation-response landing page linked from the
+                            invitation email — auth required so we know who
+                            is responding. */}
+                        <Route
+                          path='collectives/:slug/invitations/:endpointId'
+                          element={
+                            <ProtectedRoute>
+                              <RouteBoundary>
+                                <CollectiveInvitationPage />
+                              </RouteBoundary>
+                            </ProtectedRoute>
+                          }
+                        />
+                        <Route
+                          path='c/:slug/admin'
+                          element={
+                            <ProtectedRoute>
+                              <RouteBoundary>
+                                <CollectiveAdminPage />
+                              </RouteBoundary>
+                            </ProtectedRoute>
+                          }
+                        />
+                        <Route
+                          path='c/:slug'
+                          element={
+                            <RouteBoundary>
+                              <CollectiveDetailPage />
+                            </RouteBoundary>
+                          }
+                        />
+
                         {/* Protected routes */}
                         <Route
                           path='profile'
@@ -153,15 +218,31 @@ export default function App() {
                           }
                         />
 
+                        {/* Admin-only dashboard. Must precede the `:username`
+                            catch-all so "/admin" isn't read as a username. */}
+                        <Route
+                          path='admin'
+                          element={
+                            <ProtectedRoute>
+                              <RouteBoundary>
+                                <RoleBasedRoute requiredRole='admin'>
+                                  <AdminPage />
+                                </RoleBasedRoute>
+                              </RouteBoundary>
+                            </ProtectedRoute>
+                          }
+                        />
+
                         {/* TODO(agent-feature): Uncomment route when agent endpoint UI is re-enabled
-                      <Route
-                        path='agent/:owner/:slug'
-                        element={
-                          <RouteBoundary>
-                            <AgentPage />
-                          </RouteBoundary>
-                        }
-                      />
+                        <Route
+                          path='agent/:owner/:slug'
+                          element={
+                            <RouteBoundary>
+                              <AgentPage />
+                            </RouteBoundary>
+                          }
+                        />
+                        */}
 
                         {/* GitHub-style endpoint URLs: /:username/:slug */}
                         <Route
