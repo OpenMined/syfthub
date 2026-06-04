@@ -223,7 +223,7 @@ sqlalchemy==2.0.44
     # via
     #   syfthub (pyproject.toml)
     #   alembic
-starlette==0.50.0
+starlette==1.0.1
     # via fastapi
 structlog==25.5.0
     # via syfthub (pyproject.toml)
