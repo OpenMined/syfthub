@@ -832,18 +832,6 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
             </p>
           </div>
         </div>
-        <div className='text-muted-foreground mt-4 flex items-center gap-2 border-t pt-4 text-sm'>
-          <span>Verification:</span>
-          {collective.verified ? (
-            <Badge variant='secondary' className='gap-1'>
-              <ShieldCheck className='h-3 w-3 text-green-500' />
-              Verified
-            </Badge>
-          ) : (
-            <Badge variant='outline'>Not verified</Badge>
-          )}
-          <span className='text-xs'>— granted by the platform, not editable here.</span>
-        </div>
       </Card>
 
       {updateCollective.isError && (
