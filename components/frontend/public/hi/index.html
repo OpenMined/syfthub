@@ -31,6 +31,7 @@
       font-size: 17px;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      scroll-behavior: smooth;
     }
 
     body {
@@ -710,7 +711,7 @@
       <div class="nav-right">
         <a class="nav-link nav-link-hide-sm" href="https://syft.docs.openmined.org">Docs</a>
         <a class="nav-link" href="https://syfthub.openmined.org">Open app →</a>
-        <a class="btn btn-primary" style="padding: 0.5rem 1.1rem; font-size: 0.8rem;" href="mailto:collective@syfthub.org">Get involved</a>
+        <a class="btn btn-primary" style="padding: 0.5rem 1.1rem; font-size: 0.8rem;" href="#get-involved">Get involved</a>
       </div>
     </nav>
   </div>
@@ -815,7 +816,7 @@
         <h2 class="reveal reveal-delay-1">Attribution measured live at inference, not reconstructed after.</h2>
         <div class="section-prose reveal reveal-delay-2">
           <p>AI responses are built from specific sources. Those sources rarely know which responses used their work, and they aren't paid for them.</p>
-          <p>The standard approaches don't fix this. Influence functions can estimate how much a training example shaped a prediction, but don't scale. Machine unlearning remains unsolved at production scale. Syft takes a different path: the model queries a live network of sources at inference time, and contribution is recorded as it happens, against the sources that actually answered.<sup style="font-size: 0.7em; color: var(--muted);">*</sup></p>
+          <p>The standard approaches don't fix this. Influence functions can estimate how much a training example shaped a prediction, but they're expensive and brittle. Machine unlearning is no better — "erased" data resurfaces and the model degrades in the process. Neither holds up in production. Syft takes a different path: the model queries a live network of sources at inference time, and contribution is recorded as it happens, against the sources that actually answered.<sup style="font-size: 0.7em; color: var(--muted);">*</sup></p>
           <p>The result is better predictions, grounded in live specialist knowledge, and a verifiable record of actual usage. That's what makes participation on your own terms possible.</p>
           <p style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--faint); font-size: 0.88rem;"><a href="https://openmined.org/attribution-based-control">Read more on attribution-based control →</a></p>
           <p style="margin-top: 0.5rem; font-size: 0.82rem; color: var(--muted); line-height: 1.6;"><span style="color: var(--muted);">*</span> We also work on methods for attribution-aware training, models that preserve source identity by design. <a href="mailto:partners@syfthub.org?subject=Attribution-aware training">Reach out for more.</a></p>
@@ -884,7 +885,7 @@
 
   <!-- Positions -->
   <div class="container">
-    <section>
+    <section id="get-involved">
       <p class="section-label reveal">Ways to engage</p>
       <div class="section-head" style="margin-bottom: 2rem;">
         <h2 class="reveal reveal-delay-1">Four levels of involvement.</h2>
@@ -935,7 +936,7 @@
           <span class="pos-num">03</span>
         </div>
         <span class="pos-title">Pilot the infrastructure.</span>
-        <span class="pos-body">Experiment with sovereign access, directly or through a service that runs it for you, as part of the early group testing what per-query access looks like for your work. Pilots are small in scope and reversible. <a href="https://syft.docs.openmined.org">Read the docs &rarr;</a></span>
+        <span class="pos-body">Try per-query access on your own work, yourself or through a service that runs it for you. Pilots are small and reversible. <a href="https://syft.docs.openmined.org">Read the docs &rarr;</a></span>
         <div class="pos-action"><button type="button" class="btn-row" data-modal="pilot">Apply &rarr;</button></div>
       </div>
 
@@ -950,7 +951,7 @@
           <span class="pos-num">04</span>
         </div>
         <span class="pos-title">Coordinate publicly.</span>
-        <span class="pos-body">Advocate in your publications, social channels, professional associations, or unions for the position that creators should retain technical, political, and economic leverage over how their work is used by AI.</span>
+        <span class="pos-body">Make the case, through your publications, channels, associations, or unions, that creators should keep control over how AI uses their work.</span>
         <div class="pos-action"><button type="button" class="btn-row" data-modal="coordinate">Express interest &rarr;</button></div>
       </div>
     </section>
@@ -1009,7 +1010,11 @@
         email: 'email',
         company: 'company',
         intent: 'syfthub_intent',
-        message: 'message'
+        message: 'message',
+        utmSource: 'utm_source',
+        utmMedium: 'utm_medium',
+        utmCampaign: 'utm_campaign',
+        utmContent: 'utm_content'
       }
     };
 
@@ -1090,6 +1095,58 @@
       return match ? decodeURIComponent(match[1]) : undefined;
     }
 
+    // Fixed UTM attribution for all /hi form submissions.
+    const UTM_SOURCE = 'syfthub.openmined.org';
+    const UTM_MEDIUM = 'form';
+    const UTM_CAMPAIGN = 'general traffic';
+    // utm_content = which involvement the visitor clicked to open the form.
+    const UTM_CONTENT_BY_MODAL = {
+      subscribe: 'Track this',
+      'join-collective': 'Join a collective',
+      pilot: 'Pilot the infrastructure',
+      coordinate: 'Coordinate publicly'
+    };
+
+    const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+    const UTM_STORAGE_KEY = 'syfthub_utm';
+
+    // Persist any UTM params from the landing URL so they survive navigation.
+    function captureUtmParams() {
+      const params = new URLSearchParams(window.location.search);
+      const captured = {};
+      UTM_KEYS.forEach(key => {
+        const value = params.get(key);
+        if (value) captured[key] = value;
+      });
+      if (Object.keys(captured).length === 0) return;
+      try {
+        const existing = JSON.parse(sessionStorage.getItem(UTM_STORAGE_KEY) || '{}');
+        sessionStorage.setItem(UTM_STORAGE_KEY, JSON.stringify({ ...existing, ...captured }));
+      } catch (_) { /* sessionStorage unavailable */ }
+    }
+
+    function getStoredUtm() {
+      try {
+        return JSON.parse(sessionStorage.getItem(UTM_STORAGE_KEY) || '{}');
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function getUtmParams() {
+      const params = new URLSearchParams(window.location.search);
+      const stored = getStoredUtm();
+      const pick = key => params.get(key) || stored[key];
+      return {
+        utmSource: pick('utm_source') || UTM_SOURCE,
+        utmMedium: pick('utm_medium') || UTM_MEDIUM,
+        utmCampaign: pick('utm_campaign') || UTM_CAMPAIGN,
+        utmContent: pick('utm_content') || UTM_CONTENT_BY_MODAL[activeKey] || undefined
+      };
+    }
+
+    captureUtmParams();
+
     function hsField(name, value) {
       if (value == null || String(value).trim() === '') return null;
       return { objectTypeId: '0-1', name, value: String(value) };
@@ -1110,12 +1167,17 @@
     function buildHubspotPayload(valuesByKey) {
       const f = HUBSPOT.fields;
       const categories = valuesByKey.get('category') || [];
+      const utm = getUtmParams();
       const fields = [
         hsField(f.firstname, (valuesByKey.get('name') || [])[0]),
         hsField(f.email, (valuesByKey.get('email') || [])[0]),
         hsField(f.company, (valuesByKey.get('organization') || [])[0]),
         hsField(f.intent, categories.join(';')),
-        hsField(f.message, (valuesByKey.get('message') || [])[0])
+        hsField(f.message, (valuesByKey.get('message') || [])[0]),
+        hsField(f.utmSource, utm.utmSource),
+        hsField(f.utmMedium, utm.utmMedium),
+        hsField(f.utmCampaign, utm.utmCampaign),
+        hsField(f.utmContent, utm.utmContent)
       ].filter(Boolean);
 
       const context = {
