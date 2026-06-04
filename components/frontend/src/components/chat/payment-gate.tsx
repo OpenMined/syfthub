@@ -7,7 +7,7 @@
  * parent polls credits_url to detect when each wallet flips active and
  * unlocks Send.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 
 import type { PendingSubscription } from '@/hooks/use-xendit-precheck';
 
@@ -15,17 +15,12 @@ import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 
 import { PrepaidAccountRow } from '@/components/chat/prepaid-account-row';
+import {
+  descriptorMapFromPending,
+  usePrepaidWalletBalances
+} from '@/hooks/use-prepaid-wallet-balances';
 import { useRegisterOnFundingDetected } from '@/hooks/use-xendit-subscriptions';
 import { cn } from '@/lib/utils';
-import { fetchBalance, getSatelliteToken, POLL_INTERVAL_MS } from '@/lib/xendit-client';
-
-function distinctOwners(pending: PendingSubscription[]): string[] {
-  const owners = new Set<string>();
-  for (const p of pending) {
-    for (const e of p.endpoints) owners.add(e.owner);
-  }
-  return [...owners];
-}
 
 // ── PaymentGate ────────────────────────────────────────────────────────────
 
@@ -50,109 +45,33 @@ export function PaymentGate({
     for (const p of pending) map[p.walletKey] = p.balance;
     return map;
   }, [pending]);
-  const [balances, setBalances] = useState<Record<string, number>>(seedBalances);
-  useEffect(() => {
-    setBalances(seedBalances);
-  }, [seedBalances]);
 
-  // One satellite token per distinct owner, fetched once when the gate mounts.
-  const tokensReference = useRef<Map<string, string>>(new Map());
-  const owners = useMemo(() => distinctOwners(pending), [pending]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void (async () => {
-      const next = new Map<string, string>();
-      await Promise.all(
-        owners.map(async (owner) => {
-          const token = await getSatelliteToken(owner);
-          if (token) next.set(owner, token);
-        })
-      );
-      if (controller.signal.aborted) return;
-      tokensReference.current = next;
-    })();
-    return () => {
-      controller.abort();
-    };
-  }, [owners]);
+  // Stable descriptor per wallet — reused for both the poll engine and the
+  // per-row `isWalletActive` lookups (avoids allocating a fresh descriptor per
+  // row per render, which would defeat the stable-predicate memoization).
+  const descriptorByKey = useMemo(() => descriptorMapFromPending(pending), [pending]);
+  const wallets = useMemo(() => [...descriptorByKey.values()], [descriptorByKey]);
 
-  const isWalletActive = useCallback(
-    (p: PendingSubscription) => {
-      const balance = balances[p.walletKey] ?? 0;
-      const threshold = p.pricePerUnit ?? 1;
-      return balance >= threshold;
-    },
-    [balances]
-  );
-
-  // Register a subscription on the SyftHub backend the first time we observe
-  // a non-zero balance. Idempotent on the server, but we also dedupe locally
-  // so the mutation only fires once per wallet per gate session.
   const registerOnFunding = useRegisterOnFundingDetected();
-  const registeredKeysReference = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const p of pending) {
-      const balance = balances[p.walletKey] ?? 0;
-      if (balance <= 0) continue;
-      if (registeredKeysReference.current.has(p.walletKey)) continue;
-      registeredKeysReference.current.add(p.walletKey);
-      const owner = p.endpoints[0]?.owner ?? '';
-      const slug = p.endpoints[0]?.slug ?? null;
+  const { balances, isWalletActive, allActive } = usePrepaidWalletBalances({
+    wallets,
+    seedBalances,
+    enabled: true,
+    onWalletFunded: (wallet, balance) => {
+      const p = pending.find((x) => x.walletKey === wallet.walletKey);
+      if (!p) return;
       void registerOnFunding({
         creditsUrl: p.creditsUrl,
         paymentUrl: p.paymentUrl,
-        endpointOwner: owner,
-        endpointSlug: slug,
+        endpointOwner: p.endpoints[0]?.owner ?? '',
+        endpointSlug: p.endpoints[0]?.slug ?? null,
         currency: p.currency,
         lastKnownBalance: balance
       });
     }
-  }, [balances, pending, registerOnFunding]);
-
-  // Poll once per *wallet* that's still inactive — multiple rows sharing a
-  // credits_url collapse into one fetch, and the result updates every row
-  // bound to that wallet.
-  useEffect(() => {
-    const controller = new AbortController();
-    const tick = async () => {
-      const inactive = new Map<string, PendingSubscription>();
-      for (const p of pending) {
-        if (isWalletActive(p)) continue;
-        if (!inactive.has(p.walletKey)) inactive.set(p.walletKey, p);
-      }
-      if (inactive.size === 0) return;
-      const updates = await Promise.all(
-        [...inactive.values()].map(async (p) => {
-          const owner = p.endpoints[0]?.owner;
-          if (!owner) return null;
-          const token = tokensReference.current.get(owner);
-          if (!token) return null;
-          const balance = await fetchBalance(p.creditsUrl, token, controller.signal);
-          if (balance === null) return null;
-          return [p.walletKey, balance] as const;
-        })
-      );
-      setBalances((previous) => {
-        let next: Record<string, number> | null = null;
-        for (const u of updates) {
-          if (u && previous[u[0]] !== u[1]) {
-            next ??= { ...previous };
-            next[u[0]] = u[1];
-          }
-        }
-        return next ?? previous;
-      });
-    };
-    const intervalId = setInterval(() => void tick(), POLL_INTERVAL_MS);
-    return () => {
-      clearInterval(intervalId);
-      controller.abort();
-    };
-  }, [pending, isWalletActive]);
+  });
 
   if (pending.length === 0) return null;
-
-  const allActive = pending.every((p) => isWalletActive(p));
 
   return (
     <div
@@ -180,12 +99,13 @@ export function PaymentGate({
       <div className='mt-3 space-y-1.5'>
         {pending.map((p) => {
           const key = `${p.walletKey}::${p.endpoints[0]?.path ?? ''}`;
+          const descriptor = descriptorByKey.get(p.walletKey);
           return (
             <PrepaidAccountRow
               key={key}
               pending={p}
               liveBalance={balances[p.walletKey] ?? 0}
-              isActive={isWalletActive(p)}
+              isActive={descriptor ? isWalletActive(descriptor) : false}
               onRemove={() => {
                 onRemovePending(p);
               }}

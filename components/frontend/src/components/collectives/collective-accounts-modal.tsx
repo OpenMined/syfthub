@@ -18,10 +18,10 @@
  * satellite token per owner, one balance fetch per `credits_url`, polled while
  * the modal is open and a wallet is still unfunded.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 
-import type { CollectiveBillingSummary } from '@/lib/collectives-api';
 import type { EndpointReference, PendingSubscription } from '@/hooks/use-xendit-precheck';
+import type { CollectiveBillingSummary } from '@/lib/collectives-api';
 import type { PolicyUnit } from '@/lib/xendit-client';
 
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
@@ -34,10 +34,13 @@ import { PrepaidAccountRow } from '@/components/chat/prepaid-account-row';
 import { Modal } from '@/components/ui/modal';
 import { useWalletContext } from '@/context/wallet-context';
 import { useCollectiveBilling } from '@/hooks/use-collective-billing';
+import {
+  descriptorMapFromPending,
+  usePrepaidWalletBalances
+} from '@/hooks/use-prepaid-wallet-balances';
 import { useWalletBalance } from '@/hooks/use-wallet-api';
 import { useRegisterOnFundingDetected } from '@/hooks/use-xendit-subscriptions';
 import { cn } from '@/lib/utils';
-import { fetchBalance, getSatelliteToken, POLL_INTERVAL_MS } from '@/lib/xendit-client';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 export interface CollectiveAccountsModalProps {
@@ -108,111 +111,37 @@ export function CollectiveAccountsModal({
     for (const p of prepaidGroups) map[p.walletKey] = p.balance;
     return map;
   }, [prepaidGroups]);
-  const [balances, setBalances] = useState<Record<string, number>>(seedBalances);
-  useEffect(() => {
-    setBalances(seedBalances);
-  }, [seedBalances]);
 
-  const owners = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of prepaidGroups) for (const e of p.endpoints) set.add(e.owner);
-    return [...set];
-  }, [prepaidGroups]);
+  // Stable descriptor per wallet — reused for the poll engine and per-row
+  // `isWalletActive` lookups so rows don't allocate a fresh descriptor each render.
+  const descriptorByKey = useMemo(() => descriptorMapFromPending(prepaidGroups), [prepaidGroups]);
+  const wallets = useMemo(() => [...descriptorByKey.values()], [descriptorByKey]);
 
-  // One satellite token per distinct owner, fetched when the modal opens.
-  const tokensReference = useRef<Map<string, string>>(new Map());
-  useEffect(() => {
-    if (!isOpen) return;
-    const controller = new AbortController();
-    void (async () => {
-      const next = new Map<string, string>();
-      await Promise.all(
-        owners.map(async (owner) => {
-          const token = await getSatelliteToken(owner);
-          if (token) next.set(owner, token);
-        })
-      );
-      if (controller.signal.aborted) return;
-      tokensReference.current = next;
-    })();
-    return () => {
-      controller.abort();
-    };
-  }, [owners, isOpen]);
-
-  const isWalletActive = useCallback(
-    (p: PendingSubscription) => {
-      const balance = balances[p.walletKey] ?? 0;
-      const threshold = p.pricePerUnit ?? 1;
-      return balance >= threshold;
-    },
-    [balances]
-  );
-
-  // Record a subscription on the Hub the first time we see a funded wallet, so
-  // it also surfaces in the top-bar wallet panel.
+  // `enabled: isOpen` reproduces both old `if (!isOpen) return` guards (token
+  // fetch + poll) through the engine's single switch.
   const registerOnFunding = useRegisterOnFundingDetected();
-  const registeredReference = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const p of prepaidGroups) {
-      const balance = balances[p.walletKey] ?? 0;
-      if (balance <= 0) continue;
-      if (registeredReference.current.has(p.walletKey)) continue;
-      registeredReference.current.add(p.walletKey);
-      const owner = p.endpoints[0]?.owner ?? '';
-      const slug = p.endpoints[0]?.slug ?? null;
+  const { balances, isWalletActive } = usePrepaidWalletBalances({
+    wallets,
+    seedBalances,
+    enabled: isOpen,
+    onWalletFunded: (wallet, balance) => {
+      const p = prepaidGroups.find((x) => x.walletKey === wallet.walletKey);
+      if (!p) return;
       void registerOnFunding({
         creditsUrl: p.creditsUrl,
         paymentUrl: p.paymentUrl,
-        endpointOwner: owner,
-        endpointSlug: slug,
+        endpointOwner: p.endpoints[0]?.owner ?? '',
+        endpointSlug: p.endpoints[0]?.slug ?? null,
         currency: p.currency,
         lastKnownBalance: balance
       });
     }
-  }, [balances, prepaidGroups, registerOnFunding]);
+  });
 
-  // Poll each still-unfunded wallet while the modal is open.
-  useEffect(() => {
-    if (!isOpen) return;
-    const controller = new AbortController();
-    const tick = async () => {
-      const inactive = new Map<string, PendingSubscription>();
-      for (const p of prepaidGroups) {
-        if (isWalletActive(p)) continue;
-        if (!inactive.has(p.walletKey)) inactive.set(p.walletKey, p);
-      }
-      if (inactive.size === 0) return;
-      const updates = await Promise.all(
-        [...inactive.values()].map(async (p) => {
-          const owner = p.endpoints[0]?.owner;
-          if (!owner) return null;
-          const token = tokensReference.current.get(owner);
-          if (!token) return null;
-          const balance = await fetchBalance(p.creditsUrl, token, controller.signal);
-          if (balance === null) return null;
-          return [p.walletKey, balance] as const;
-        })
-      );
-      setBalances((previous) => {
-        let next: Record<string, number> | null = null;
-        for (const u of updates) {
-          if (u && previous[u[0]] !== u[1]) {
-            next ??= { ...previous };
-            next[u[0]] = u[1];
-          }
-        }
-        return next ?? previous;
-      });
-    };
-    const intervalId = setInterval(() => void tick(), POLL_INTERVAL_MS);
-    return () => {
-      clearInterval(intervalId);
-      controller.abort();
-    };
-  }, [prepaidGroups, isWalletActive, isOpen]);
-
-  const unsettledCount = prepaidGroups.filter((p) => !isWalletActive(p)).length;
+  const unsettledCount = prepaidGroups.filter((p) => {
+    const descriptor = descriptorByKey.get(p.walletKey);
+    return descriptor ? !isWalletActive(descriptor) : true;
+  }).length;
   const hasMpp = (summary?.mpp_count ?? 0) > 0;
   const freeCount = summary?.free_count ?? 0;
 
@@ -220,13 +149,12 @@ export function CollectiveAccountsModal({
     <Modal isOpen={isOpen} onClose={onClose} title='Your accounts with this collective' size='2xl'>
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
-          To query{' '}
-          {title ? <code className='text-xs'>{title}</code> : 'this Collective API'} you need an
-          active balance with each paid endpoint. Settle any below before querying.
+          To query {title ? <code className='text-xs'>{title}</code> : 'this Collective API'} you
+          need an active balance with each paid endpoint. Settle any below before querying.
         </p>
 
         {isLoading ? (
-          <div className='flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground'>
+          <div className='text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm'>
             <Loader2 className='h-4 w-4 animate-spin' />
             Checking your accounts…
           </div>
@@ -249,12 +177,13 @@ export function CollectiveAccountsModal({
                 {prepaidGroups.map((p) => {
                   const owner = p.endpoints[0]?.owner ?? 'Publisher';
                   const count = p.endpoints.length;
+                  const descriptor = descriptorByKey.get(p.walletKey);
                   return (
                     <PrepaidAccountRow
                       key={p.walletKey}
                       pending={p}
                       liveBalance={balances[p.walletKey] ?? 0}
-                      isActive={isWalletActive(p)}
+                      isActive={descriptor ? isWalletActive(descriptor) : false}
                       label={`@${owner}`}
                       sublabel={`${String(count)} ${count === 1 ? 'endpoint' : 'endpoints'}`}
                     />

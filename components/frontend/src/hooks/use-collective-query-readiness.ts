@@ -16,42 +16,41 @@
  */
 import { useMemo } from 'react';
 
+import type { PrepaidWalletDescriptor } from '@/hooks/use-prepaid-wallet-balances';
 import type { CollectiveBillingSummary } from '@/lib/collectives-api';
 
 import { useQuery } from '@tanstack/react-query';
 
 import { useWalletContext } from '@/context/wallet-context';
+import {
+  dedupeWalletsByKey,
+  distinctWalletOwners,
+  fetchWalletBalances
+} from '@/hooks/use-prepaid-wallet-balances';
 import { useWalletBalance } from '@/hooks/use-wallet-api';
-import { fetchBalance, getSatelliteToken } from '@/lib/xendit-client';
+import { billingSummaryKeys } from '@/lib/query-keys';
+import { getSatelliteToken } from '@/lib/xendit-client';
 
 export type QueryReadiness = 'idle' | 'loading' | 'ready' | 'blocked';
-
-interface PrepaidWallet {
-  creditsUrl: string;
-  owner: string;
-  /** Minimum balance considered "funded" — the per-request price. */
-  threshold: number;
-}
 
 export function useCollectiveQueryReadiness(
   summary: CollectiveBillingSummary | null | undefined,
   enabled: boolean
 ): QueryReadiness {
-  const wallets = useMemo<PrepaidWallet[]>(() => {
+  const wallets = useMemo<PrepaidWalletDescriptor[]>(() => {
     if (!summary) return [];
-    const map = new Map<string, PrepaidWallet>();
+    const descriptors: PrepaidWalletDescriptor[] = [];
     for (const member of summary.members) {
       const b = member.billing;
       if (b.kind !== 'prepaid' || !b.credits_url || !member.endpoint_owner_username) continue;
-      if (!map.has(b.credits_url)) {
-        map.set(b.credits_url, {
-          creditsUrl: b.credits_url,
-          owner: member.endpoint_owner_username,
-          threshold: b.price_per_unit ?? 1
-        });
-      }
+      descriptors.push({
+        walletKey: b.credits_url,
+        creditsUrl: b.credits_url,
+        owner: member.endpoint_owner_username,
+        threshold: b.price_per_unit ?? 1
+      });
     }
-    return [...map.values()];
+    return dedupeWalletsByKey(descriptors);
   }, [summary]);
 
   const hasMpp = (summary?.mpp_count ?? 0) > 0;
@@ -65,13 +64,16 @@ export function useCollectiveQueryReadiness(
   const { isConfigured } = useWalletContext();
   const { balance: walletBalance } = useWalletBalance();
 
-  const creditsUrls = wallets.map((w) => w.creditsUrl).toSorted((a, b) => a.localeCompare(b));
+  const creditsUrls = useMemo(
+    () => wallets.map((w) => w.creditsUrl).toSorted((a, b) => a.localeCompare(b)),
+    [wallets]
+  );
   const balancesQuery = useQuery({
-    queryKey: ['collective-readiness', creditsUrls],
+    queryKey: billingSummaryKeys.readiness(creditsUrls),
     enabled: enabled && wallets.length > 0,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {
-      const owners = [...new Set(wallets.map((w) => w.owner))];
+      const owners = distinctWalletOwners(wallets);
       const tokenByOwner = new Map<string, string>();
       await Promise.all(
         owners.map(async (owner) => {
@@ -79,15 +81,11 @@ export function useCollectiveQueryReadiness(
           if (token) tokenByOwner.set(owner, token);
         })
       );
+      // walletKey === creditsUrl here, so the tuples key the balance map by URL.
+      // Keep the raw null (unreachable wallet) — it must BLOCK ready below.
+      const updates = await fetchWalletBalances(wallets, tokenByOwner, signal);
       const out: Record<string, number | null> = {};
-      await Promise.all(
-        wallets.map(async (wallet) => {
-          const token = tokenByOwner.get(wallet.owner);
-          out[wallet.creditsUrl] = token
-            ? await fetchBalance(wallet.creditsUrl, token, signal)
-            : null;
-        })
-      );
+      for (const [creditsUrl, balance] of updates) out[creditsUrl] = balance;
       return out;
     }
   });
