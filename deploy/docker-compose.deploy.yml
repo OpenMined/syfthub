@@ -381,8 +381,7 @@ services:
   # the presented service / host / peer token and signing a subject-scoped
   # user JWT. See components/nats-auth/.
   nats-auth:
-    build:
-      context: ../components/nats-auth
+    image: ghcr.io/${GITHUB_REPOSITORY}-nats-auth:${IMAGE_TAG:-latest}
     container_name: syfthub-nats-auth
     restart: unless-stopped
     depends_on:

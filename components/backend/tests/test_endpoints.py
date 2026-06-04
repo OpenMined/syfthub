@@ -1380,6 +1380,29 @@ _XENDIT_POLICY_MINIMAL = {
     },
 }
 
+# New Syft Space wire shape: generic `price` + `unit_type` instead of
+# `price_per_request`. Frontend parsers fall back to the legacy keys, so the
+# old fixture above still exercises the backwards-compat path.
+_XENDIT_POLICY_PER_DOCUMENT = {
+    "type": "xendit",
+    "version": "1.0",
+    "enabled": True,
+    "description": "Document-billed Xendit policy",
+    "config": {
+        "price": 5.0,
+        "unit_type": "document",
+        "currency": "IDR",
+        "country": "ID",
+        "applied_to": ["*"],
+        "bundles": [
+            {"name": "Starter", "amount": 10000.0},
+            {"name": "Pro", "amount": 100000.0},
+        ],
+        "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+    },
+}
+
 
 def test_xendit_policy_auto_injects_prepaid_tag_on_create(
     client: TestClient, user1_token: str
@@ -1508,6 +1531,32 @@ def test_create_endpoint_with_xendit_policy(
         == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
     )
     assert "prepaid" in data["tags"]
+
+
+def test_create_endpoint_with_xendit_per_document_policy(
+    client: TestClient, user1_token: str
+) -> None:
+    """New wire shape (price + unit_type=document) round-trips and still
+    auto-injects the prepaid tag — gateway is keyed on type, unit lives in config."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Xendit Per-Document Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [_XENDIT_POLICY_PER_DOCUMENT],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert "prepaid" in data["tags"]
+    policy = data["policies"][0]
+    assert policy["type"] == "xendit"
+    assert policy["config"]["price"] == 5.0
+    assert policy["config"]["unit_type"] == "document"
+    assert policy["config"]["currency"] == "IDR"
 
 
 def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:

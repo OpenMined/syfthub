@@ -358,9 +358,10 @@ class DataSourceClient:
                         "similarity_score": float
                     }
                 ],
-                "provider_info": {...},
-                "cost": float
-            } | null
+                "provider_info": {...}
+            } | null,
+            "cost": float,
+            "currency": str
         }
 
         We extract from references.documents and map similarity_score -> score.

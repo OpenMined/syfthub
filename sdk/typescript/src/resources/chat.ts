@@ -240,7 +240,80 @@ export class ChatResource {
     );
   }
 
+  private static readonly COLLECTIVE_PREFIX = 'collective/';
   private static readonly TUNNELING_PREFIX = 'tunneling:';
+
+  /**
+   * Expand any `collective/<slug>` (or `collective/<slug>/<shared-slug>`)
+   * entries in the data-sources list into the individual `owner/slug` paths
+   * of the collective's approved members.
+   *
+   * Path forms recognised:
+   * - `collective/<slug>` → every approved member (backward-compatible)
+   * - `collective/<slug>/all` → equivalent alias of the above
+   * - `collective/<slug>/<shared-slug>` → the named subset, intersected with
+   *   the collective's currently approved members
+   *
+   * Non-collective entries pass through unchanged. String paths are
+   * deduplicated so a regular endpoint that also belongs to a selected
+   * collective is not queried twice.
+   */
+  private async expandCollectivePaths(
+    dataSources: (string | EndpointRef | EndpointPublic)[]
+  ): Promise<(string | EndpointRef | EndpointPublic)[]> {
+    const expanded: (string | EndpointRef | EndpointPublic)[] = [];
+    const seenPaths = new Set<string>();
+
+    for (const ds of dataSources) {
+      if (typeof ds === 'string' && ds.startsWith(ChatResource.COLLECTIVE_PREFIX)) {
+        const rest = ds.slice(ChatResource.COLLECTIVE_PREFIX.length);
+        const slashAt = rest.indexOf('/');
+        const collectiveSlug = slashAt < 0 ? rest : rest.slice(0, slashAt);
+        // `all` is the implicit alias of "every approved member" and maps to
+        // the same hub route as the no-subset form, so the SDK normalises it
+        // away rather than round-tripping a degenerate identifier.
+        const rawShared = slashAt < 0 ? undefined : rest.slice(slashAt + 1);
+        const sharedSlug = rawShared && rawShared !== 'all' ? rawShared : undefined;
+
+        if (!collectiveSlug) {
+          throw new EndpointResolutionError(
+            `Malformed collective path: ${ds}`,
+            ds
+          );
+        }
+
+        let memberPaths: string[];
+        try {
+          memberPaths = await this.hub.getCollectiveEndpointPaths(
+            collectiveSlug,
+            sharedSlug
+          );
+        } catch (error) {
+          const target = sharedSlug ? `${collectiveSlug}/${sharedSlug}` : collectiveSlug;
+          throw new EndpointResolutionError(
+            `Failed to resolve collective '${target}': ${error instanceof Error ? error.message : String(error)}`,
+            ds
+          );
+        }
+        for (const path of memberPaths) {
+          if (!seenPaths.has(path)) {
+            seenPaths.add(path);
+            expanded.push(path);
+          }
+        }
+      } else if (typeof ds === 'string') {
+        if (!seenPaths.has(ds)) {
+          seenPaths.add(ds);
+          expanded.push(ds);
+        }
+      } else {
+        // EndpointRef or EndpointPublic — pass through without dedup
+        expanded.push(ds);
+      }
+    }
+
+    return expanded;
+  }
 
   /**
    * Check if any endpoints use tunneling URLs and extract target usernames.
@@ -275,8 +348,11 @@ export class ChatResource {
   ): Promise<{ requestBody: Record<string, unknown>; effectiveAggregatorUrl: string }> {
     const modelRef = await this.resolveEndpointRef(options.model, 'model');
 
+    // Expand any collective/<slug> paths into their approved member endpoint paths.
+    const expandedDataSources = await this.expandCollectivePaths(options.dataSources ?? []);
+
     const dsRefs: EndpointRef[] = [];
-    for (const ds of options.dataSources ?? []) {
+    for (const ds of expandedDataSources) {
       dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
     }
 

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You have a SyftHub collective invitation</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:40px 20px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color:#18181b;padding:24px 32px;">
+                            <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:600;">SyftHub</h1>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:32px;">
+                            <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
+                                Hi {{ recipient_name }},
+                            </p>
+                            <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
+                                <strong>{{ inviter_name }}</strong> invited your endpoint
+                                <strong>{{ endpoint_name }}</strong> to join the
+                                <strong>{{ collective_name }}</strong> collective on SyftHub.
+                            </p>
+                            <p style="margin:0 0 24px;color:#3f3f46;font-size:15px;line-height:1.6;">
+                                You can accept or decline this invitation from the page below.
+                            </p>
+                            <!-- CTA -->
+                            <div style="text-align:center;margin:24px 0;">
+                                <a href="{{ invite_url }}"
+                                   style="display:inline-block;background-color:#18181b;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">
+                                    Review invitation
+                                </a>
+                            </div>
+                            <p style="margin:0 0 8px;color:#71717a;font-size:13px;line-height:1.5;">
+                                Or paste this link into your browser:
+                            </p>
+                            <p style="margin:0 0 16px;color:#71717a;font-size:13px;line-height:1.5;word-break:break-all;">
+                                <a href="{{ invite_url }}" style="color:#3f3f46;">{{ invite_url }}</a>
+                            </p>
+                            <p style="margin:0;color:#71717a;font-size:13px;line-height:1.5;">
+                                If you didn't expect this invitation, you can safely ignore this email &mdash;
+                                nothing happens until you accept it.
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding:16px 32px;border-top:1px solid #e4e4e7;">
+                            <p style="margin:0;color:#a1a1aa;font-size:12px;text-align:center;">
+                                &copy; SyftHub &mdash; AI Endpoint Registry
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

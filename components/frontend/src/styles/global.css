@@ -7,6 +7,11 @@
 :root {
   --radius: 0.5rem;
 
+  /* Height of the sticky app/page header (PageHeader). Used as the offset for
+     other sticky elements (e.g. the admin users-table header) so they pin
+     directly below it instead of hard-coding a pixel value. */
+  --app-header-height: 4rem;
+
   /* OpenMined-inspired Design System Colors - tweakcn compatible */
   --border: oklch(0.25 0.005 240);
   --input: oklch(0.25 0.005 240);

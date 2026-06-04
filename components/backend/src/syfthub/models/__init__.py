@@ -2,6 +2,7 @@
 
 from syfthub.models.api_token import APITokenModel
 from syfthub.models.base import Base, BaseModel, TimestampMixin
+from syfthub.models.collective import CollectiveMemberModel, CollectiveModel
 from syfthub.models.endpoint import (
     EndpointModel,
     EndpointStarModel,
@@ -17,6 +18,8 @@ __all__ = [
     "APITokenModel",
     "Base",
     "BaseModel",
+    "CollectiveMemberModel",
+    "CollectiveModel",
     "EndpointModel",
     "EndpointStarModel",
     "EndpointUptimeSampleModel",

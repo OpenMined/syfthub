@@ -30,23 +30,74 @@ type PurchaseState =
   | { state: 'awaiting_payment'; bundleName: string; checkoutUrl: string }
   | { state: 'error'; message: string };
 
+/**
+ * Prepaid-balance providers. Both publish policy.config in the same shape
+ * (bundles + currency + payment_url + credits_url + invoices_url + price +
+ * unit_type), so the buy-credits card body is identical; only the button
+ * theme and the "Sign in to subscribe" copy change per provider.
+ */
+export type PrepaidProvider = 'xendit' | 'stripe';
+
+interface ProviderTheme {
+  label: string;
+  // Tailwind classes for the primary "Buy credits" CTA.
+  buttonClass: string;
+  // Focus ring colour used when the button is keyboard-focused.
+  focusRingClass: string;
+  // Focus ring colour on the bundle dropdown — opens narrower than the CTA
+  // but keeps the same colour family.
+  pickerFocusClass: string;
+}
+
+const PROVIDER_THEME: Record<PrepaidProvider, ProviderTheme> = {
+  xendit: {
+    label: 'Xendit',
+    buttonClass: cn(
+      'bg-violet-600 text-white shadow-sm',
+      'hover:bg-violet-500 active:bg-violet-700',
+      'disabled:cursor-not-allowed disabled:bg-violet-600/40 disabled:shadow-none',
+      'dark:bg-violet-500 dark:hover:bg-violet-400 dark:active:bg-violet-600',
+      'dark:disabled:bg-violet-500/30'
+    ),
+    focusRingClass: 'focus-visible:ring-violet-400/50 dark:focus-visible:ring-violet-500/40',
+    pickerFocusClass: 'focus:ring-violet-400/40 dark:focus:ring-violet-500/30'
+  },
+  stripe: {
+    label: 'Stripe',
+    buttonClass: cn(
+      'bg-indigo-600 text-white shadow-sm',
+      'hover:bg-indigo-500 active:bg-indigo-700',
+      'disabled:cursor-not-allowed disabled:bg-indigo-600/40 disabled:shadow-none',
+      'dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:active:bg-indigo-600',
+      'dark:disabled:bg-indigo-500/30'
+    ),
+    focusRingClass: 'focus-visible:ring-indigo-400/50 dark:focus-visible:ring-indigo-500/40',
+    pickerFocusClass: 'focus:ring-indigo-400/40 dark:focus:ring-indigo-500/30'
+  }
+};
+
 export interface XenditPolicyContentProperties {
   config: Record<string, unknown>;
   enabled: boolean;
   endpointSlug?: string;
   endpointOwner?: string;
+  /** Provider whose theme + label to render. Defaults to xendit for
+   *  back-compat with any caller that hasn't been updated yet. */
+  provider?: PrepaidProvider;
 }
 
 export const XenditPolicyContent = memo(function XenditPolicyContent({
   config,
   enabled,
   endpointSlug,
-  endpointOwner
+  endpointOwner,
+  provider = 'xendit'
 }: Readonly<XenditPolicyContentProperties>) {
+  const theme = PROVIDER_THEME[provider];
   // Re-parse only when config identity changes — otherwise the bundles array
   // would get a fresh reference each render and re-fire the validation effect.
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
-  const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerRequest } = parsed;
+  const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerUnit, unit } = parsed;
 
   const [subscription, setSubscription] = useState<SubscriptionState>({ state: 'loading' });
   const [purchase, setPurchase] = useState<PurchaseState>({ state: 'idle' });
@@ -237,7 +288,9 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             value={selectedBundleName}
             onChange={setSelectedBundleName}
             disabled={isCreatingAny}
-            pricePerRequest={pricePerRequest}
+            pricePerUnit={pricePerUnit}
+            unit={unit}
+            triggerClassName={theme.pickerFocusClass}
           />
           <button
             type='button'
@@ -245,12 +298,9 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             onClick={() => void handleSubscribe(selectedBundleName)}
             className={cn(
               'group inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors',
-              'bg-violet-600 text-white shadow-sm',
-              'hover:bg-violet-500 active:bg-violet-700',
-              'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-2 focus-visible:outline-none',
-              'disabled:cursor-not-allowed disabled:bg-violet-600/40 disabled:shadow-none',
-              'dark:bg-violet-500 dark:hover:bg-violet-400 dark:active:bg-violet-600',
-              'dark:disabled:bg-violet-500/30'
+              theme.buttonClass,
+              'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+              theme.focusRingClass
             )}
           >
             {isCreatingAny ? (

@@ -20,6 +20,7 @@ import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint
 
 import { AccessPoliciesCard } from './access-policies-card';
 import { ApiTab } from './api-tab';
+import { EndpointCollectivesCard } from './endpoint-collectives-card';
 import { UptimeTab } from './uptime-tab';
 
 type EndpointTabId = 'overview' | 'uptime' | 'api';
@@ -426,6 +427,13 @@ export const EndpointDetail = memo(function EndpointDetail({
                   endpointSlug={endpoint.full_path}
                 />
               ) : null}
+
+              {/* Collectives Card — renders only when the endpoint is an
+                  approved member of at least one collective. */}
+              <EndpointCollectivesCard
+                owner={endpoint.owner_username ?? owner}
+                slug={endpoint.slug}
+              />
             </aside>
           </div>
         </TabsContent>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Syft — Logo Options</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Rubik:wght@500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f2f2f0;
+      color: #111;
+      padding: 3.5rem;
+      min-height: 100vh;
+    }
+
+    header { margin-bottom: 3rem; }
+
+    h1 {
+      font-family: 'Rubik', sans-serif;
+      font-size: 1rem;
+      font-weight: 500;
+      margin-bottom: 0.35rem;
+    }
+
+    .subtitle { font-size: 0.78rem; color: #888; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      max-width: 900px;
+    }
+
+    .option {
+      background: #fff;
+      padding: 2.5rem 2rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .opt-letter {
+      font-size: 0.6rem;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #ccc;
+    }
+
+    .opt-svg {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      padding: 1rem 0 0.5rem;
+    }
+
+    .opt-name {
+      font-family: 'Rubik', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #111;
+    }
+
+    .opt-desc {
+      font-size: 0.74rem;
+      color: #999;
+      line-height: 1.55;
+    }
+
+    /* Dark variant preview strip */
+    .dark-strip {
+      margin-top: 2px;
+      background: #111;
+    }
+
+    .dark-strip .option {
+      background: #111;
+    }
+
+    .dark-strip .opt-letter { color: #444; }
+    .dark-strip .opt-name { color: #fff; }
+    .dark-strip .opt-desc { color: #555; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Syft Network — Logo Concepts</h1>
+    <p class="subtitle">Six directions. Pick one to develop further.</p>
+  </header>
+
+  <div class="grid">
+
+    <!-- A: Signal -->
+    <div class="option">
+      <span class="opt-letter">A</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <circle cx="22" cy="40" r="4" fill="#00967c"/>
+          <path d="M22 30 A10 10 0 0 1 22 50" stroke="#00967c" stroke-width="2.25" stroke-linecap="round"/>
+          <path d="M22 18 A22 22 0 0 1 22 62" stroke="#00967c" stroke-width="2.25" stroke-linecap="round" opacity="0.5"/>
+          <path d="M22 6 A34 34 0 0 1 22 74" stroke="#00967c" stroke-width="2.25" stroke-linecap="round" opacity="0.22"/>
+        </svg>
+      </div>
+      <p class="opt-name">Signal</p>
+      <p class="opt-desc">Broadcast arcs expanding from a source. Infrastructure, transmission, reach.</p>
+    </div>
+
+    <!-- B: Constellation -->
+    <div class="option">
+      <span class="opt-letter">B</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <!-- Spokes clipped to node edges -->
+          <line x1="40" y1="21.5" x2="40" y2="34.5" stroke="#00967c" stroke-width="1.25" opacity="0.4"/>
+          <line x1="57.7" y1="34.1" x2="45.2" y2="38.3" stroke="#00967c" stroke-width="1.25" opacity="0.4"/>
+          <line x1="50.9" y1="55.2" x2="43.2" y2="44.5" stroke="#00967c" stroke-width="1.25" opacity="0.4"/>
+          <line x1="29.1" y1="55.2" x2="36.8" y2="44.5" stroke="#00967c" stroke-width="1.25" opacity="0.4"/>
+          <line x1="22.3" y1="34.1" x2="34.8" y2="38.3" stroke="#00967c" stroke-width="1.25" opacity="0.4"/>
+          <!-- Outer nodes -->
+          <circle cx="40" cy="18" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="61" cy="33" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="53" cy="58" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="27" cy="58" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="19" cy="33" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <!-- Center hub -->
+          <circle cx="40" cy="40" r="5.5" fill="#00967c"/>
+        </svg>
+      </div>
+      <p class="opt-name">Constellation</p>
+      <p class="opt-desc">Attributed sources connected to a central hub. Directly echoes the reference diagrams.</p>
+    </div>
+
+    <!-- C: Orbital -->
+    <div class="option">
+      <span class="opt-letter">C</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <ellipse cx="40" cy="40" rx="28" ry="13" stroke="#00967c" stroke-width="1.5" opacity="0.3" transform="rotate(30 40 40)"/>
+          <!-- 4 nodes on ellipse at 0°, 90°, 180°, 270° (pre-rotation) -->
+          <circle cx="64" cy="54" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="47" cy="29" r="3.5" stroke="#00967c" stroke-width="1.5" opacity="0.65"/>
+          <circle cx="16" cy="26" r="3.5" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="34" cy="51" r="3.5" stroke="#00967c" stroke-width="1.5" opacity="0.65"/>
+          <!-- Center -->
+          <circle cx="40" cy="40" r="5" fill="#00967c"/>
+        </svg>
+      </div>
+      <p class="opt-name">Orbital</p>
+      <p class="opt-desc">Sovereign nodes orbiting the protocol. Contained, each in its own path.</p>
+    </div>
+
+    <!-- D: Chain -->
+    <div class="option">
+      <span class="opt-letter">D</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <line x1="22.2" y1="57.8" x2="33.3" y2="46.7" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <line x1="46.7" y1="33.3" x2="57.8" y2="22.2" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="18" cy="62" r="6" stroke="#00967c" stroke-width="1.5"/>
+          <circle cx="40" cy="40" r="8" fill="#00967c"/>
+          <circle cx="62" cy="18" r="6" stroke="#00967c" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <p class="opt-name">Chain</p>
+      <p class="opt-desc">Source → attribution hub → result. Data provenance read in one glance.</p>
+    </div>
+
+    <!-- E: Lattice -->
+    <div class="option">
+      <span class="opt-letter">E</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <!-- Guide cross -->
+          <line x1="12" y1="40" x2="68" y2="40" stroke="#00967c" stroke-width="1" opacity="0.18"/>
+          <line x1="40" y1="12" x2="40" y2="68" stroke="#00967c" stroke-width="1" opacity="0.18"/>
+          <!-- Diagonals -->
+          <line x1="15" y1="15" x2="65" y2="65" stroke="#00967c" stroke-width="1" opacity="0.1"/>
+          <line x1="65" y1="15" x2="15" y2="65" stroke="#00967c" stroke-width="1" opacity="0.1"/>
+          <!-- Corner faint dots -->
+          <circle cx="15" cy="15" r="2" fill="#00967c" opacity="0.18"/>
+          <circle cx="65" cy="15" r="2" fill="#00967c" opacity="0.18"/>
+          <circle cx="15" cy="65" r="2" fill="#00967c" opacity="0.18"/>
+          <circle cx="65" cy="65" r="2" fill="#00967c" opacity="0.18"/>
+          <!-- Edge midpoint nodes -->
+          <circle cx="40" cy="12" r="3" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="68" cy="40" r="3" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="40" cy="68" r="3" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="12" cy="40" r="3" stroke="#00967c" stroke-width="1.5" opacity="0.5"/>
+          <!-- Center -->
+          <circle cx="40" cy="40" r="6.5" fill="#00967c"/>
+        </svg>
+      </div>
+      <p class="opt-name">Lattice</p>
+      <p class="opt-desc">Protocol as structured grid. Center node dominant. Architectural, precise.</p>
+    </div>
+
+    <!-- F: Flow -->
+    <div class="option">
+      <span class="opt-letter">F</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <!-- Cubic bezier S-curve: starts going right, inflects, ends going right -->
+          <path d="M 20 62 C 70 62 10 18 60 18" stroke="#00967c" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <circle cx="20" cy="62" r="5" fill="#00967c"/>
+          <circle cx="60" cy="18" r="5" fill="#00967c"/>
+        </svg>
+      </div>
+      <p class="opt-name">Flow</p>
+      <p class="opt-desc">S-curve connecting source to attributed output. Minimal, scalable, distinctive.</p>
+    </div>
+
+  </div>
+
+  <!-- Dark background preview -->
+  <div class="grid dark-strip" style="margin-top: 32px; max-width: 900px;">
+
+    <div class="option">
+      <span class="opt-letter">A</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <circle cx="22" cy="40" r="4" fill="#2dd4aa"/>
+          <path d="M22 30 A10 10 0 0 1 22 50" stroke="#2dd4aa" stroke-width="2.25" stroke-linecap="round"/>
+          <path d="M22 18 A22 22 0 0 1 22 62" stroke="#2dd4aa" stroke-width="2.25" stroke-linecap="round" opacity="0.5"/>
+          <path d="M22 6 A34 34 0 0 1 22 74" stroke="#2dd4aa" stroke-width="2.25" stroke-linecap="round" opacity="0.22"/>
+        </svg>
+      </div>
+      <p class="opt-name">Signal</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+    <div class="option">
+      <span class="opt-letter">B</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <line x1="40" y1="21.5" x2="40" y2="34.5" stroke="#2dd4aa" stroke-width="1.25" opacity="0.4"/>
+          <line x1="57.7" y1="34.1" x2="45.2" y2="38.3" stroke="#2dd4aa" stroke-width="1.25" opacity="0.4"/>
+          <line x1="50.9" y1="55.2" x2="43.2" y2="44.5" stroke="#2dd4aa" stroke-width="1.25" opacity="0.4"/>
+          <line x1="29.1" y1="55.2" x2="36.8" y2="44.5" stroke="#2dd4aa" stroke-width="1.25" opacity="0.4"/>
+          <line x1="22.3" y1="34.1" x2="34.8" y2="38.3" stroke="#2dd4aa" stroke-width="1.25" opacity="0.4"/>
+          <circle cx="40" cy="18" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="61" cy="33" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="53" cy="58" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="27" cy="58" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="19" cy="33" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="40" cy="40" r="5.5" fill="#2dd4aa"/>
+        </svg>
+      </div>
+      <p class="opt-name">Constellation</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+    <div class="option">
+      <span class="opt-letter">C</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <ellipse cx="40" cy="40" rx="28" ry="13" stroke="#2dd4aa" stroke-width="1.5" opacity="0.3" transform="rotate(30 40 40)"/>
+          <circle cx="64" cy="54" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="47" cy="29" r="3.5" stroke="#2dd4aa" stroke-width="1.5" opacity="0.65"/>
+          <circle cx="16" cy="26" r="3.5" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="34" cy="51" r="3.5" stroke="#2dd4aa" stroke-width="1.5" opacity="0.65"/>
+          <circle cx="40" cy="40" r="5" fill="#2dd4aa"/>
+        </svg>
+      </div>
+      <p class="opt-name">Orbital</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+    <div class="option">
+      <span class="opt-letter">D</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <line x1="22.2" y1="57.8" x2="33.3" y2="46.7" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <line x1="46.7" y1="33.3" x2="57.8" y2="22.2" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="18" cy="62" r="6" stroke="#2dd4aa" stroke-width="1.5"/>
+          <circle cx="40" cy="40" r="8" fill="#2dd4aa"/>
+          <circle cx="62" cy="18" r="6" stroke="#2dd4aa" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <p class="opt-name">Chain</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+    <div class="option">
+      <span class="opt-letter">E</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <line x1="12" y1="40" x2="68" y2="40" stroke="#2dd4aa" stroke-width="1" opacity="0.18"/>
+          <line x1="40" y1="12" x2="40" y2="68" stroke="#2dd4aa" stroke-width="1" opacity="0.18"/>
+          <line x1="15" y1="15" x2="65" y2="65" stroke="#2dd4aa" stroke-width="1" opacity="0.1"/>
+          <line x1="65" y1="15" x2="15" y2="65" stroke="#2dd4aa" stroke-width="1" opacity="0.1"/>
+          <circle cx="15" cy="15" r="2" fill="#2dd4aa" opacity="0.18"/>
+          <circle cx="65" cy="15" r="2" fill="#2dd4aa" opacity="0.18"/>
+          <circle cx="15" cy="65" r="2" fill="#2dd4aa" opacity="0.18"/>
+          <circle cx="65" cy="65" r="2" fill="#2dd4aa" opacity="0.18"/>
+          <circle cx="40" cy="12" r="3" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="68" cy="40" r="3" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="40" cy="68" r="3" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="12" cy="40" r="3" stroke="#2dd4aa" stroke-width="1.5" opacity="0.5"/>
+          <circle cx="40" cy="40" r="6.5" fill="#2dd4aa"/>
+        </svg>
+      </div>
+      <p class="opt-name">Lattice</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+    <div class="option">
+      <span class="opt-letter">F</span>
+      <div class="opt-svg">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <path d="M 20 62 C 70 62 10 18 60 18" stroke="#2dd4aa" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <circle cx="20" cy="62" r="5" fill="#2dd4aa"/>
+          <circle cx="60" cy="18" r="5" fill="#2dd4aa"/>
+        </svg>
+      </div>
+      <p class="opt-name">Flow</p>
+      <p class="opt-desc">On dark</p>
+    </div>
+
+  </div>
+
+  <p style="margin-top: 2.5rem; font-size: 0.72rem; color: #aaa;">
+    Open <code>logo-options.html</code> in a browser to view all variants.
+  </p>
+
+</body>
+</html>

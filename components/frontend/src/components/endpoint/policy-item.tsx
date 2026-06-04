@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useState } from 'react';
 
 import type { Policy } from '@/lib/types';
+import type { PrepaidProvider } from './xendit-policy-content';
 
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import Coins from 'lucide-react/dist/esm/icons/coins';
@@ -18,11 +19,21 @@ import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { parseXenditConfig } from '@/lib/xendit-client';
+import { parseXenditConfig, UNIT_LABEL } from '@/lib/xendit-client';
 
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
 import { XenditPolicyContent } from './xendit-policy-content';
+
+// Policy types that drive the prepaid-credits card. Both providers share the
+// same config shape (bundles + currency + payment_url + credits_url +
+// invoices_url + price + unit_type), so the card and BundlePicker are reused.
+// Adding a future prepaid provider is one entry here plus a theme entry in
+// POLICY_TYPE_CONFIG.
+const PREPAID_BALANCE_TYPES = new Set<PrepaidProvider>(['xendit', 'stripe']);
+function isPrepaidBalanceType(type: string): type is PrepaidProvider {
+  return (PREPAID_BALANCE_TYPES as Set<string>).has(type);
+}
 
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
@@ -59,6 +70,14 @@ const POLICY_TYPE_CONFIG: Record<
     color: 'text-violet-600 dark:text-violet-400',
     bgColor: 'bg-violet-50 dark:bg-violet-950/30',
     borderColor: 'border-violet-200 dark:border-violet-800',
+    description: 'Top up credits to use this endpoint.'
+  },
+  stripe: {
+    icon: CreditCard,
+    label: 'Prepaid credits',
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-950/30',
+    borderColor: 'border-indigo-200 dark:border-indigo-800',
     description: 'Top up credits to use this endpoint.'
   },
   // Access control policies
@@ -144,16 +163,17 @@ export interface PolicyItemProperties {
 function renderPolicyContent(
   policy: Policy,
   isTransaction: boolean,
-  isXendit: boolean,
+  prepaidProvider: PrepaidProvider | null,
   endpointSlug?: string,
   endpointOwner?: string
 ): React.ReactElement {
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
   }
-  if (isXendit) {
+  if (prepaidProvider) {
     return (
       <XenditPolicyContent
+        provider={prepaidProvider}
         config={policy.config}
         enabled={policy.enabled}
         endpointSlug={endpointSlug}
@@ -174,7 +194,13 @@ export const PolicyItem = memo(function PolicyItem({
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
   const isTransaction = policyTypeLower === 'transaction';
-  const isXendit = policyTypeLower === 'xendit';
+  const prepaidProvider: PrepaidProvider | null = isPrepaidBalanceType(policyTypeLower)
+    ? policyTypeLower
+    : null;
+  // Provider-agnostic display name surfaced under the card title (e.g. "via Xendit").
+  const prepaidProviderLabel = prepaidProvider
+    ? prepaidProvider.charAt(0).toUpperCase() + prepaidProvider.slice(1)
+    : null;
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -186,16 +212,16 @@ export const PolicyItem = memo(function PolicyItem({
   const rawDescription = policy.description || config.description;
   const description = rawDescription && rawDescription !== displayLabel ? rawDescription : null;
 
-  const xenditParsed = useMemo(
-    () => (isXendit ? parseXenditConfig(policy.config) : null),
-    [isXendit, policy.config]
+  const prepaidParsed = useMemo(
+    () => (prepaidProvider ? parseXenditConfig(policy.config) : null),
+    [prepaidProvider, policy.config]
   );
-  const xenditPricePerRequest =
-    xenditParsed && xenditParsed.pricePerRequest !== null && xenditParsed.pricePerRequest > 0
-      ? xenditParsed.pricePerRequest
+  const prepaidPricePerUnit =
+    prepaidParsed && prepaidParsed.pricePerUnit !== null && prepaidParsed.pricePerUnit > 0
+      ? prepaidParsed.pricePerUnit
       : null;
 
-  if (isXendit) {
+  if (prepaidProvider) {
     return (
       <div
         className={cn(
@@ -223,7 +249,9 @@ export const PolicyItem = memo(function PolicyItem({
                   <h3 className='text-foreground text-sm leading-tight font-semibold'>
                     {displayLabel}
                   </h3>
-                  <p className='text-muted-foreground mt-0.5 text-[11px]'>via Xendit</p>
+                  <p className='text-muted-foreground mt-0.5 text-[11px]'>
+                    via {prepaidProviderLabel}
+                  </p>
                 </div>
                 {policy.version ? (
                   <span className='text-muted-foreground bg-muted/60 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
@@ -255,14 +283,21 @@ export const PolicyItem = memo(function PolicyItem({
               {description && (
                 <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
               )}
-              {xenditParsed && xenditPricePerRequest !== null && (
+              {prepaidParsed && prepaidPricePerUnit !== null && (
                 <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
-                  {xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} per request
+                  {prepaidParsed.currency} {prepaidPricePerUnit.toLocaleString()} per{' '}
+                  {UNIT_LABEL[prepaidParsed.unit].singular}
                 </p>
               )}
 
               {Object.keys(policy.config).length > 0 &&
-                renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
+                renderPolicyContent(
+                  policy,
+                  isTransaction,
+                  prepaidProvider,
+                  endpointSlug,
+                  endpointOwner
+                )}
             </div>
           </div>
         </div>
@@ -316,7 +351,13 @@ export const PolicyItem = memo(function PolicyItem({
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
+            renderPolicyContent(
+              policy,
+              isTransaction,
+              prepaidProvider,
+              endpointSlug,
+              endpointOwner
+            )}
 
           {policy.version ? (
             <div className='mt-2'>

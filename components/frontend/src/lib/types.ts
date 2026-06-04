@@ -51,6 +51,8 @@ export interface User {
   bio?: string;
   /** Whether the user's email is shown on their public profile */
   is_email_public?: boolean;
+  /** Timestamp of the user's last successful login (null/undefined if never) */
+  last_login_at?: string;
 }
 
 // Authentication request schemas
@@ -285,7 +287,7 @@ export interface ChatSource {
   name: string;
   tags: string[]; // Tags for categorization
   description: string;
-  type: EndpointType; // Endpoint type (model or data_source)
+  type: EndpointType;
   updated: string; // Pre-formatted relative time, e.g. "2 days ago" (mapped from updated_at)
   updated_at: string; // Raw ISO 8601 timestamp — use this for sorting/comparisons
   status: 'active' | 'inactive'; // Active iff the endpoint has at least one enabled connection (reachable)
@@ -384,4 +386,124 @@ export interface XenditSubscription {
   first_funded_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// =============================================================================
+// Admin User-Overview Dashboard Types
+//
+// Mirror the backend Pydantic schemas in `schemas/admin.py`. The shapes here
+// are pinned by the admin API contract (`GET /api/v1/admin/overview` and
+// `GET /api/v1/admin/users`) — keep them in sync with the backend.
+// =============================================================================
+
+/** Authentication provider for a user account. */
+export type AuthProvider = 'local' | 'google';
+
+/** Headline scalar counts shown across the overview KPI cards. */
+export interface HeadlineCounts {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+  email_verified: number;
+  email_unverified: number;
+  admins: number;
+}
+
+/** One role's user count. */
+export interface RoleCount {
+  role: UserRole;
+  count: number;
+}
+
+/** One auth provider's user count. */
+export interface AuthProviderCount {
+  provider: AuthProvider;
+  count: number;
+}
+
+/** A single day bucket in the signup trend (ascending, gap-filled with 0). */
+export interface SignupBucket {
+  /** ISO date string `YYYY-MM-DD`. */
+  date: string;
+  signups: number;
+}
+
+/** Daily signup trend over a selected window. */
+export interface SignupTrend {
+  /** Echoes the requested `trend_days` (7 | 30 | 90). */
+  days: number;
+  /** Exactly `days` ascending, gap-filled buckets. */
+  buckets: SignupBucket[];
+}
+
+/** Last-login recency bucket key. */
+export type LastLoginBucketKey = '24h' | '7d' | '30d' | '90d' | 'never';
+
+/** One mutually-exclusive last-login recency bucket. */
+export interface LastLoginBucket {
+  bucket: LastLoginBucketKey;
+  label: string;
+  count: number;
+}
+
+/** Last-login distribution plus derived headline counts. */
+export interface LastLoginStats {
+  buckets: LastLoginBucket[];
+  /** Convenience duplicate of the `24h` bucket (the "Active Now" card). */
+  active_24h: number;
+  /** Users whose `last_login_at` is null OR older than 30 days. */
+  dormant_30d: number;
+}
+
+/** Full payload of `GET /api/v1/admin/overview`. */
+export interface UserOverviewStats {
+  headline: HeadlineCounts;
+  by_role: RoleCount[];
+  by_auth_provider: AuthProviderCount[];
+  signup_trend: SignupTrend;
+  last_login: LastLoginStats;
+}
+
+/** A single row in the admin users table (`AdminUserRow`). */
+export interface AdminUserRow {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string;
+  avatar_url: string | null;
+  role: UserRole;
+  is_active: boolean;
+  is_email_verified: boolean;
+  auth_provider: AuthProvider;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+/** A page of admin users (`AdminUserPage`). */
+export interface AdminUserPage {
+  items: AdminUserRow[];
+  page: number;
+  page_size: number;
+  /** Total rows matching the filters, before pagination. */
+  total: number;
+  total_pages: number;
+}
+
+/** Sortable column keys for the admin users table. */
+export type AdminUserSortBy = 'username' | 'email' | 'role' | 'created_at' | 'last_login_at';
+
+/** Sort direction for the admin users table. */
+export type SortDir = 'asc' | 'desc';
+
+/** Query parameters for `GET /api/v1/admin/users`. */
+export interface AdminUsersQuery {
+  page?: number;
+  page_size?: number;
+  sort_by?: AdminUserSortBy;
+  sort_dir?: SortDir;
+  /** Case-insensitive substring match against username OR email. */
+  search?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  is_email_verified?: boolean;
 }

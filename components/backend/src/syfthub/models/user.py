@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from syfthub.models.base import BaseModel, TimestampMixin
 
 if TYPE_CHECKING:
+    from syfthub.models.collective import CollectiveModel
     from syfthub.models.endpoint import EndpointModel
     from syfthub.models.user_aggregator import UserAggregatorModel
 
@@ -78,6 +79,13 @@ class UserModel(BaseModel, TimestampMixin):
         DateTime(timezone=True), nullable=True, default=None
     )
 
+    # Timestamp of the user's last successful login (password or Google sign-in).
+    # Null until the user logs in for the first time. Used by the admin
+    # user-overview dashboard for last-login recency bucketing.
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # X25519 public key for NATS tunnel E2E encryption (base64url-encoded, 44 chars)
     # Registered by the space on startup via PUT /api/v1/nats/encryption-key
     encryption_public_key: Mapped[Optional[str]] = mapped_column(
@@ -91,6 +99,9 @@ class UserModel(BaseModel, TimestampMixin):
     aggregators: Mapped[List["UserAggregatorModel"]] = relationship(
         "UserAggregatorModel", back_populates="user", cascade="all, delete-orphan"
     )
+    collectives: Mapped[List["CollectiveModel"]] = relationship(
+        "CollectiveModel", back_populates="owner", cascade="all, delete-orphan"
+    )
 
     # Indexes for performance
     __table_args__ = (
@@ -100,6 +111,7 @@ class UserModel(BaseModel, TimestampMixin):
         Index("idx_users_is_active", "is_active"),
         Index("idx_users_heartbeat_expires_at", "heartbeat_expires_at"),
         Index("idx_users_google_id", "google_id"),
+        Index("idx_users_last_login_at", "last_login_at"),
     )
 
     def __repr__(self) -> str:

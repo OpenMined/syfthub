@@ -7,6 +7,22 @@ import { defineConfig } from 'vite';
 
 import config from './_config';
 
+// Serve the static /hi landing prototype, preserving any query string
+// (e.g. UTM params) so the page can still read them on submit.
+function rewriteHiRoute(
+  req: { url?: string },
+  _res: unknown,
+  next: () => void,
+): void {
+  if (req.url) {
+    const [pathname, query] = req.url.split('?');
+    if (pathname === '/hi' || pathname === '/hi/') {
+      req.url = '/hi/index.html' + (query ? '?' + query : '');
+    }
+  }
+  next();
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -16,6 +32,15 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    {
+      name: 'hi-route-rewrite',
+      configureServer(server) {
+        server.middlewares.use(rewriteHiRoute);
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(rewriteHiRoute);
+      },
+    },
     {
       name: 'dynamic-html',
       transformIndexHtml(html) {
