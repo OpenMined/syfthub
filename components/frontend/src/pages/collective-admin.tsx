@@ -114,7 +114,7 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
     // invitations. The badge counts ONLY requests — the items awaiting *your*
     // review — because invitations are waiting on the other party, not you.
     { id: 'pending', label: 'Pending', badge: requests.length },
-    { id: 'shared', label: 'Shared Endpoints' },
+    { id: 'shared', label: 'Collective APIs' },
     { id: 'settings', label: 'Settings' }
   ];
 

@@ -16,6 +16,7 @@ from syfthub.auth.db_dependencies import (
 )
 from syfthub.database.dependencies import get_collective_service
 from syfthub.schemas.collective import (
+    CollectiveBillingSummaryResponse,
     CollectiveCreate,
     CollectiveInvitationResponse,
     CollectiveInviteByPathRequest,
@@ -110,6 +111,22 @@ async def get_collective_endpoint_paths(
     return service.get_collective_endpoint_paths(slug)
 
 
+@router.get(
+    "/by-slug/{slug}/billing-summary",
+    response_model=CollectiveBillingSummaryResponse,
+)
+async def get_collective_billing_summary(
+    slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveBillingSummaryResponse:
+    """Aggregate pricing + settlement metadata for all approved members (public).
+
+    Backs the estimated-price badge and the "who do I have an account with"
+    modal for the default ``collective/<slug>`` shared endpoint.
+    """
+    return service.get_billing_summary(slug)
+
+
 # ----------------------------------------------------------------------
 # Shared endpoints — named, curated subsets of approved members
 # ----------------------------------------------------------------------
@@ -191,6 +208,24 @@ async def get_shared_endpoint_endpoint_paths(
     ``/by-slug/{slug}/endpoint-paths``).
     """
     return service.get_shared_endpoint_paths(slug, shared_slug)
+
+
+@router.get(
+    "/by-slug/{slug}/shared-endpoints/{shared_slug}/billing-summary",
+    response_model=CollectiveBillingSummaryResponse,
+)
+async def get_shared_endpoint_billing_summary(
+    slug: str,
+    shared_slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveBillingSummaryResponse:
+    """Aggregate pricing + settlement metadata for a shared endpoint subset (public).
+
+    Same shape as the collective-level summary, but scoped to the configured
+    subset intersected with the collective's currently approved members. The
+    ``all`` shared slug yields every approved member.
+    """
+    return service.get_billing_summary(slug, shared_slug)
 
 
 @router.get("/{collective_id}", response_model=CollectiveResponse)

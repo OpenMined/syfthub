@@ -14,8 +14,13 @@ import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import Users from 'lucide-react/dist/esm/icons/users';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import type { CollectiveSharedEndpoint } from '@/lib/collectives-api';
+
 import { CollectiveAbout } from '@/components/collectives/collective-about';
 import { CollectiveIcon } from '@/components/collectives/collective-icon';
+import { CollectivePrice } from '@/components/collectives/collective-price';
+import { ViewBalancesButton } from '@/components/collectives/view-balances-button';
+import { ViewEndpointsButton } from '@/components/collectives/view-endpoints-button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +29,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
+import { useCollectiveBilling } from '@/hooks/use-collective-billing';
 import {
   useCollectiveBySlug,
   useCollectiveMembers,
@@ -214,7 +220,7 @@ export default function CollectiveDetailPage() {
                     }`}
                   >
                     <TabIcon tab={tab} />
-                    {tab === 'shared' ? 'shared endpoints' : tab}
+                    {tab === 'shared' ? 'Collective APIs' : tab}
                     <span className='text-muted-foreground text-xs font-normal'>
                       (
                       {tabCount(tab, {
@@ -333,22 +339,11 @@ export default function CollectiveDetailPage() {
                 <div>
                   <div className='max-h-[22rem] space-y-3 overflow-y-auto pr-1'>
                     {sharedEndpointsList.map((shared) => (
-                      <Card key={shared.id} className='hover:border-primary/30 p-3 transition-all'>
-                        <div className='flex items-start justify-between gap-3'>
-                          <div className='min-w-0 flex-1'>
-                            <h4 className='truncate text-sm font-medium'>{shared.name}</h4>
-                            {shared.description && (
-                              <p className='text-muted-foreground mt-1 line-clamp-2 text-xs'>
-                                {shared.description}
-                              </p>
-                            )}
-                            <SharedPathChip path={shared.shared_endpoint_path} />
-                          </div>
-                          <div className='text-muted-foreground shrink-0 text-right text-xs'>
-                            {shared.active_member_count} active
-                          </div>
-                        </div>
-                      </Card>
+                      <SharedEndpointRow
+                        key={shared.id}
+                        collectiveSlug={collective.slug}
+                        shared={shared}
+                      />
                     ))}
                   </div>
                 </div>
@@ -389,6 +384,7 @@ export default function CollectiveDetailPage() {
             </Card>
 
             <SharedEndpointCard
+              collectiveSlug={collective.slug}
               path={collective.shared_endpoint_path}
               endpointCount={collective.member_count}
             />
@@ -417,11 +413,14 @@ export default function CollectiveDetailPage() {
  * endpoint at once.
  */
 function SharedEndpointCard({
+  collectiveSlug,
   path,
   endpointCount
-}: Readonly<{ path: string; endpointCount: number }>) {
+}: Readonly<{ collectiveSlug: string; path: string; endpointCount: number }>) {
   const [copied, setCopied] = useState(false);
   const timerReference = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Default Collective API = all approved members (no shared slug).
+  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(collectiveSlug);
 
   useEffect(
     () => () => {
@@ -441,27 +440,98 @@ function SharedEndpointCard({
 
   return (
     <Card className='p-6'>
-      <h3 className='mb-1 text-sm leading-none font-semibold'>Shared Endpoint</h3>
-      <p className='text-muted-foreground mb-1.5 text-xs leading-none'>
-        Query all {endpointCount} {endpointCount === 1 ? 'endpoint' : 'endpoints'} through a single
-        API
+      <div className='mb-1 flex items-center gap-2'>
+        <h3 className='text-sm leading-none font-semibold'>Collective API</h3>
+        <Badge variant='secondary' className='text-[10px]'>
+          All endpoints
+        </Badge>
+      </div>
+      <p className='text-muted-foreground mb-3 text-xs'>
+        One API that queries all {endpointCount}{' '}
+        {endpointCount === 1 ? 'endpoint' : 'endpoints'} in this collective at once.
       </p>
-      <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>
-        <code className='text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs'>
-          {path}
-        </code>
-        <button
-          type='button'
-          onClick={handleCopy}
-          aria-label={copied ? 'Shared endpoint path copied' : 'Copy shared endpoint path'}
-          className='text-muted-foreground hover:text-foreground shrink-0 transition-colors'
-        >
-          {copied ? (
-            <Check className='h-3.5 w-3.5 text-green-600' aria-hidden='true' />
-          ) : (
-            <Copy className='h-3.5 w-3.5' aria-hidden='true' />
+      <div className='space-y-3'>
+        <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>
+          <code className='text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs'>
+            {path}
+          </code>
+          <button
+            type='button'
+            onClick={handleCopy}
+            aria-label={copied ? 'Collective API path copied' : 'Copy Collective API path'}
+            className='text-muted-foreground hover:text-foreground shrink-0 transition-colors'
+          >
+            {copied ? (
+              <Check className='h-3.5 w-3.5 text-green-600' aria-hidden='true' />
+            ) : (
+              <Copy className='h-3.5 w-3.5' aria-hidden='true' />
+            )}
+          </button>
+        </div>
+        <div>
+          <CollectivePrice summary={billing} isLoading={billingLoading} showFreeCount={false} />
+        </div>
+        <div className='grid grid-cols-2 gap-2'>
+          <ViewEndpointsButton summary={billing} title={path} className='w-full py-2' />
+          <ViewBalancesButton
+            collectiveSlug={collectiveSlug}
+            title={path}
+            summary={billing}
+            className='w-full py-2'
+          />
+        </div>
+        <p className='text-muted-foreground text-[11px] leading-snug'>
+          * curated subsets live under the Collective APIs tab.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * One row in the collective's "shared endpoints" tab — a curated subset. Shows
+ * its public path plus an estimated per-query price (summed over the subset's
+ * participating members), so visitors can compare cost before querying.
+ */
+function SharedEndpointRow({
+  collectiveSlug,
+  shared
+}: Readonly<{ collectiveSlug: string; shared: CollectiveSharedEndpoint }>) {
+  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(
+    collectiveSlug,
+    shared.slug
+  );
+
+  return (
+    <Card className='hover:border-primary/30 p-3 transition-all'>
+      <div className='flex items-start justify-between gap-3'>
+        <div className='min-w-0 flex-1'>
+          <h4 className='truncate text-sm font-medium'>{shared.name}</h4>
+          {shared.description && (
+            <p className='text-muted-foreground mt-1 line-clamp-2 text-xs'>{shared.description}</p>
           )}
-        </button>
+          <div className='mt-2 flex flex-wrap items-center gap-2'>
+            <SharedPathChip path={shared.shared_endpoint_path} />
+            <CollectivePrice summary={billing} isLoading={billingLoading} />
+          </div>
+          <div className='mt-3 flex flex-wrap items-center gap-2'>
+            <ViewEndpointsButton
+              summary={billing}
+              title={shared.shared_endpoint_path}
+              className='px-2.5 py-1'
+            />
+            <ViewBalancesButton
+              collectiveSlug={collectiveSlug}
+              sharedSlug={shared.slug}
+              title={shared.shared_endpoint_path}
+              summary={billing}
+              className='px-2.5 py-1'
+            />
+          </div>
+        </div>
+        <div className='text-muted-foreground shrink-0 text-right text-xs'>
+          {shared.active_member_count} active
+        </div>
       </div>
     </Card>
   );

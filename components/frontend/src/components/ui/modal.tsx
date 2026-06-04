@@ -1,5 +1,7 @@
 import * as React from 'react';
 
+import { createPortal } from 'react-dom';
+
 import { AnimatePresence, motion } from 'framer-motion';
 import X from 'lucide-react/dist/esm/icons/x';
 
@@ -13,7 +15,7 @@ interface ModalProperties {
   children: React.ReactNode;
   title?: string;
   description?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
   closeOnOverlayClick?: boolean;
   showCloseButton?: boolean;
 }
@@ -22,7 +24,9 @@ const sizeClasses = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
-  xl: 'max-w-xl'
+  xl: 'max-w-xl',
+  '2xl': 'max-w-2xl',
+  '3xl': 'max-w-3xl'
 };
 
 // Selector for focusable elements
@@ -118,7 +122,13 @@ export function Modal({
     }
   };
 
-  return (
+  // Render through a portal to document.body so the overlay is always centred
+  // on the viewport, regardless of any ancestor's overflow / transform /
+  // stacking context (e.g. when a modal is opened from inside a scrollable
+  // list row).
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen ? (
         <div
@@ -189,7 +199,8 @@ export function Modal({
           </motion.div>
         </div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 
