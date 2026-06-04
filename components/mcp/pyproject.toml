@@ -12,7 +12,7 @@ dependencies = [
     # HTTP libraries with security fixes
     "requests>=2.32.4",  # CVE-2024-47081: .netrc credentials leak
     "httpx>=0.27.0",
-    "aiohttp>=3.13.3",  # CVE-2025-69223 and related DoS vulnerabilities
+    "aiohttp>=3.14.0",  # CVE-2025-69223 and related DoS vulnerabilities
     "urllib3>=2.7.0",  # CVE-2025-66471, CVE-2026-21441: decompression bomb; GHSA-pq67-6m6q-mj2v: sensitive headers forwarded on cross-origin redirects
     # Web framework dependencies with security fixes
     "starlette>=0.49.1",  # CVE-2025-62727: O(n^2) DoS via Range header
@@ -49,7 +49,7 @@ override-dependencies = [
     "starlette>=0.49.1",  # CVE-2025-62727
     "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199
     "authlib>=1.6.12",  # CVE-2025-68158, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498, CVE-2026-28802
-    "aiohttp>=3.13.3",  # CVE-2025-69223
+    "aiohttp>=3.14.0",  # CVE-2025-69223
     "mcp>=1.23.0",  # CVE-2025-66416
     "pydantic>=2.11.7",  # syft-accounting-sdk pins ==2.11.4; override for fastmcp compat
     "python-dotenv>=1.2.2",  # CVE-2025-67006: syft-accounting-sdk pins ==1.1.0 (vulnerable)
