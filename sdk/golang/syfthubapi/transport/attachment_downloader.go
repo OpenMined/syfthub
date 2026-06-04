@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -40,25 +41,67 @@ func NewObjectStoreDownloader(
 	}, nil
 }
 
-// DownloadAndMaterialize fetches ciphertext from Object Store, unwraps the
-// per-file key under the session KEK, decrypts the chunked stream, verifies
-// the plaintext SHA, and writes plaintext to a 0600-mode file inside
-// dir. Sets info.LocalPath on success.
-func (d *ObjectStoreDownloader) DownloadAndMaterialize(
-	dir string,
-	info *syfthubapi.AttachmentInfo,
-) error {
+// DownloadOption customizes a streaming download.
+type DownloadOption func(*downloadOptions)
+
+type downloadOptions struct {
+	progress func(downloaded int64, total int64)
+}
+
+// WithProgress installs a callback fired as plaintext is written to the
+// destination. downloaded is the running plaintext byte count; total is
+// info.SizeBytes (declared, may be 0 if the producer didn't set it).
+// Fires at most once per AttachmentChunkSize boundary so it's safe to use
+// for UI updates without throttling at the call site.
+func WithProgress(cb func(downloaded int64, total int64)) DownloadOption {
+	return func(o *downloadOptions) { o.progress = cb }
+}
+
+// progressWriter is a small wrapper that ticks a progress callback as bytes
+// flow through it.
+type progressWriter struct {
+	w        io.Writer
+	total    int64
+	written  int64
+	progress func(int64, int64)
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	if n > 0 {
+		pw.written += int64(n)
+		if pw.progress != nil {
+			pw.progress(pw.written, pw.total)
+		}
+	}
+	return n, err
+}
+
+// DownloadStream fetches the object-store ciphertext for info, decrypts it,
+// verifies the declared size and SHA-256, and writes the plaintext to w.
+//
+// On verification failure w MAY have received partial data; the caller is
+// responsible for cleaning up (truncating / removing the file or buffer).
+// Callers that need atomic on-disk semantics should use DownloadAndMaterialize
+// instead, which buffers in memory and only writes the file after the SHA
+// check passes.
+//
+// Pass WithProgress to receive per-chunk byte-count callbacks for UI updates.
+func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, w io.Writer, opts ...DownloadOption) error {
 	if info.Transport != syfthubapi.AttachmentTransportObjectStore {
 		return fmt.Errorf("downloader called for transport=%q", info.Transport)
 	}
 	if info.WrappedKey == nil {
-		return fmt.Errorf("wrapped_key missing")
+		return fmt.Errorf("wrapped_key missing on object_store attachment %s — peer may be running an SDK older than the base_nonce/wrapped_key wire format", info.FileID)
 	}
 	if info.BaseNonceB64 == "" {
-		return fmt.Errorf("base_nonce missing")
+		// base_nonce was introduced alongside chunked AES-GCM streaming. A
+		// peer that omits it is on a pre-cutover SDK build; surface that
+		// explicitly so operators don't chase a phantom decryption bug.
+		return fmt.Errorf("base_nonce missing on object_store attachment %s — peer SDK is too old; please upgrade the producer", info.FileID)
 	}
 	if info.ObjectBucket == "" || info.ObjectKey == "" {
-		return fmt.Errorf("object_bucket/key missing")
+		return fmt.Errorf("object_bucket/object_key missing on attachment %s", info.FileID)
 	}
 
 	wrappedCT, err := base64.StdEncoding.DecodeString(info.WrappedKey.Ciphertext)
@@ -83,8 +126,16 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 		return fmt.Errorf("object-store get: %w", err)
 	}
 
-	var pt bytes.Buffer
-	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, &pt)
+	var dlOpts downloadOptions
+	for _, o := range opts {
+		o(&dlOpts)
+	}
+	dst := w
+	if dlOpts.progress != nil {
+		dst = &progressWriter{w: w, total: info.SizeBytes, progress: dlOpts.progress}
+	}
+
+	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, dst)
 	if err != nil {
 		return fmt.Errorf("decrypt stream: %w", err)
 	}
@@ -93,6 +144,23 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 	}
 	if gotSHA != info.PlaintextSHA256 {
 		return fmt.Errorf("sha256 mismatch")
+	}
+	return nil
+}
+
+// DownloadAndMaterialize is the atomic on-disk variant of DownloadStream: it
+// buffers the plaintext in memory, verifies its SHA, and only then writes a
+// 0600-mode file under dir. Sets info.LocalPath on success. Use this when a
+// failed download must leave no partial file behind (the host runner path).
+// For a streaming variant that writes incrementally to an arbitrary io.Writer,
+// use DownloadStream.
+func (d *ObjectStoreDownloader) DownloadAndMaterialize(
+	dir string,
+	info *syfthubapi.AttachmentInfo,
+) error {
+	var pt bytes.Buffer
+	if err := d.DownloadStream(info, &pt); err != nil {
+		return err
 	}
 
 	name := info.FileID

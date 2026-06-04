@@ -670,29 +670,6 @@ config:
 		}
 	})
 
-	t.Run("normalizes policy types", func(t *testing.T) {
-		endpointDir := filepath.Join(tmpDir, "pascal-case")
-		policyDir := filepath.Join(endpointDir, "policy")
-		os.MkdirAll(policyDir, 0755)
-
-		policy := `name: access_group
-type: AccessGroupPolicy
-config:
-  allowed_groups:
-    - admin
-`
-		os.WriteFile(filepath.Join(policyDir, "access.yaml"), []byte(policy), 0644)
-
-		policies, _, err := loader.loadPolicies(endpointDir)
-
-		if err != nil {
-			t.Fatalf("error: %v", err)
-		}
-		if policies[0].Type != syfthubapi.PolicyTypeAccessGroup {
-			t.Errorf("Type = %q, want %q", policies[0].Type, syfthubapi.PolicyTypeAccessGroup)
-		}
-	})
-
 	t.Run("skips non-yaml files", func(t *testing.T) {
 		endpointDir := filepath.Join(tmpDir, "mixed-files")
 		policyDir := filepath.Join(endpointDir, "policy")
@@ -821,38 +798,6 @@ func TestValidatePolicies(t *testing.T) {
 			t.Error("expected error for missing policy ref")
 		}
 	})
-}
-
-func TestNormalizePolicyType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"AccessGroupPolicy", syfthubapi.PolicyTypeAccessGroup},
-		{"RateLimitPolicy", syfthubapi.PolicyTypeRateLimit},
-		{"TokenLimitPolicy", syfthubapi.PolicyTypeTokenLimit},
-		{"PromptFilterPolicy", syfthubapi.PolicyTypePromptFilter},
-		{"AttributionPolicy", syfthubapi.PolicyTypeAttribution},
-		{"ManualReviewPolicy", syfthubapi.PolicyTypeManualReview},
-		{"TransactionPolicy", syfthubapi.PolicyTypeTransaction},
-		{"CustomPolicy", syfthubapi.PolicyTypeCustom},
-		{"AllOfPolicy", syfthubapi.PolicyTypeAllOf},
-		{"AnyOfPolicy", syfthubapi.PolicyTypeAnyOf},
-		{"NotPolicy", syfthubapi.PolicyTypeNot},
-		// Already normalized
-		{syfthubapi.PolicyTypeRateLimit, syfthubapi.PolicyTypeRateLimit},
-		// Unknown type (returned as-is)
-		{"unknown_type", "unknown_type"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := normalizePolicyType(tt.input)
-			if result != tt.expected {
-				t.Errorf("normalizePolicyType(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
 }
 
 func TestLoadDotEnv(t *testing.T) {

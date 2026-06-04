@@ -385,39 +385,6 @@ func TestAccountingResourceCancelTransaction(t *testing.T) {
 	}
 }
 
-func TestAccountingResourceCreateTransactionToken(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/token/create" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		if r.Method != "POST" {
-			t.Errorf("method = %s", r.Method)
-		}
-
-		var body map[string]string
-		json.NewDecoder(r.Body).Decode(&body)
-
-		if body["recipientEmail"] != "recipient@example.com" {
-			t.Errorf("recipientEmail = %v", body["recipientEmail"])
-		}
-
-		json.NewEncoder(w).Encode(map[string]string{
-			"token": "jwt_token_123",
-		})
-	}))
-	defer server.Close()
-
-	ar := newAccountingResource(server.URL, "test@example.com", "testpass", DefaultTimeout)
-
-	token, err := ar.CreateTransactionToken(context.Background(), "recipient@example.com")
-	if err != nil {
-		t.Fatalf("CreateTransactionToken error: %v", err)
-	}
-	if token != "jwt_token_123" {
-		t.Errorf("token = %q", token)
-	}
-}
-
 func TestAccountingResourceCreateDelegatedTransaction(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -48,25 +48,14 @@ var nodePolicyAddCmd = &cobra.Command{
 func init() {
 	nodePolicyAddCmd.Flags().StringVar(&nodePolicyAddName, "name", "", "Policy name (required)")
 	nodePolicyAddCmd.Flags().StringVar(&nodePolicyAddType, "type", "", "Policy type (required)")
-	nodePolicyAddCmd.Flags().StringSliceVar(&nodePolicyAddConfig, "config", nil, "Config key=value pairs (repeatable; ignored for --type transaction)")
+	nodePolicyAddCmd.Flags().StringSliceVar(&nodePolicyAddConfig, "config", nil, "Config key=value pairs (repeatable)")
 	nodePolicyAddCmd.Flags().BoolVar(&nodePolicyAddJSON, "json", false, "Output result as JSON")
 	nodePolicyAddCmd.MarkFlagRequired("name")
 	nodePolicyAddCmd.MarkFlagRequired("type")
-
-	// Transaction policies use a dedicated set of flags and write a per-policy
-	// YAML + HMAC secret instead of appending to policies.yaml.
-	registerTransactionPolicyFlags(nodePolicyAddCmd)
 }
 
 func runNodePolicyAdd(cmd *cobra.Command, args []string) error {
 	slug := args[0]
-
-	// Transaction policies have their own validation, file layout, and side
-	// effects (HMAC secret + .gitignore). Dispatch early so the legacy
-	// policies.yaml path stays untouched for non-transaction types.
-	if nodePolicyAddType == PolicyTypeTransaction {
-		return runNodePolicyAddTransaction(slug)
-	}
 
 	cfg := nodeconfig.Load()
 
@@ -102,38 +91,6 @@ func runNodePolicyAdd(cmd *cobra.Command, args []string) error {
 	} else {
 		output.Success("Added policy '%s' (%s) to endpoint '%s'.", nodePolicyAddName, nodePolicyAddType, slug)
 	}
-	return nil
-}
-
-// runNodePolicyAddTransaction is the cobra-side entry point for the
-// `--type transaction` branch. It glues the flag values onto the
-// implementation in node_policy_transaction.go and produces the JSON / human
-// output. Kept here (next to runNodePolicyAdd) so the dispatch is colocated
-// with the rest of the policy-add flow.
-func runNodePolicyAddTransaction(slug string) error {
-	endpointDir := resolveTransactionEndpointDir(slug)
-	args := transactionArgsFromFlags()
-
-	outcome, err := runTransactionPolicyAdd(endpointDir, args)
-	if err != nil {
-		output.ReplyErrorSoft(nodePolicyAddJSON, "%v", err)
-		return nil
-	}
-
-	if nodePolicyAddJSON {
-		output.JSON(map[string]any{
-			"status":            output.StatusSuccess,
-			"slug":              slug,
-			"policy":            nodePolicyAddName,
-			"type":              PolicyTypeTransaction,
-			"policy_path":       outcome.PolicyPath,
-			"secret_path":       outcome.SecretPath,
-			"gitignore_updated": outcome.GitignoreUpdated,
-		})
-		return nil
-	}
-
-	printTransactionPolicySuccess(slug, outcome)
 	return nil
 }
 

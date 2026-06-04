@@ -202,7 +202,13 @@ func SignCredential(ctx context.Context, ch Challenge, account *Account, rpcURL 
 	data := encodeERC20Transfer(parsed.Recipient, parsed.Amount)
 
 	// Use a legacy tx (type 0). go-ethereum's signer will EIP-155 replay-protect it.
-	gasLimit := uint64(120_000) // generous budget for a TIP-20 transfer
+	// Gas limit derived via eth_estimateGas (with a 25 % buffer) so a TIP-20
+	// transfer on Tempo doesn't strand on the under-provisioned static budget
+	// that mainnet ERC-20 examples use.
+	gasLimit, err := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
+	if err != nil {
+		return Credential{}, err
+	}
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
@@ -601,6 +607,86 @@ func (c *rpcClient) getGasPrice(ctx context.Context) (*big.Int, error) {
 	}
 	return parseHexBig(hexStr)
 }
+
+// estimateGas asks the RPC how much gas a `transfer(to, amount)` ERC-20
+// call would actually consume. Tempo's TIP-20 implementation runs notably
+// heavier than mainnet ERC-20 (uninitialised-account detection, settlement
+// hooks); a static budget pinned to mainnet-style numbers will under-shoot.
+// Callers should apply a buffer on top of this estimate so a block-time
+// gas-cost bump does not strand the tx.
+//
+// `from` is the signer (so the node sees the right msg.sender); `to` is
+// the ERC-20 contract; `data` is the transfer call data already produced
+// by encodeERC20Transfer.
+func (c *rpcClient) estimateGas(ctx context.Context, from, to common.Address, data []byte) (uint64, error) {
+	call := map[string]string{
+		"from": from.Hex(),
+		"to":   to.Hex(),
+		"data": "0x" + hex.EncodeToString(data),
+	}
+	raw, err := c.call(ctx, "eth_estimateGas", []any{call, "latest"})
+	if err != nil {
+		return 0, err
+	}
+	var hexStr string
+	if err := json.Unmarshal(raw, &hexStr); err != nil {
+		return 0, err
+	}
+	return parseHexUint64(hexStr)
+}
+
+// gasLimitFor returns a safe gas limit for the supplied ERC-20 transfer.
+// It tries eth_estimateGas first and adds a 25 % buffer, falling back to
+// a generous static budget if the estimate fails — Tempo's RPC has been
+// observed to reject estimate calls under load. The fallback (600k) is
+// ~5x the mainnet ERC-20 baseline and ~2x the worst case observed on
+// Tempo testnet so a noisy block still settles.
+//
+// The sanity ceiling (gasLimitCeiling) is enforced AGAINST THE PADDED value
+// only: if the unpadded RPC estimate already exceeds the ceiling, the
+// estimate itself is returned rather than the ceiling so the broadcast does
+// not silently strand at out-of-gas below the RPC's own number. An estimate
+// that big is also a strong "something is wrong" signal; surface it via a
+// caller-handled error so the user can be told instead of getting their
+// transaction silently reverted on-chain.
+func (c *rpcClient) gasLimitFor(ctx context.Context, from, to common.Address, data []byte) (uint64, error) {
+	est, err := c.estimateGas(ctx, from, to, data)
+	if err != nil || est == 0 {
+		return fallbackGasLimit, nil
+	}
+	if est > gasLimitCeiling {
+		return 0, fmt.Errorf(
+			"mppx/tempo: eth_estimateGas returned %d, above the %d sanity ceiling — refusing to sign a tx the caller likely cannot afford",
+			est, gasLimitCeiling,
+		)
+	}
+	// 25 % padding — keep it integer-friendly so the encoded hex is short.
+	padded := est + est/4
+	if padded < est { // overflow guard, theoretical
+		return fallbackGasLimit, nil
+	}
+	if padded > gasLimitCeiling {
+		// Padded value would exceed the ceiling but the estimate itself
+		// is below it: cap the padded value at the ceiling so we still
+		// stay above the unpadded estimate.
+		return gasLimitCeiling, nil
+	}
+	return padded, nil
+}
+
+// gasLimitCeiling is the maximum gas limit gasLimitFor will silently apply.
+// 5,000,000 is well above the ~272k cost observed for a TIP-20 transfer on
+// Tempo testnet but well below the per-tx ceiling, so it absorbs both a
+// fat padding factor and the heavier paths (uninitialised-account
+// detection, settlement hooks) without giving a runaway estimate room to
+// drain the wallet.
+const gasLimitCeiling uint64 = 5_000_000
+
+// fallbackGasLimit is used when eth_estimateGas fails or returns zero.
+// 600,000 is well above the ~272k cost observed for a TIP-20 transfer on
+// Tempo testnet and well under the per-tx ceiling; it is intentionally
+// generous because under-estimating strands the credential entirely.
+const fallbackGasLimit uint64 = 600_000
 
 func (c *rpcClient) sendRawTransaction(ctx context.Context, rawTx []byte) (string, error) {
 	raw, err := c.call(ctx, "eth_sendRawTransaction", []any{"0x" + hex.EncodeToString(rawTx)})

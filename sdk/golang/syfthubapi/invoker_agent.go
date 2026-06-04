@@ -20,8 +20,14 @@ type AgentOneShotInvoker struct {
 	// policyExecutor is retained only so Close() can release it. Policy
 	// evaluation itself is woven into `handler` by AgentExecutor.
 	policyExecutor Executor
-	slug           string
-	logger         *slog.Logger
+	// executor is the AgentExecutor that wraps the raw handler when policies
+	// are configured. Retained so the host can retroactively swap dependencies
+	// (e.g. mppx gate) on live endpoints whose handler closure already
+	// captured the executor — see SyftAPI.SetMppxGate. nil for endpoints
+	// without a policy executor (handler is the raw runtime in that case).
+	executor *AgentExecutor
+	slug     string
+	logger   *slog.Logger
 }
 
 func (a *AgentOneShotInvoker) ParseRequest(payload json.RawMessage) (any, error) {

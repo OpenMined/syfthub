@@ -232,6 +232,66 @@ func TestAgentExecutor_SuppressesTokens(t *testing.T) {
 	}
 }
 
+// TestAgentExecutor_RelaysInboundAttachmentsToInnerSession pins the fix for
+// the policy-boundary attachment-drop bug: when the outer session has
+// attachments enabled, AgentExecutor must propagate AttachmentDir into the
+// inner session AND relay every outer→inner attachment so the wrapped agent
+// runtime actually sees the file the NATS bridge delivered. Without the
+// relay (the prior behavior), inner.AttachmentsEnabled() returned false and
+// attachments sat in outer.AttachmentCh with no reader.
+func TestAgentExecutor_RelaysInboundAttachmentsToInnerSession(t *testing.T) {
+	fe := &fakeExecutor{pre: &PolicyResultOutput{Allowed: true}, post: allowPost}
+
+	inner := func(ctx context.Context, s *AgentSession) error {
+		if !s.AttachmentsEnabled() {
+			t.Error("inner session should have AttachmentsEnabled() == true after the fix")
+			return nil
+		}
+		select {
+		case att := <-s.AttachmentCh():
+			return s.Send(agentMessageEvent("ack:" + att.FileID))
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+			t.Error("inner handler timed out waiting for relayed attachment")
+			return nil
+		}
+	}
+
+	// Outer session has the AttachmentDir + capability — mirroring what
+	// session_manager.go does when ep.AcceptsAttachments && client requests
+	// the capability.
+	outer := NewAgentSession(context.Background(), AgentSessionParams{
+		ID:            "outer",
+		User:          &UserContext{Username: "alice"},
+		Capabilities:  []string{AttachmentCapability},
+		AttachmentDir: t.TempDir(),
+	})
+	if !outer.AttachmentsEnabled() {
+		t.Fatal("outer session expected to have AttachmentsEnabled() == true")
+	}
+	ax := NewAgentExecutor(inner, fe, "ep", nil)
+	outer.RunHandler(ax.Handler())
+
+	// Drive an attachment through the relay — this is what the NATS bridge's
+	// handleUserAttachment does after MaterializeAttachment.
+	info := AttachmentInfo{
+		FileID:    "att-relay-test",
+		Name:      "x.txt",
+		MIME:      "text/plain",
+		SizeBytes: 5,
+		Transport: AttachmentTransportInline,
+	}
+	if !outer.DeliverAttachment(info) {
+		t.Fatal("outer.DeliverAttachment returned false — channel should be empty")
+	}
+
+	evs := drainSendCh(t, outer, 3*time.Second)
+	if got := firstContent(evs, EventTypeAgentMessage); got != "ack:att-relay-test" {
+		t.Errorf("expected agent.message ack:att-relay-test, got %q", got)
+	}
+}
+
 // F — a mid-session follow-up message is pre-checked, then delivered to the
 // agent (no initial prompt, so the agent waits for input).
 func TestAgentExecutor_InboundMessagePreChecked(t *testing.T) {

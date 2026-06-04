@@ -44,6 +44,13 @@ type ToolCall struct {
 
 	// Description is a human-readable description of what the tool will do.
 	Description string `json:"description,omitempty"`
+
+	// Display is an optional renderer hint. Consumers SHOULD route the tool
+	// call to a category-specific UI when set (e.g. "terminal" for shell-style
+	// output, "code" for file read/write, "diff" for edits, "web" for fetches).
+	// When omitted, the consumer falls back to a generic renderer; recognised
+	// tool names may still upgrade to a richer view via a name-based lookup.
+	Display string `json:"display,omitempty"`
 }
 
 // ToolResult represents the result of a tool execution.

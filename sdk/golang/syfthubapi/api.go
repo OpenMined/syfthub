@@ -145,6 +145,15 @@ type ContainerRuntimeSetter interface {
 	SetContainerRuntime(rt ContainerRuntime, cfg *ContainerConfig, instanceID string)
 }
 
+// MppxGateSetter is implemented by file providers that build endpoint handlers
+// with x402 mppx gate wiring. Used by SyftAPI.SetMppxGate to push a gate into
+// the provider after construction so newly-built or reloaded endpoints pick it
+// up. Already-built endpoints must be reloaded through the file provider's
+// normal reload path to inherit a freshly-installed gate.
+type MppxGateSetter interface {
+	SetMppxGate(gate MppxGate)
+}
+
 // ContainerRuntimeFactory creates a ContainerRuntime from the given binary path and logger.
 type ContainerRuntimeFactory func(binary string, logger *slog.Logger) (ContainerRuntime, error)
 
@@ -544,6 +553,40 @@ func (api *SyftAPI) SetLogHook(hook RequestLogHook) {
 	}
 	if tt, ok := api.transport.(TunnelTransport); ok {
 		tt.SetAgentLogHook(hook)
+	}
+}
+
+// SetMppxGate installs (or replaces) the x402 mppx gate used by the request
+// processor (model / data_source endpoints) for PreVerify / BuildChallenge /
+// SettleAfterHandler. The gate is also recorded as the SyftAPI's default for
+// any agent endpoint that the file provider builds via SetHandler — callers
+// that want per-endpoint gates can still override via EndpointHandlerConfig.
+//
+// Agent endpoints already loaded into the registry are retroactively re-wired
+// via Endpoint.SetMppxGate so a host that boots without wallet configuration
+// and saves it later doesn't strand pre-built AgentExecutors with gate=nil.
+//
+// Safe to call before or after Run.
+func (api *SyftAPI) SetMppxGate(gate MppxGate) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.processor != nil {
+		api.processor.SetMppxGate(gate)
+	}
+	// Propagate to the file provider so any subsequently-built or reloaded
+	// endpoint gets the gate at construction time.
+	if setter, ok := api.fileProvider.(MppxGateSetter); ok {
+		setter.SetMppxGate(gate)
+	}
+	// Retroactively wire the gate into already-built agent endpoints so they
+	// pick up the change without a reload. Their AgentExecutor is captured
+	// in the invoker's `handler` closure; updating the executor field on the
+	// same instance is sufficient because emitPending reads a.gate at use
+	// time, not at construction.
+	if api.registry != nil {
+		for _, ep := range api.registry.List() {
+			ep.SetMppxGate(gate)
+		}
 	}
 }
 

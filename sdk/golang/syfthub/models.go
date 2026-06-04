@@ -640,17 +640,3 @@ type PaymentRequiredEvent struct {
 }
 
 func (e *PaymentRequiredEvent) EventType() ChatEventType { return ChatEventTypePaymentRequired }
-
-// =============================================================================
-// Transaction Tokens Models
-// =============================================================================
-
-// TransactionTokensRequest represents the request for transaction tokens.
-type TransactionTokensRequest struct {
-	Usernames []string `json:"usernames"`
-}
-
-// TransactionTokensResponse represents the response with transaction tokens.
-type TransactionTokensResponse struct {
-	Tokens map[string]string `json:"tokens"`
-}

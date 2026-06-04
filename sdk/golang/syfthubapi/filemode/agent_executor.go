@@ -121,18 +121,28 @@ class AgentSession:
         self._emit("agent.status", {"status": status, "detail": detail})
 
     def send_tool_call(self, tool_name, arguments, tool_call_id=None,
-                       description="", requires_confirmation=False):
-        """Send a tool call event."""
+                       description="", requires_confirmation=False,
+                       display=""):
+        """Send a tool call event.
+
+        display is an optional renderer hint (e.g. "terminal", "code",
+        "diff", "web") for the chat UI. When omitted the consumer falls
+        back to a name-based lookup or the generic renderer. See
+        agenttypes.ToolCall.Display for the wire-level contract.
+        """
         if tool_call_id is None:
             self._tc_counter += 1
             tool_call_id = f"tc-{self._tc_counter}"
-        self._emit("agent.tool_call", {
+        payload = {
             "tool_call_id": tool_call_id,
             "tool_name": tool_name,
             "arguments": arguments,
             "description": description,
             "requires_confirmation": requires_confirmation,
-        })
+        }
+        if display:
+            payload["display"] = display
+        self._emit("agent.tool_call", payload)
 
     def send_tool_result(self, tool_call_id, status="success",
                          result=None, error=None, duration_ms=0):

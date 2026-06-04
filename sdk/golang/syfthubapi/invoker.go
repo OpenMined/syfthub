@@ -53,7 +53,20 @@ func executeViaExecutor(ctx context.Context, exec Executor, input *ExecutorInput
 }
 
 // buildExecutorInput creates an ExecutorInput with the given type and populates
-// context and transaction token from the RequestContext.
+// context and payment credential from the RequestContext.
+//
+// reqCtx.Metadata is passed through by reference so any keys the caller (or
+// upstream gates) wrote into it are visible to the runner. In particular,
+// after a successful mppxgate.SettleAfterHandler the following keys flow
+// through to the Python policy's post_execute:
+//
+//   - payment_receipt       (settlement reference + status, set on success)
+//   - payment_status        ("settled" / "failed" / chain status)
+//   - payment_nonce         (verified nonce, set by PreVerify)
+//   - payment_challenge_id  (canonical challenge id used as row primary key)
+//
+// The processor relies on this passthrough when it re-invokes the executor
+// with PolicyPhase == "post" after settlement.
 func buildExecutorInput(inputType string, slug string, endpointType EndpointType, reqCtx *RequestContext) *ExecutorInput {
 	input := &ExecutorInput{Type: inputType}
 	if reqCtx != nil {
@@ -67,7 +80,6 @@ func buildExecutorInput(inputType string, slug string, endpointType EndpointType
 			EndpointType: string(endpointType),
 			Metadata:     reqCtx.Metadata,
 		}
-		input.TransactionToken = reqCtx.TransactionToken
 		input.PaymentCredential = reqCtx.PaymentCredential
 	}
 	return input

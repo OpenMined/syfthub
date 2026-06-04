@@ -162,13 +162,9 @@ type RequestContext struct {
 	// PolicyResult contains the result of policy evaluation (set by executor).
 	PolicyResult *PolicyResultOutput
 
-	// TransactionToken is the pre-authorized billing token for this request.
-	// Used by TransactionPolicy to verify billing authorization before execution.
-	TransactionToken string
-
 	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
-	// or signed challenge) presented by the caller to satisfy a TransactionPolicy
-	// payment challenge. Internal state — not serialized.
+	// or signed challenge) presented by the caller to satisfy a
+	// X402PayPerRequestPolicy payment challenge. Internal state — not serialized.
 	PaymentCredential string
 }
 
@@ -589,13 +585,9 @@ type ExecutorInput struct {
 	// WorkDir is the working directory for the handler.
 	WorkDir string `json:"work_dir,omitempty"`
 
-	// TransactionToken is the pre-authorized billing token for this request.
-	// Used by TransactionPolicy to verify billing authorization before execution.
-	TransactionToken string `json:"transaction_token,omitempty"`
-
 	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
-	// or signed challenge response) forwarded to the subprocess so a TransactionPolicy
-	// runner can verify payment before executing the handler.
+	// or signed challenge response) forwarded to the subprocess so an
+	// X402PayPerRequestPolicy runner can verify payment before executing the handler.
 	PaymentCredential string `json:"payment_credential,omitempty"`
 
 	// PolicyPhase, when set (PolicyPhasePre or PolicyPhasePost), evaluates

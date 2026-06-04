@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -102,6 +101,15 @@ type AgentSession struct {
 	// the session is still subscribed can be best-effort live-injected.
 	CallerReplyTo string
 
+	// PaymentCredential is the on-chain payment proof (a wire-format mppx
+	// credential) supplied by the caller in the agent_session_start envelope
+	// to satisfy an x402_pay_per_request policy. AgentExecutor threads this
+	// into per-turn RequestContext so the mppx gate's PreVerify can run
+	// before policy evaluation. Empty when the session was started without
+	// a pre-paid credential — the policy's pre_execute then issues a
+	// challenge and the caller is expected to restart the session with one.
+	PaymentCredential string
+
 	// AttachmentDir is the per-session tempdir for materialized attachment
 	// files. Set by the session manager when attachments are enabled; empty
 	// otherwise. Files in this directory are cleaned up on session end.
@@ -165,13 +173,57 @@ type AgentSession struct {
 	// Read via Transcript().
 	transcript   []Message
 	transcriptMu sync.Mutex
+
+	// latestPolicy holds the most recent PolicyResult observed for this
+	// session. Read on every emitSessionLog snapshot (per session, ~1.5s)
+	// and written rarely (once per pre/post check), so atomic.Pointer keeps
+	// the hot snapshot path lock-free.
+	latestPolicy atomic.Pointer[PolicyResultOutput]
+
+	// lastTurnMetadata is a per-turn scratchpad shared between checkPre
+	// (which the mppx gate's PreVerify writes into) and the post-handler
+	// settlement hook (which reads payment_signed_tx_hex / payment_challenge_id
+	// to broadcast the held tx and update the policy ledger). The map is
+	// REPLACED on each new turn, not merged, so stale fields from a prior
+	// turn cannot leak into the next pre/post evaluation. Guarded by
+	// lastTurnMetadataMu because checkPre and handleReply may run on
+	// different goroutines for the same session.
+	lastTurnMetadataMu sync.Mutex
+	lastTurnMetadata   map[string]any
 }
 
-// AttachmentsEnabled reports whether the attachments capability is active
-// for this session AND a tempdir is configured. Handlers SHOULD gate calls
-// to attachment helpers on this.
+// LastTurnMetadata returns a defensive copy of the per-turn metadata map
+// populated by the most recent checkPre. Callers that mutate the returned
+// map see no effect on the session; to push updates back, call
+// setLastTurnMetadata with the modified copy.
+func (s *AgentSession) LastTurnMetadata() map[string]any {
+	s.lastTurnMetadataMu.Lock()
+	defer s.lastTurnMetadataMu.Unlock()
+	if s.lastTurnMetadata == nil {
+		return nil
+	}
+	out := make(map[string]any, len(s.lastTurnMetadata))
+	for k, v := range s.lastTurnMetadata {
+		out[k] = v
+	}
+	return out
+}
+
+// setLastTurnMetadata installs metadata as the per-turn scratchpad. The map
+// reference is stored as-is (no copy) — callers must not mutate it after the
+// handoff. Use a fresh map per turn to avoid leaking fields across turns.
+func (s *AgentSession) setLastTurnMetadata(metadata map[string]any) {
+	s.lastTurnMetadataMu.Lock()
+	defer s.lastTurnMetadataMu.Unlock()
+	s.lastTurnMetadata = metadata
+}
+
+// AttachmentsEnabled reports whether attachments are active for this session.
+// The session manager only sets AttachmentDir when both the endpoint declared
+// AcceptsAttachments and the caller advertised the attachment capability, so
+// AttachmentDir != "" is the single canonical gate.
 func (s *AgentSession) AttachmentsEnabled() bool {
-	return s.AttachmentDir != "" && slices.Contains(s.Capabilities, AttachmentCapability)
+	return s.AttachmentDir != ""
 }
 
 // AttachmentCh returns the channel of inbound user attachments. Returns nil
@@ -226,6 +278,11 @@ type AgentSessionParams struct {
 	// them empty.
 	CallerPublicKeyB64 string
 	CallerReplyTo      string
+
+	// PaymentCredential is the wire-format mppx credential the caller
+	// supplied in session_start (empty when not pre-paid). See the field
+	// of the same name on AgentSession for usage.
+	PaymentCredential string
 }
 
 // NewAgentSession creates a new AgentSession with the given parameters.
@@ -249,6 +306,7 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		AttachmentDir:      params.AttachmentDir,
 		CallerPublicKeyB64: params.CallerPublicKeyB64,
 		CallerReplyTo:      params.CallerReplyTo,
+		PaymentCredential:  params.PaymentCredential,
 		recvAttachCh:       recvAttachCh,
 		ctx:                ctx,
 		cancel:             cancel,
@@ -266,9 +324,7 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 func (s *AgentSession) seedTranscript() {
 	s.transcriptMu.Lock()
 	defer s.transcriptMu.Unlock()
-	if len(s.Messages) > 0 {
-		s.transcript = append(s.transcript, s.Messages...)
-	}
+	s.transcript = append(s.transcript, s.Messages...)
 	if s.InitialPrompt == "" {
 		return
 	}
@@ -301,6 +357,21 @@ func (s *AgentSession) Transcript() []Message {
 	out := make([]Message, len(s.transcript))
 	copy(out, s.transcript)
 	return out
+}
+
+// RecordPolicyResult stores the most recent policy verdict. nil is ignored
+// so a failed check (no verdict) leaves the previous result in place.
+func (s *AgentSession) RecordPolicyResult(v *PolicyResultOutput) {
+	if v == nil {
+		return
+	}
+	s.latestPolicy.Store(v)
+}
+
+// LatestPolicyResult returns the most recent recorded verdict, or nil if no
+// policy check has fired yet.
+func (s *AgentSession) LatestPolicyResult() *PolicyResultOutput {
+	return s.latestPolicy.Load()
 }
 
 // Context returns the session's context.
@@ -398,13 +469,43 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 // challenge is the WWW-Authenticate-style Payment challenge string; details
 // is the safe metadata projection from the policy result. Caller is expected
 // to cancel the session after this returns.
+//
+// Wire shape MUST line up with agenttypes.AgentPaymentRequiredEvent so the
+// consumer's typed deserializer can populate its fields. That struct reads
+// amount / currency / recipient / challenge_id / intent at the TOP level
+// with no payment_ prefix — so we lift them out of `details` here. The
+// `details` map keys use mppxgate's MetaKey* names (payment_amount, ...);
+// hub-bound non-agent endpoints still consume that map verbatim via the
+// TunnelError.Details path.
 func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details map[string]any) error {
 	payload := map[string]any{
 		"policy_name": policyName,
+		// chat_session_id and endpoint_slug are required JSON fields on
+		// agenttypes.AgentPaymentRequiredEvent. CLI/SDK consumers route the
+		// payment retry by chat_session_id, so omitting either yields a
+		// "session not found" 404 even though the user paid. Always emit them
+		// — the session has both at hand.
+		"chat_session_id": s.ID,
+		"endpoint_slug":   s.EndpointSlug,
 	}
 	if challenge != "" {
 		payload["challenge"] = challenge
 	}
+	// Hoist the safe-projected fields into the top-level wire shape the
+	// consumer expects. Keep `details` too for forward-compat — newer
+	// clients can read it if they want the full safe projection.
+	lift := func(srcKey, dstKey string) {
+		if v, ok := details[srcKey]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				payload[dstKey] = s
+			}
+		}
+	}
+	lift("payment_amount", "amount")
+	lift("payment_currency", "currency")
+	lift("payment_recipient", "recipient")
+	lift("challenge_id", "challenge_id")
+	lift("intent", "intent")
 	if len(details) > 0 {
 		payload["details"] = details
 	}
@@ -474,7 +575,7 @@ func (s *AgentSession) SendAttachment(r io.Reader, name, mime string) (string, e
 	combined := io.MultiReader(bytes.NewReader(head), r)
 	// We don't know the exact size yet — pass -1 so the uploader streams
 	// and computes the true size from the stream.
-	info, err := s.AttachmentUploader.Upload(fileID, name, mime, -1, combined)
+	info, err := s.AttachmentUploader.Upload(s.ctx, fileID, name, mime, -1, combined)
 	if err != nil {
 		return "", fmt.Errorf("object-store upload: %w", err)
 	}
@@ -505,6 +606,14 @@ type UserMessage struct {
 
 	// Reason is provided with user_deny.
 	Reason string `json:"reason,omitempty"`
+
+	// PaymentCredential is the wire-format mppx credential the caller signed
+	// for THIS specific turn (empty for free turns). x402_pay_per_request
+	// policies charge per request, so each priced turn carries its own
+	// credential rather than reusing the session-start one. Empty triggers
+	// the policy's pre_execute to issue a fresh challenge; the caller signs
+	// it and resends the same content via SendMessageWithCredential.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // RunHandler spawns the agent handler in a goroutine with proper lifecycle management.

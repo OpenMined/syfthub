@@ -81,17 +81,28 @@ class AgentSession:
     def send_tool_call(self, tool_name: str, arguments: dict,
                        tool_call_id: Optional[str] = None,
                        description: str = "",
-                       requires_confirmation: bool = False) -> str:
+                       requires_confirmation: bool = False,
+                       display: str = "") -> str:
+        """Emit an agent.tool_call event.
+
+        `display` is an optional renderer hint (e.g. "terminal", "code",
+        "diff", "web"). When set, the UI routes the call to a category-
+        specific component. Omitting it falls back to a name-based lookup
+        or the generic collapsible renderer. See agenttypes.ToolCall.Display.
+        """
         if tool_call_id is None:
             self._tc_counter += 1
             tool_call_id = f"tc-{self._tc_counter}"
-        self._emit("agent.tool_call", {
+        payload = {
             "tool_call_id": tool_call_id,
             "tool_name": tool_name,
             "arguments": arguments,
             "description": description,
             "requires_confirmation": requires_confirmation,
-        })
+        }
+        if display:
+            payload["display"] = display
+        self._emit("agent.tool_call", payload)
         return tool_call_id
 
     def send_tool_result(self, tool_call_id: str, status: str = "success",

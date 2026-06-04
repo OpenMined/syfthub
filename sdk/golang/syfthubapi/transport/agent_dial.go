@@ -13,9 +13,12 @@ package transport
 import (
 	"context"
 	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -35,10 +38,19 @@ type AgentDialer struct {
 	identityKey *ecdh.PrivateKey
 	identityPub string
 	logger      *slog.Logger
+
+	// transport is an optional reference to the same-process NATSTransport,
+	// borrowed for its lazily-initialized JetStream Object Store handle.
+	// Required for object_store-tier attachments on the client side; when
+	// nil, attachment sends/receives larger than InlineMaxBytes fail.
+	// Wire via WithAttachmentStore.
+	transport *NATSTransport
 }
 
 // NewAgentDialer creates a dialer that signs sessions with the given X25519
-// identity key and routes traffic over conn.
+// identity key and routes traffic over conn. The resulting dialer supports
+// only inline-tier attachments. Call WithAttachmentStore to enable
+// object_store-tier (large-file) attachment sends and receives.
 func NewAgentDialer(conn *NATSConn, identityKey *ecdh.PrivateKey, logger *slog.Logger) (*AgentDialer, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("nats connection is required")
@@ -55,6 +67,16 @@ func NewAgentDialer(conn *NATSConn, identityKey *ecdh.PrivateKey, logger *slog.L
 		identityPub: b64urlEncode(identityKey.PublicKey().Bytes()),
 		logger:      logger,
 	}, nil
+}
+
+// WithAttachmentStore attaches a NATSTransport whose lazily-initialized
+// JetStream Object Store handle is borrowed by sessions opened by this dialer
+// for object_store-tier (large-file) attachment transfers. Both peers in a
+// session must share the same Object Store (typically because they speak to
+// the same NATS cluster). Returns the dialer for chaining.
+func (d *AgentDialer) WithAttachmentStore(transport *NATSTransport) *AgentDialer {
+	d.transport = transport
+	return d
 }
 
 // DialParams describes the agent session to open. The caller resolves the
@@ -83,6 +105,22 @@ type DialParams struct {
 	Config *agenttypes.AgentConfig
 	// Capabilities lists optional protocol extensions (e.g. "attachments").
 	Capabilities []string
+
+	// SessionAttachmentKey is the 32-byte raw AES key shared between both
+	// peers for wrapping per-file content keys with HKDF-derived KEKs. When
+	// nil AND Capabilities contains AttachmentCapability, Dial mints a fresh
+	// 32-byte key. The encoded form is sent (base64) in the session_start
+	// payload so the host can construct the matching uploader/downloader.
+	// Provide a non-nil value only for deterministic tests; production
+	// callers should leave this nil.
+	SessionAttachmentKey []byte
+
+	// PaymentCredential is the wire-format mppx credential to ship in the
+	// agent_session_start payload, used when the caller is restarting a
+	// session in response to a prior agent.payment_required event. Empty
+	// for fresh sessions; the host's policy chain will issue a challenge
+	// and the caller is expected to dial again with a non-empty credential.
+	PaymentCredential string
 }
 
 // Dial opens an agent session: it subscribes to the reply channel, publishes
@@ -116,18 +154,61 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 		return nil, fmt.Errorf("derive session cipher: %w", err)
 	}
 
+	// Mint the session attachment key when the caller requested the
+	// "attachments" capability but didn't supply one explicitly. The same
+	// 32-byte key is held client-side (for uploader/downloader construction)
+	// and shipped, base64-encoded, in the session_start payload so the host
+	// can build the matching encryptor.
+	wantAttachments := slices.Contains(p.Capabilities, syfthubapi.AttachmentCapability)
+	var sessionAESKey []byte
+	if wantAttachments {
+		sessionAESKey = p.SessionAttachmentKey
+		if sessionAESKey == nil {
+			sessionAESKey = make([]byte, 32)
+			if _, err := rand.Read(sessionAESKey); err != nil {
+				return nil, fmt.Errorf("mint session attachment key: %w", err)
+			}
+		} else if len(sessionAESKey) != 32 {
+			return nil, fmt.Errorf("SessionAttachmentKey must be 32 bytes (got %d)", len(sessionAESKey))
+		}
+	}
+
+	// Acquire the JetStream Object Store handle for object_store-tier
+	// attachments. When the caller asked for attachments but we cannot
+	// produce an object store, fail closed: advertising the capability
+	// without backing storage means inline transfers work but any spill
+	// over InlineMaxBytes blows up mid-send with an opaque error, after
+	// the host has already minted state on the assumption that large
+	// transfers are supported. Better to refuse at dial time so the
+	// caller can either wire WithAttachmentStore or drop the capability.
+	var attachmentStore AttachmentObjectStore
+	if wantAttachments {
+		if d.transport == nil {
+			return nil, fmt.Errorf(
+				"dialer has no attachment store — requested capability %q requires WithAttachmentStore(transport)",
+				syfthubapi.AttachmentCapability)
+		}
+		store, storeErr := d.transport.getAttachmentObjectStore()
+		if storeErr != nil {
+			return nil, fmt.Errorf("acquire attachment object store: %w", storeErr)
+		}
+		attachmentStore = store
+	}
+
 	s := &AgentClientSession{
-		SessionID:     sessionID,
-		cipher:        cipher,
-		senderPub:     d.identityPub,
-		conn:          d.conn.Conn(),
-		targetSubject: spaceSubjectPrefix + p.TargetUsername,
-		peerChannel:   p.PeerChannel,
-		logger:        d.logger,
-		inbox:         make(chan *nats.Msg, 256),
-		events:        make(chan agenttypes.AgentEvent, 64),
-		errs:          make(chan error, 8),
-		done:          make(chan struct{}),
+		SessionID:       sessionID,
+		cipher:          cipher,
+		senderPub:       d.identityPub,
+		conn:            d.conn.Conn(),
+		targetSubject:   spaceSubjectPrefix + p.TargetUsername,
+		peerChannel:     p.PeerChannel,
+		logger:          d.logger,
+		inbox:           make(chan *nats.Msg, 256),
+		events:          make(chan agenttypes.AgentEvent, 64),
+		errs:            make(chan error, 8),
+		done:            make(chan struct{}),
+		sessionAESKey:   sessionAESKey,
+		attachmentStore: attachmentStore,
 	}
 
 	// Subscribe to the reply channel before publishing so no early event is
@@ -139,11 +220,15 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 	s.sub = sub
 
 	startPayload := syfthubapi.AgentSessionStartPayload{
-		SessionID:    sessionID,
-		Prompt:       p.Prompt,
-		EndpointSlug: p.EndpointSlug,
-		Messages:     p.Messages,
-		Capabilities: p.Capabilities,
+		SessionID:         sessionID,
+		Prompt:            p.Prompt,
+		EndpointSlug:      p.EndpointSlug,
+		Messages:          p.Messages,
+		Capabilities:      p.Capabilities,
+		PaymentCredential: p.PaymentCredential,
+	}
+	if sessionAESKey != nil {
+		startPayload.SessionAttachmentKey = base64.StdEncoding.EncodeToString(sessionAESKey)
 	}
 	if p.Config != nil {
 		startPayload.Config = *p.Config
@@ -187,6 +272,22 @@ type AgentClientSession struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// Attachment state. sessionAESKey is the per-session 32-byte AES key
+	// also shipped (base64) to the host in session_start; both peers derive
+	// per-file KEKs from it. attachmentStore is the JetStream Object Store
+	// handle borrowed from the dialer's transport (nil when the dialer was
+	// constructed without WithAttachmentStore — in which case object_store
+	// transfers fail). uploader/downloader are lazily built on first
+	// large-file send/receive respectively.
+	sessionAESKey   []byte
+	attachmentStore AttachmentObjectStore
+	upOnce          sync.Once
+	uploader        syfthubapi.AttachmentUploader
+	upErr           error
+	dlOnce          sync.Once
+	downloader      syfthubapi.AttachmentDownloader
+	dlErr           error
 }
 
 // Events returns the channel of typed host events. It is closed when the
@@ -205,6 +306,21 @@ func (s *AgentClientSession) SendMessage(content string) error {
 	return s.sendUserMessage(syfthubapi.UserMessage{
 		Type:    syfthubapi.UserMessageTypeMessage,
 		Content: content,
+	})
+}
+
+// SendMessageWithCredential sends a follow-up user message carrying a
+// per-turn mppx payment credential. The producer's gateTurn passes the
+// credential into the policy chain's per-turn PreVerify so an
+// x402_pay_per_request endpoint can charge for each priced message. Use
+// this after handling a mid-session agent.payment_required event:
+// WalletPayChallenge signs a credential, then this method re-sends the
+// same content carrying it.
+func (s *AgentClientSession) SendMessageWithCredential(content, credential string) error {
+	return s.sendUserMessage(syfthubapi.UserMessage{
+		Type:              syfthubapi.UserMessageTypeMessage,
+		Content:           content,
+		PaymentCredential: credential,
 	})
 }
 

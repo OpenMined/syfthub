@@ -8,7 +8,6 @@ import type {
   UserRegisterInput,
   VerifyOTPInput,
 } from '../models/index.js';
-import type { TransactionTokensResponse } from '../models/accounting.js';
 import { AuthenticationError } from '../errors.js';
 
 /**
@@ -210,11 +209,9 @@ export class AuthResource {
    * @throws {APIError} If the code is invalid or max attempts exceeded
    */
   async verifyOtp(input: VerifyOTPInput): Promise<User> {
-    const response = await this.http.post<AuthResponse>(
-      '/api/v1/auth/register/verify-otp',
-      input,
-      { includeAuth: false }
-    );
+    const response = await this.http.post<AuthResponse>('/api/v1/auth/register/verify-otp', input, {
+      includeAuth: false,
+    });
 
     this.http.setTokens(response.accessToken, response.refreshToken);
     return response.user;
@@ -228,9 +225,13 @@ export class AuthResource {
    * @param email - Email address to resend the OTP to
    */
   async resendOtp(email: string): Promise<void> {
-    await this.http.post<void>('/api/v1/auth/register/resend-otp', { email }, {
-      includeAuth: false,
-    });
+    await this.http.post<void>(
+      '/api/v1/auth/register/resend-otp',
+      { email },
+      {
+        includeAuth: false,
+      }
+    );
   }
 
   /**
@@ -417,22 +418,6 @@ export class AuthResource {
   }
 
   /**
-   * Get transaction tokens for multiple endpoint owners.
-   *
-   * @deprecated Transaction tokens are no longer needed. Payments are handled
-   * via the MPP 402 flow. This method is kept for backward compatibility and
-   * always returns empty tokens/errors.
-   *
-   * @param ownerUsernames - Array of endpoint owner usernames (ignored)
-   * @returns TransactionTokensResponse with empty tokens and errors
-   */
-  async getTransactionTokens(ownerUsernames: string[]): Promise<TransactionTokensResponse> {
-    // Transaction tokens are no longer needed - payments are handled via MPP 402 flow
-    void ownerUsernames;
-    return { tokens: {}, errors: {} };
-  }
-
-  /**
    * Get the current access token (JWT or API token).
    *
    * This is used by the chat flow to pass the user's Hub token to the
@@ -497,6 +482,3 @@ export interface EncryptionKeyResponse {
   /** Base64url X25519 public key, or null if the space registered none */
   encryptionPublicKey: string | null;
 }
-
-// TransactionTokensResponse is imported from models/accounting.ts
-export type { TransactionTokensResponse } from '../models/accounting.js';

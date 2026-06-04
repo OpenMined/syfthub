@@ -100,7 +100,7 @@ func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
 		},
 		{
 			Name: "pay",
-			Type: PolicyTypeTransaction,
+			Type: PolicyTypeX402PayPerRequest,
 			Config: map[string]interface{}{
 				"recipient":       "0xabc",
 				"amount":          "100",
@@ -141,7 +141,7 @@ func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
 
 	// Second policy: transaction — strict allow-list, secrets dropped.
 	pay := info.Policies[1]
-	if pay["name"] != "pay" || pay["type"] != PolicyTypeTransaction {
+	if pay["name"] != "pay" || pay["type"] != PolicyTypeX402PayPerRequest {
 		t.Errorf("unexpected pay header: %+v", pay)
 	}
 	payCfg, ok := pay["config"].(map[string]any)
@@ -218,33 +218,6 @@ func TestSanitizePolicyConfig_RemovesSecrets(t *testing.T) {
 		for k, v := range want {
 			if got[k] != v {
 				t.Errorf("key %q = %v, want %v", k, got[k], v)
-			}
-		}
-	})
-
-	t.Run("transaction policy uses allow-list", func(t *testing.T) {
-		cfg := map[string]any{
-			"recipient":       "0xabc",
-			"amount":          "100",
-			"currency":        "USDC",
-			"method":          "tempo",
-			"intent":          "pay-per-call",
-			"chain_id":        "tempo-mainnet",
-			"ttl_seconds":     60,
-			"secret_key_path": "/tmp/secret",
-			"signing_key":     "drop",
-			"_anything":       "drop",
-			"unknown_field":   "drop",
-		}
-		got := sanitizePolicyConfig(PolicyTypeTransaction, cfg)
-		for _, leak := range []string{"secret_key_path", "signing_key", "_anything", "unknown_field"} {
-			if _, present := got[leak]; present {
-				t.Errorf("transaction config leaked %q", leak)
-			}
-		}
-		for _, want := range []string{"recipient", "amount", "currency", "method", "intent", "chain_id", "ttl_seconds"} {
-			if _, present := got[want]; !present {
-				t.Errorf("transaction config missing %q", want)
 			}
 		}
 	})

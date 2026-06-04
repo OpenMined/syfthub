@@ -42,6 +42,12 @@ type AgentExecutor struct {
 	// no recorder is configured the executor still surfaces the notice,
 	// just without the durable-delivery side-effect.
 	routingRecorder manualreview.RoutingRecorder
+
+	// gate, when non-nil, materializes an x402 challenge spec into a
+	// canonical mppx payment_challenge before emitPending surfaces it as
+	// an agent.payment_required event. nil-safe: pending notices that do
+	// not carry a spec are unaffected.
+	gate MppxGate
 }
 
 // AgentExecutorConfig holds the optional dependencies an AgentExecutor can
@@ -83,6 +89,12 @@ func (a *AgentExecutor) SetRoutingRecorder(r manualreview.RoutingRecorder) {
 	a.routingRecorder = r
 }
 
+// SetMppxGate installs (or replaces) the x402 mppx gate. Safe to call before
+// Handler() is invoked; not safe to swap mid-session.
+func (a *AgentExecutor) SetMppxGate(g MppxGate) {
+	a.gate = g
+}
+
 // Handler returns an AgentHandler that runs the wrapped agent with per-turn
 // policy enforcement.
 func (a *AgentExecutor) Handler() AgentHandler {
@@ -117,26 +129,43 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	tracker := &turnTracker{currentUser: outer.InitialPrompt}
 
 	// Pre-check turn 1 (the initial prompt) before spawning the agent.
-	if outer.InitialPrompt != "" && !a.gateTurn(ctx, outer, outer.InitialPrompt) {
-		return nil // denied/pending — the verdict event was already sent
+	// The credential supplied in the session_start envelope pays for THIS
+	// turn only; we move it off the session afterwards so a subsequent turn
+	// cannot replay it. x402_pay_per_request is per-request, not per-session.
+	initialCredential := outer.PaymentCredential
+	outer.PaymentCredential = ""
+	if outer.InitialPrompt != "" {
+		if outcome := a.gateTurn(ctx, outer, outer.InitialPrompt, initialCredential); outcome != turnGateProceed {
+			// Denied or pending — the verdict event was already sent.
+			// We do not reprompt on the initial prompt because the consumer
+			// either restarts the session (payment) or sees the block notice
+			// and is in a terminal state regardless.
+			return nil
+		}
 	}
 
 	// Spawn the raw agent runtime against a private inner session.
-	// AttachmentDir is intentionally omitted — relaying attachments through
-	// the policy boundary is a follow-up; under policy v1 agents do not
-	// exchange attachments.
+	//
+	// AttachmentDir is propagated from the outer session so the inner session
+	// reports AttachmentsEnabled() == true to the runtime handler (which gates
+	// container/filemode attachment plumbing on that predicate). The directory
+	// is owned by the outer session; cleanup happens through the session
+	// manager when the outer session ends. Policy v1 does not gate attachments,
+	// so the relay below is a straight pass-through — the hook stays open for
+	// a future attachment-policy gate analogous to gateTurn.
 	//
 	// The inner ID uses an underscore (not a slash) as the suffix separator:
 	// containermode/agent_handler.go's HTTP/SSE routes embed the session id
 	// as a URL path segment ("/session/<id>/events" expects 3 segments).
 	inner := NewAgentSession(ctx, AgentSessionParams{
-		ID:           outer.ID + "_inner",
-		Prompt:       outer.InitialPrompt,
-		EndpointSlug: outer.EndpointSlug,
-		Messages:     outer.Messages,
-		Config:       outer.Config,
-		User:         outer.User,
-		Capabilities: outer.Capabilities,
+		ID:            outer.ID + "_inner",
+		Prompt:        outer.InitialPrompt,
+		EndpointSlug:  outer.EndpointSlug,
+		Messages:      outer.Messages,
+		Config:        outer.Config,
+		User:          outer.User,
+		Capabilities:  outer.Capabilities,
+		AttachmentDir: outer.AttachmentDir,
 	})
 	inner.RunHandler(a.inner)
 
@@ -144,6 +173,10 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	relays.Add(2)
 	go func() { defer relays.Done(); a.watchCancel(outer, inner) }()
 	go func() { defer relays.Done(); a.relayInbound(ctx, outer, inner, tracker) }()
+	if outer.AttachmentsEnabled() {
+		relays.Add(1)
+		go func() { defer relays.Done(); a.relayAttachments(ctx, outer, inner) }()
+	}
 
 	// Outbound relay runs on this goroutine; it returns when the inner
 	// runtime finishes (inner SendCh closes).
@@ -159,11 +192,31 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	return outcome
 }
 
+// turnGateOutcome captures what happened in a pre-check so relayInbound can
+// decide whether to reprompt the user. A blocked verdict (hard deny) means
+// the user must change their input — reprompt. A payment-required pending
+// verdict means the consumer's chat hook auto-retries with a credential —
+// reprompting would just show a misleading "send a different message"
+// banner mid-flight.
+type turnGateOutcome int
+
+const (
+	turnGateProceed        turnGateOutcome = iota // verdict allowed: handler may run
+	turnGateBlocked                               // hard deny: caller should reprompt
+	turnGatePaymentPending                        // payment_required: caller must NOT reprompt
+	turnGateOtherPending                          // any other pending (e.g. manual_review hold)
+)
+
 // gateTurn pre-checks one user message through the policy chain. It returns
-// true when the turn may proceed; on a denial, a pending verdict, or a runner
-// error it surfaces the appropriate event to the caller and returns false.
-func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText string) bool {
-	verdict, err := a.checkPre(ctx, outer, userText)
+// the outcome so the caller can decide how to proceed.
+//
+// credential is the wire-format mppx payment credential for THIS turn (empty
+// for unpaid turns). Carried as a parameter rather than read from the session
+// so each turn can present a distinct credential — pay-per-request, not
+// pay-per-session. Threaded into checkPre's ExecutorInput so the mppx gate
+// can verify it before the Python policy runs.
+func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText, credential string) turnGateOutcome {
+	verdict, err := a.checkPre(ctx, outer, userText, credential)
 	if err != nil {
 		// Fail closed and tell the user — a broken policy check must not
 		// silently let the request through or end with no message.
@@ -173,7 +226,7 @@ func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userT
 			Phase:  PolicyPhasePre,
 			Reason: "the policy check could not be completed — check the endpoint's policy configuration",
 		})
-		return false
+		return turnGateBlocked
 	}
 	return a.applyVerdict(outer, verdict)
 }
@@ -206,7 +259,17 @@ func (a *AgentExecutor) relayInbound(
 			continue
 		}
 
-		if !a.gateTurn(ctx, outer, msg.Content) {
+		switch a.gateTurn(ctx, outer, msg.Content, msg.PaymentCredential) {
+		case turnGateProceed:
+			// fall through to deliverInbound below
+		case turnGatePaymentPending:
+			// The consumer's chat hook auto-handles payment_required: it
+			// signs a credential and resends the SAME content via
+			// SendMessageWithCredential. Reprompting here would surface a
+			// misleading "please send a different message" mid-flight,
+			// suppress the thinking indicator, and confuse the user.
+			continue
+		case turnGateBlocked, turnGateOtherPending:
 			a.reprompt(outer)
 			continue
 		}
@@ -224,6 +287,34 @@ func (a *AgentExecutor) deliverInbound(inner *AgentSession, msg UserMessage) {
 	if !inner.DeliverMessage(msg) {
 		a.logger.Warn("[AGENT-POLICY] inbound message dropped — inner session full or closing",
 			"slug", a.slug, "type", msg.Type)
+	}
+}
+
+// relayAttachments forwards inbound user attachments from the outer session
+// (where the NATS bridge materializes them) to the inner session (where the
+// agent runtime's attachment writer is listening). Policy v1 does not gate
+// attachments, so this is a straight pass-through. The relay exits on outer
+// session cancel — the recvAttachCh is never closed by the session itself.
+func (a *AgentExecutor) relayAttachments(ctx context.Context, outer, inner *AgentSession) {
+	ch := outer.AttachmentCh()
+	if ch == nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-outer.Context().Done():
+			return
+		case att, ok := <-ch:
+			if !ok {
+				return
+			}
+			if !inner.DeliverAttachment(att) {
+				a.logger.Warn("[AGENT-POLICY] inner attachment channel full, dropping",
+					"slug", a.slug, "session_id", outer.ID, "file_id", att.FileID)
+			}
+		}
 	}
 }
 
@@ -364,15 +455,44 @@ func (a *AgentExecutor) runPolicy(ctx context.Context, in *ExecutorInput) (*Exec
 // messages appended by Send. The current user turn has already been
 // DeliverMessage'd by the bridge before we get here.
 func (a *AgentExecutor) checkPre(
-	ctx context.Context, outer *AgentSession, userText string,
+	ctx context.Context, outer *AgentSession, userText, credential string,
 ) (*PolicyResultOutput, error) {
 	in := a.baseInput(outer)
 	in.PolicyPhase = PolicyPhasePre
 	in.Messages = transcriptForPolicy(outer, userText)
+	in.PaymentCredential = credential
+
+	// If a credential was supplied AND a mppx gate is wired, verify it BEFORE
+	// the Python policy runs. PreVerify populates in.Context.Metadata with
+	// payment_verified=true, payment_challenge_id, payment_nonce, and
+	// payment_signed_tx_hex (the unbroadcast raw tx, used by SettleAfterHandler
+	// once the handler succeeds). The Python x402 policy then short-circuits
+	// to allow on round 2 instead of issuing a fresh challenge.
+	//
+	// A verification failure is logged but not surfaced as an error — the
+	// Python policy will see no payment_verified flag and return a fresh
+	// challenge, which the caller can pay and retry. This matches how the
+	// model/data_source processor handles the same failure mode.
+	if a.gate != nil && in.PaymentCredential != "" {
+		if in.Context.Metadata == nil {
+			in.Context.Metadata = map[string]any{}
+		}
+		if err := a.gate.PreVerify(ctx, in.PaymentCredential, in.Context.Metadata); err != nil {
+			a.logger.Warn("[AGENT-POLICY] mppx PreVerify failed; policy will issue fresh challenge",
+				"slug", a.slug, "error", err)
+		}
+	}
+
 	out, err := a.runPolicy(ctx, in)
 	if err != nil {
 		return nil, err
 	}
+	outer.RecordPolicyResult(out.PolicyResult)
+	// Stash the verify-time metadata on the session so checkPost can reuse
+	// it (and so SettleAfterHandler can find payment_signed_tx_hex after the
+	// handler returns). The session-scoped map is a turn-local channel
+	// between checkPre and the post-handler hook in handleReply.
+	outer.setLastTurnMetadata(in.Context.Metadata)
 	return out.PolicyResult, nil
 }
 
@@ -391,7 +511,40 @@ func (a *AgentExecutor) checkPost(
 	in.PolicyPhase = PolicyPhasePost
 	in.Messages = transcriptForPolicy(outer, userText)
 	in.Output, _ = json.Marshal(map[string]any{"response": reply})
-	return a.runPolicy(ctx, in)
+
+	// Carry the per-turn metadata populated by checkPre's PreVerify forward
+	// into the post phase so x402's post_execute can find
+	// payment_challenge_id (the row key it updates). If the gate is wired
+	// and a credential was supplied, also run SettleAfterHandler here — the
+	// handler has just succeeded, so the held signed tx can be broadcast
+	// and the resulting payment_receipt / payment_status surfaced to the
+	// post-execute policy chain.
+	if turnMeta := outer.LastTurnMetadata(); turnMeta != nil {
+		if in.Context.Metadata == nil {
+			in.Context.Metadata = turnMeta
+		} else {
+			for k, v := range turnMeta {
+				if _, exists := in.Context.Metadata[k]; !exists {
+					in.Context.Metadata[k] = v
+				}
+			}
+		}
+	}
+	if a.gate != nil && in.Context.Metadata != nil {
+		if _, settle := in.Context.Metadata["payment_signed_tx_hex"]; settle {
+			if err := a.gate.SettleAfterHandler(ctx, in.Context.Metadata); err != nil {
+				a.logger.Warn("[AGENT-POLICY] mppx SettleAfterHandler failed; post_execute will record failure",
+					"slug", a.slug, "error", err)
+			}
+		}
+	}
+
+	out, err := a.runPolicy(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	outer.RecordPolicyResult(out.PolicyResult)
+	return out, nil
 }
 
 // transcriptForPolicy returns the conversation the policy runner should see
@@ -424,6 +577,11 @@ func transcriptForPolicy(outer *AgentSession, userText string) []Message {
 // supplies the per-turn input. The wire shape is "model" because agents are
 // parsed/formatted by ModelCodec, while the context records the true type.
 func (a *AgentExecutor) baseInput(outer *AgentSession) *ExecutorInput {
+	// PaymentCredential is intentionally NOT copied from the session — x402
+	// is per-request, so each turn's credential is supplied as a parameter
+	// to checkPre and threaded onto the ExecutorInput there. Reading it
+	// from the session would let one turn's payment cover every subsequent
+	// turn until session end (the bug observed before this refactor).
 	return buildExecutorInput(
 		string(EndpointTypeModel), a.slug, EndpointTypeAgent,
 		&RequestContext{User: outer.User},
@@ -456,15 +614,18 @@ type policyNotice struct {
 // manual_review (policy_manager) reports the held request's identifier.
 const metadataReviewIDKey = "review_id"
 
-// applyVerdict acts on a pre-check verdict. Returns true when the turn may
-// proceed; on deny/pending it emits the appropriate notice and returns false.
-func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput) bool {
+// applyVerdict acts on a pre-check verdict and returns the outcome of the
+// surfacing: proceed when allowed; the appropriate "blocked/pending" sentinel
+// when not. The outcome is what gateTurn relies on — it must reflect what was
+// actually surfaced to the caller, not what metadata is leftover afterwards
+// (emitPending may mutate the metadata map mid-call, so reading it again from
+// gateTurn would race the mutation).
+func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput) turnGateOutcome {
 	if v == nil || v.Allowed {
-		return true
+		return turnGateProceed
 	}
 	if v.Pending {
-		a.emitPending(outer, PolicyPhasePre, v)
-		return false
+		return a.emitPending(outer, PolicyPhasePre, v)
 	}
 	a.sendPolicyNotice(outer, policyNotice{
 		Status:     policyStatusBlocked,
@@ -472,17 +633,56 @@ func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput)
 		PolicyName: v.PolicyName,
 		Reason:     v.Reason,
 	})
-	return false
+	return turnGateBlocked
 }
 
-// emitPending surfaces a pending policy verdict. A pending result carrying a
-// payment challenge becomes an agent.payment_required event; otherwise it is a
-// pending policy notice (e.g. manual_review without payment) so the user sees
-// why the turn did not produce a normal reply.
-func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) {
+// emitPending surfaces a pending policy verdict and reports which kind of
+// pending was actually emitted, so callers can decide whether to reprompt:
+//
+//   - turnGatePaymentPending: an agent.payment_required event was sent with
+//     an actionable challenge — the consumer's chat hook will auto-retry, so
+//     do NOT reprompt.
+//   - turnGateOtherPending: a non-payment pending notice was sent (e.g.
+//     manual_review hold) — the caller should reprompt so the user can
+//     provide different input.
+//   - turnGateBlocked: a hard block was sent (e.g. x402 challenge requested
+//     but the gate is unavailable or BuildChallenge failed) — semantically
+//     terminal for this turn; the caller decides whether to reprompt.
+//
+// When v.Metadata carries an x402_challenge_spec (X402PayPerRequestPolicy
+// round 1) and a gate is configured, BuildChallenge is invoked first to
+// materialize the canonical mppx payment_challenge. If no gate is configured,
+// or BuildChallenge fails, the spec is reported as a hard block — surfacing
+// a "pending" notice with no challenge would hang the session because the
+// consumer has nothing to sign.
+func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) turnGateOutcome {
+	if spec, ok := v.Metadata["x402_challenge_spec"].(map[string]any); ok {
+		if a.gate == nil {
+			a.logger.Error("[AGENT-POLICY] payment policy returned x402_challenge_spec but no mppx gate is configured; surfacing as block",
+				"slug", a.slug, "session_id", outer.ID)
+			a.sendPolicyNotice(outer, policyNotice{
+				Status:     policyStatusBlocked,
+				Phase:      phase,
+				PolicyName: v.PolicyName,
+				Reason:     "this endpoint requires payment but the producer is not configured to issue challenges",
+			})
+			return turnGateBlocked
+		}
+		if err := a.gate.BuildChallenge(outer.Context(), spec, v.Metadata); err != nil {
+			a.logger.Error("[AGENT-POLICY] failed to build x402 challenge; surfacing as block",
+				"slug", a.slug, "session_id", outer.ID, "error", err)
+			a.sendPolicyNotice(outer, policyNotice{
+				Status:     policyStatusBlocked,
+				Phase:      phase,
+				PolicyName: v.PolicyName,
+				Reason:     "failed to build payment challenge",
+			})
+			return turnGateBlocked
+		}
+	}
 	if challenge, ok := PaymentChallengeFromMetadata(v.Metadata); ok {
 		_ = outer.SendPaymentRequired(v.PolicyName, challenge, CopyPaymentMetadata(v.Metadata))
-		return
+		return turnGatePaymentPending
 	}
 	reviewID := metadataString(v.Metadata, metadataReviewIDKey)
 	a.captureManualReviewRouting(outer, reviewID)
@@ -493,6 +693,7 @@ func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *Policy
 		Reason:     v.Reason,
 		ReviewID:   reviewID,
 	})
+	return turnGateOtherPending
 }
 
 // sendPolicyNotice surfaces a policy outcome (a hard block or a pending
@@ -591,7 +792,7 @@ func (a *AgentExecutor) captureManualReviewRouting(outer *AgentSession, reviewID
 		InboxSubject:    manualreview.InboxSubjectFor(outer.User.Username),
 		SessionID:       outer.ID,
 		PeerChannel:     outer.CallerReplyTo,
-		CapturedAt:      time.Now().UTC().Format(manualreview.ISOMicroLayout),
+		CapturedAt:      manualreview.NowISO(),
 	}
 	if err := a.routingRecorder.Record(row); err != nil {
 		// A capture failure must not block the user from learning the request

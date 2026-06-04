@@ -98,11 +98,15 @@ func (b *agentNATSBridge) handleAgentMessage(env *syfthubapi.AgentEnvelope) {
 // AttachmentDownloader. Delivery failures surface as a recoverable agent.error
 // event so the session itself continues.
 func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, cipher *SessionCipher, payload []byte) {
+	reject := func(code syfthubapi.TunnelErrorCode, msg string) {
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{Code: string(code), Message: msg, Recoverable: true})
+	}
+
 	var attachPayload syfthubapi.AgentUserAttachmentPayload
 	if err := json.Unmarshal(payload, &attachPayload); err != nil {
 		b.logger.Error("[AGENT] failed to parse user attachment payload", "error", err)
-		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
-			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata), Message: "invalid attachment metadata", Recoverable: true})
+		reject(syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata, "invalid attachment metadata")
 		return
 	}
 
@@ -111,16 +115,14 @@ func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, ci
 	if !ok {
 		b.logger.Warn("[AGENT] attachment for unknown session",
 			"session_id", attachPayload.SessionID, "file_id", info.FileID)
-		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
-			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentNotFound), Message: "session not found", Recoverable: true})
+		reject(syfthubapi.TunnelErrorCodeAttachmentNotFound, "session not found")
 		return
 	}
 
 	if !sess.AttachmentsEnabled() {
 		b.logger.Warn("[AGENT] attachment delivered to session without attachments enabled",
 			"session_id", sess.ID, "file_id", info.FileID)
-		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
-			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentNotAccepted), Message: "endpoint does not accept attachments", Recoverable: true})
+		reject(syfthubapi.TunnelErrorCodeAttachmentNotAccepted, "endpoint does not accept attachments")
 		return
 	}
 
@@ -128,15 +130,24 @@ func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, ci
 	if err := MaterializeAttachment(sess.Context(), sess.AttachmentDir, &info, downloader); err != nil {
 		b.logger.Error("[AGENT] failed to materialize attachment",
 			"session_id", sess.ID, "file_id", info.FileID, "transport", info.Transport, "error", err)
-		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
-			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentIntegrity), Message: err.Error(), Recoverable: true})
+		reject(syfthubapi.TunnelErrorCodeAttachmentIntegrity, err.Error())
 		return
 	}
 
+	// Only emit the accept-ack when the runtime actually accepted the
+	// attachment. Materializing the file but failing to enqueue it is
+	// indistinguishable from the agent never seeing it — telling the client
+	// the file is "delivered" in that case produces a green check on a file
+	// the agent cannot reference. Surface a recoverable agent.error instead
+	// so the chip shows the failure and the user can resend.
 	if !sess.DeliverAttachment(info) {
 		b.logger.Warn("[AGENT] attachment channel full, dropping",
 			"session_id", sess.ID, "file_id", info.FileID)
+		reject(syfthubapi.TunnelErrorCodeAttachmentNotAccepted, "host attachment queue full; please retry")
+		return
 	}
+	b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeUserAttachment,
+		agenttypes.UserAttachmentEvent{FileID: info.FileID, SizeBytes: info.SizeBytes})
 }
 
 // materializeInlineAttachment decodes inline base64 bytes, verifies the
@@ -285,8 +296,10 @@ func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, ciph
 		}
 		b.logger.Error("[AGENT] failed to start session",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		// Pre-session failures (policy denial, auth) have no transcript yet —
-		// synthesize one from the prompt so the log shows what was rejected.
+		// Pre-session failure: no transcript yet, and no typed verdict
+		// (StartSession surfaces a generic error) — synthesize a transcript
+		// from the prompt and emit with a nil policyResult so the log shows
+		// what was rejected without a policy badge.
 		b.emitSessionLog(
 			syfthubapi.NewRequestLogID(),
 			startPayload.SessionID,
@@ -297,6 +310,7 @@ func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, ciph
 			syfthubapi.LogStatusFailed,
 			err.Error(),
 			startTime,
+			nil,
 		)
 		fail(fmt.Sprintf("failed to start agent session: %v", err), syfthubapi.TunnelErrorCodeExecutionFailed)
 		return
@@ -417,6 +431,7 @@ func (b *agentNATSBridge) emitSessionLog(
 	status string,
 	failError string,
 	startTime time.Time,
+	policyResult *syfthubapi.PolicyResultOutput,
 ) {
 	b.logMu.Lock()
 	hook := b.logHook
@@ -456,25 +471,22 @@ func (b *agentNATSBridge) emitSessionLog(
 	}
 
 	switch status {
-	case syfthubapi.LogStatusCompleted:
-		log.Response.Success = true
-		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
-		log.Response.Content = content
-		log.Response.ContentTruncated = truncated
-	case syfthubapi.LogStatusRunning:
-		// In-flight snapshot: surface whatever assistant content has been
-		// produced so far so the operator sees the transcript grow. Success
-		// stays false because the session has not finalized yet.
-		log.Response.Success = false
-		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
-		log.Response.Content = content
-		log.Response.ContentTruncated = truncated
+	case syfthubapi.LogStatusCompleted, syfthubapi.LogStatusRunning:
+		// Surface whatever assistant content has been produced. Success is true
+		// only on completed; running snapshots stay false until finalized.
+		log.Response.Success = status == syfthubapi.LogStatusCompleted
+		log.Response.Content, log.Response.ContentTruncated =
+			syfthubapi.TruncateForLog(joinAssistantContent(transcript))
 	default:
 		// LogStatusFailed / LogStatusTerminated / unknown — record any error
 		// message but no synthetic success content.
-		log.Response.Success = false
 		log.Response.Error = failError
 	}
+
+	// Attach the latest policy verdict observed for this session so the per-
+	// request log carries Allowed/Denied/Pending instead of always rendering
+	// N/A. nil is expected for pre-session failures (no session context).
+	log.Policy = syfthubapi.NewLogPolicyFromResult(policyResult)
 
 	hook(context.Background(), log)
 }
@@ -532,6 +544,7 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 			status,
 			errMsg,
 			startTime,
+			session.LatestPolicyResult(),
 		)
 	}
 
@@ -578,7 +591,9 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// regardless of whether the subprocess exited cleanly — so ctx.Err() is
 	// context.Canceled on every normal completion. We have to observe the
 	// terminal event ourselves to disambiguate completed / failed / terminated.
-	var sawCompleted, sawFailed bool
+	// A single string ("" until a terminal arrives) avoids the invalid state
+	// that two independent booleans would permit.
+	var terminalEvent string
 
 	for event := range session.SendCh() {
 		switch event.EventType {
@@ -588,10 +603,10 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 			// tool calls, etc. don't change the loggable Content so they
 			// intentionally don't trip dirty.
 			dirty.Store(true)
-		case syfthubapi.EventTypeSessionCompleted:
-			sawCompleted = true
+		case syfthubapi.EventTypeSessionCompleted, syfthubapi.EventTypeSessionCancelled:
+			terminalEvent = event.EventType
 		case syfthubapi.EventTypeSessionFailed:
-			sawFailed = true
+			terminalEvent = event.EventType
 			// Best-effort failure-reason decode; safe outside the hot
 			// token-stream path because session.failed is terminal.
 			var failData struct {
@@ -622,22 +637,25 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// cmd.Wait, so ctx is Canceled after every normal completion AND after
 	// every user-requested stop. ExternalCancelled() is the authoritative
 	// signal for "the user pressed Stop".
-	terminalStatus, failError := decideTerminalStatus(session, sawCompleted, sawFailed, failError)
+	terminalStatus, failError := decideTerminalStatus(session, terminalEvent, failError)
 	emit(terminalStatus, failError)
 }
 
 // decideTerminalStatus picks the final log status for an agent session from
-// the terminal events the relay observed plus whether the session was
-// cancelled externally. failErrorIn may be cleared (e.g. cancellation is not
-// a real error) — the returned failError is what the terminal log should
-// record.
-func decideTerminalStatus(session *syfthubapi.AgentSession, sawCompleted, sawFailed bool, failErrorIn string) (status, failError string) {
+// the terminal event the relay observed plus whether the session was cancelled
+// externally. failErrorIn may be cleared (e.g. cancellation is not a real
+// error) — the returned failError is what the terminal log should record.
+// terminalEvent is the EventType of the last terminal event seen on the
+// channel, or "" if none arrived before the channel closed.
+func decideTerminalStatus(session *syfthubapi.AgentSession, terminalEvent, failErrorIn string) (status, failError string) {
 	switch {
 	case session.ExternalCancelled():
 		return syfthubapi.LogStatusTerminated, ""
-	case sawCompleted:
+	case terminalEvent == syfthubapi.EventTypeSessionCompleted:
 		return syfthubapi.LogStatusCompleted, ""
-	case sawFailed:
+	case terminalEvent == syfthubapi.EventTypeSessionCancelled:
+		return syfthubapi.LogStatusTerminated, ""
+	case terminalEvent == syfthubapi.EventTypeSessionFailed:
 		return syfthubapi.LogStatusFailed, failErrorIn
 	case errors.Is(session.Context().Err(), context.Canceled):
 		return syfthubapi.LogStatusTerminated, ""
@@ -657,12 +675,14 @@ func decideTerminalStatus(session *syfthubapi.AgentSession, sawCompleted, sawFai
 //
 // Output format: {"session_id":...,"event_type":...,"sequence":N,"data":...}
 func appendEventJSON(buf *bytes.Buffer, sessionIDJSON []byte, event syfthubapi.AgentEventPayload) {
-	eventTypeJSON, _ := json.Marshal(event.EventType)
-
+	// EventType is a package-level ASCII string constant with no characters
+	// requiring JSON escaping — write the quotes directly to avoid a
+	// json.Marshal allocation on the hot token-streaming path.
 	buf.WriteString(`{"session_id":`)
 	buf.Write(sessionIDJSON)
-	buf.WriteString(`,"event_type":`)
-	buf.Write(eventTypeJSON)
+	buf.WriteString(`,"event_type":"`)
+	buf.WriteString(event.EventType)
+	buf.WriteByte('"')
 	buf.WriteString(`,"sequence":`)
 	buf.WriteString(strconv.Itoa(event.Sequence))
 	buf.WriteString(`,"data":`)
@@ -694,6 +714,9 @@ type NATSTransport struct {
 	// privateKey is the long-term X25519 private key used to decrypt incoming
 	// tunnel requests. Generated at construction time; never rotated at runtime.
 	privateKey *ecdh.PrivateKey
+	// pubKeyB64 is the base64url-encoded public key — pre-computed once at
+	// construction so PublicKeyB64() is a field read, not an alloc+encode.
+	pubKeyB64 string
 
 	mu      sync.Mutex
 	running bool
@@ -760,6 +783,7 @@ func NewNATSTransport(natsConn *NATSConn, cfg *Config) (*NATSTransport, error) {
 		config:     cfg,
 		logger:     logger,
 		privateKey: privateKey,
+		pubKeyB64:  b64urlEncode(privateKey.PublicKey().Bytes()),
 		stopCh:     make(chan struct{}),
 	}, nil
 }
@@ -769,7 +793,7 @@ func NewNATSTransport(natsConn *NATSConn, cfg *Config) (*NATSTransport, error) {
 // aggregator on the v1 model/data_source path, and direct clients on the v2
 // agent path.
 func (t *NATSTransport) PublicKeyB64() string {
-	return b64urlEncode(t.privateKey.PublicKey().Bytes())
+	return t.pubKeyB64
 }
 
 // Start subscribes to the space subject on the shared NATS connection and

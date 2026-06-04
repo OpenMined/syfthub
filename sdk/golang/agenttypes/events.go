@@ -156,10 +156,22 @@ type AttachmentEvent struct {
 	ObjectBucket string         `json:"object_bucket,omitempty"`
 	ObjectKey    string         `json:"object_key,omitempty"`
 	ChunkSize    int            `json:"chunk_size,omitempty"`
+	BaseNonceB64 string         `json:"base_nonce,omitempty"`
 	WrappedKey   map[string]any `json:"wrapped_key,omitempty"`
 }
 
 func (e *AttachmentEvent) EventType() string { return "agent.attachment" }
+
+// UserAttachmentEvent is emitted by the host after it has successfully
+// received and materialized a client-staged attachment. It is the
+// accept-ack for a prior agent_user_attachment message and lets the
+// client mark the staged chip as delivered.
+type UserAttachmentEvent struct {
+	FileID    string `json:"file_id"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+func (e *UserAttachmentEvent) EventType() string { return "user.attachment" }
 
 // Bytes returns the decoded plaintext for an inline-tier attachment. For
 // object-store-tier attachments it returns an error.
@@ -226,6 +238,10 @@ func ParseAgentEvent(eventType string, payload json.RawMessage) (AgentEvent, err
 		event = &e
 	case "agent.attachment":
 		var e AttachmentEvent
+		err = json.Unmarshal(payload, &e)
+		event = &e
+	case "user.attachment":
+		var e UserAttachmentEvent
 		err = json.Unmarshal(payload, &e)
 		event = &e
 	default:

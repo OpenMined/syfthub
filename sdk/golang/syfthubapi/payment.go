@@ -3,6 +3,12 @@ package syfthubapi
 // PaymentMetadataKeys is the allow-list of policy-metadata keys that are safe
 // to forward to the caller in a PAYMENT_REQUIRED response. Other policy
 // metadata stays internal.
+//
+// payment_receipt / payment_status / payment_nonce are surfaced after a
+// successful settle so a caller that wants a settlement reference can read it
+// from the trailing PAYMENT_REQUIRED-shaped metadata; x402_challenge_spec is
+// deliberately NOT included — it is server-side scaffolding the mppxgate
+// consumes before the challenge becomes wire-ready.
 var PaymentMetadataKeys = []string{
 	"payment_challenge",
 	"payment_amount",
@@ -10,6 +16,9 @@ var PaymentMetadataKeys = []string{
 	"payment_recipient",
 	"challenge_id",
 	"intent",
+	"payment_receipt",
+	"payment_status",
+	"payment_nonce",
 }
 
 // PaymentChallengeFromMetadata returns the payment_challenge string from a
