@@ -13,6 +13,7 @@ import Database from 'lucide-react/dist/esm/icons/database';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import { Link } from 'react-router-dom';
 
+import { formatPriceSlice } from '@/components/collectives/collective-price';
 import { Badge } from '@/components/ui/badge';
 import { Modal } from '@/components/ui/modal';
 import { getEndpointTypeLabel } from '@/lib/endpoint-utils';
@@ -30,10 +31,7 @@ export interface CollectiveEndpointsModalProps {
 function memberPriceLabel(member: CollectiveMemberBilling): string {
   const b = member.billing;
   if (b.price_per_unit == null || !b.currency) return 'Free';
-  const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(
-    b.price_per_unit
-  );
-  return `${amount} ${b.currency} / request`;
+  return `${formatPriceSlice({ amount: b.price_per_unit, currency: b.currency })} / request`;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -116,9 +114,10 @@ export function CollectiveEndpointsModal({
     <Modal isOpen={isOpen} onClose={onClose} title='Endpoints in this Collective API' size='2xl'>
       <div className='space-y-3'>
         <p className='text-muted-foreground text-sm'>
-          A single query to {title ? <code className='text-xs'>{title}</code> : 'this Collective API'}{' '}
-          runs against all {members.length} {members.length === 1 ? 'endpoint' : 'endpoints'} below
-          at once and combines their results.
+          A single query to{' '}
+          {title ? <code className='text-xs'>{title}</code> : 'this Collective API'} runs against
+          all {members.length} {members.length === 1 ? 'endpoint' : 'endpoints'} below at once and
+          combines their results.
         </p>
 
         {members.length > 0 ? (

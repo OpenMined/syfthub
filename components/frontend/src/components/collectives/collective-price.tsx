@@ -17,7 +17,7 @@ import Coins from 'lucide-react/dist/esm/icons/coins';
 import { cn } from '@/lib/utils';
 
 /** Format one currency slice as `10,000 IDR` (code as suffix, no FX). */
-function formatPriceSlice(entry: PriceByCurrency): string {
+export function formatPriceSlice(entry: PriceByCurrency): string {
   const amount = new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 2
   }).format(entry.amount);
@@ -48,8 +48,7 @@ export function CollectivePrice({
   const totalMembers = summary.free_count + summary.prepaid_count + summary.mpp_count;
   if (totalMembers === 0) return null;
 
-  const hasPrice = summary.estimated_price.length > 0;
-  const allFree = !hasPrice;
+  const allFree = summary.estimated_price.length === 0;
 
   // Quiet suffix for members that don't add to the per-request price.
   const extras: string[] = [];
