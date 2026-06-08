@@ -1553,3 +1553,41 @@ def test_bulk_list_empty_request(client: TestClient) -> None:
     resp = client.get(f"{API}/collectives/shared-endpoints/bulk")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ----------------------------------------------------------------------
+# Billing summary — auth gating
+# ----------------------------------------------------------------------
+
+
+def test_billing_summary_requires_auth(client: TestClient, owner_headers: dict) -> None:
+    """The summary exposes publisher payment URLs, so it is auth-gated."""
+    collective = _create_collective(client, owner_headers, name="Billing Co")
+    slug = collective["slug"]
+    path = f"{API}/collectives/by-slug/{slug}/billing-summary"
+
+    # Unauthenticated → 401 (the auth dependency runs before any lookup).
+    assert client.get(path).status_code == 401
+
+    # Authenticated → 200 with the summary shape (no members yet).
+    resp = client.get(path, headers=owner_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["members"] == []
+    assert body["estimated_price"] == []
+    assert body["free_count"] == 0
+    assert body["prepaid_count"] == 0
+    assert body["mpp_count"] == 0
+
+
+def test_shared_endpoint_billing_summary_requires_auth(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """The shared-endpoint summary is auth-gated the same way."""
+    collective = _create_collective(client, owner_headers, name="Billing Co Two")
+    slug = collective["slug"]
+    path = f"{API}/collectives/by-slug/{slug}/shared-endpoints/all/billing-summary"
+
+    assert client.get(path).status_code == 401
+    # The ``all`` alias resolves to every approved member (none here) → 200.
+    assert client.get(path, headers=owner_headers).status_code == 200

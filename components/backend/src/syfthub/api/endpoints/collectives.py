@@ -117,12 +117,15 @@ async def get_collective_endpoint_paths(
 )
 async def get_collective_billing_summary(
     slug: str,
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> CollectiveBillingSummaryResponse:
-    """Aggregate pricing + settlement metadata for all approved members (public).
+    """Aggregate pricing + settlement metadata for all approved members.
 
     Backs the estimated-price badge and the "who do I have an account with"
-    modal for the default ``collective/<slug>`` shared endpoint.
+    modal for the default ``collective/<slug>`` shared endpoint. Requires
+    authentication: the response exposes per-member publisher payment/credits
+    URLs, so it is not served to anonymous callers (unlike ``endpoint-paths``).
     """
     return service.get_billing_summary(slug)
 
@@ -217,13 +220,15 @@ async def get_shared_endpoint_endpoint_paths(
 async def get_shared_endpoint_billing_summary(
     slug: str,
     shared_slug: str,
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> CollectiveBillingSummaryResponse:
-    """Aggregate pricing + settlement metadata for a shared endpoint subset (public).
+    """Aggregate pricing + settlement metadata for a shared endpoint subset.
 
     Same shape as the collective-level summary, but scoped to the configured
     subset intersected with the collective's currently approved members. The
-    ``all`` shared slug yields every approved member.
+    ``all`` shared slug yields every approved member. Requires authentication
+    for the same reason as the collective-level summary.
     """
     return service.get_billing_summary(slug, shared_slug)
 
