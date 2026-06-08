@@ -40,6 +40,7 @@ from syfthub.schemas.api_token import (
 from syfthub.schemas.auth import (
     AuthConfigResponse,
     AuthResponse,
+    EmailOTPRequest,
     GoogleAuthRequest,
     PasswordChange,
     PasswordResetConfirm,
@@ -246,6 +247,28 @@ async def change_password(
 # =============================================================================
 
 
+def _verify_otp_or_raise(
+    otp_service: OTPService, email: str, code: str, purpose: str
+) -> None:
+    """Verify an OTP code, mapping the OTP errors to HTTP responses.
+
+    Shared by every OTP-verify endpoint (registration, password reset,
+    email sign-in): an invalid/expired code is a 400, exhausted attempts a 429.
+    """
+    try:
+        otp_service.verify_otp(email, code, purpose)
+    except InvalidOTPError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+    except OTPMaxAttemptsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+
+
 @router.post("/register/verify-otp", response_model=AuthResponse)
 async def verify_registration_otp(
     body: VerifyOTPRequest,
@@ -258,18 +281,7 @@ async def verify_registration_otp(
     user's email. On success, tokens are returned.
     """
     # Verify OTP first — avoids leaking user existence on invalid codes
-    try:
-        otp_service.verify_otp(body.email, body.code, "registration")
-    except InvalidOTPError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
-    except OTPMaxAttemptsError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
+    _verify_otp_or_raise(otp_service, body.email, body.code, "registration")
 
     user_repo = UserRepository(otp_service.otp_repo.session)
     user = user_repo.get_by_email(body.email)
@@ -327,6 +339,69 @@ async def resend_registration_otp(
     }
 
 
+# =============================================================================
+# Passwordless Email OTP Sign-In
+# =============================================================================
+#
+# A magic-link-style flow: the user submits only an email, receives a one-time
+# code, and on verification is signed in — provisioning a passwordless account
+# (like OAuth) on first use. Distinct OTP purpose from registration so the two
+# flows never collide.
+
+EMAIL_OTP_PURPOSE = "email_login"
+
+
+@router.post("/email-otp/request", status_code=status.HTTP_200_OK)
+async def request_email_otp(
+    body: EmailOTPRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+) -> dict[str, str]:
+    """Send a passwordless sign-in code to an email address.
+
+    The account is provisioned lazily on first successful verification, so this
+    endpoint never touches the user table and never reveals whether an account
+    already exists. Requires SMTP to be configured. Rate-limited per IP/email.
+    """
+    if not settings.smtp_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email-based sign-in is not available on this server.",
+        )
+
+    try:
+        client_ip = request.client.host if request.client else None
+        code = otp_service.generate_otp(
+            body.email, EMAIL_OTP_PURPOSE, requester_ip=client_ip
+        )
+        background_tasks.add_task(send_otp_email, body.email, code, EMAIL_OTP_PURPOSE)
+    except OTPRateLimitedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+
+    return {"message": "A sign-in code was sent to your email."}
+
+
+@router.post("/email-otp/verify", response_model=AuthResponse)
+async def verify_email_otp(
+    body: VerifyOTPRequest,
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> AuthResponse:
+    """Verify a passwordless sign-in code and return auth tokens.
+
+    On the first successful verification for an email, a passwordless account
+    is provisioned (username derived from the email, no password — like OAuth).
+    Subsequent sign-ins reuse the same account.
+    """
+    _verify_otp_or_raise(otp_service, body.email, body.code, EMAIL_OTP_PURPOSE)
+
+    return auth_service.complete_email_otp_login(body.email)
+
+
 @router.post(
     "/password-reset/request",
     status_code=status.HTTP_200_OK,
@@ -377,18 +452,7 @@ async def confirm_password_reset(
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
 ) -> dict[str, str]:
     """Verify the password-reset OTP and set a new password."""
-    try:
-        otp_service.verify_otp(body.email, body.code, "password_reset")
-    except InvalidOTPError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
-    except OTPMaxAttemptsError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
+    _verify_otp_or_raise(otp_service, body.email, body.code, "password_reset")
 
     auth_service.reset_password(body.email, body.new_password)
 

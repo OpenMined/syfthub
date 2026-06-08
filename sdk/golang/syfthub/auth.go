@@ -89,17 +89,7 @@ func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*Reg
 	}
 
 	// Store tokens if present (not withheld for email verification)
-	if response.AccessToken != "" && response.RefreshToken != "" {
-		tokenType := response.TokenType
-		if tokenType == "" {
-			tokenType = "bearer"
-		}
-		a.http.SetTokens(&AuthTokens{
-			AccessToken:  response.AccessToken,
-			RefreshToken: response.RefreshToken,
-			TokenType:    tokenType,
-		})
-	}
+	a.storeAuthTokens(response.AccessToken, response.RefreshToken, response.TokenType)
 
 	return &RegisterResult{
 		User:                      response.User,
@@ -129,15 +119,7 @@ func (a *AuthResource) Login(ctx context.Context, username, password string) (*U
 	}
 
 	// Store tokens
-	tokenType := response.TokenType
-	if tokenType == "" {
-		tokenType = "bearer"
-	}
-	a.http.SetTokens(&AuthTokens{
-		AccessToken:  response.AccessToken,
-		RefreshToken: response.RefreshToken,
-		TokenType:    tokenType,
-	})
+	a.storeAuthTokens(response.AccessToken, response.RefreshToken, response.TokenType)
 
 	// Fetch and return user info
 	return a.Me(ctx)
@@ -183,15 +165,7 @@ func (a *AuthResource) Refresh(ctx context.Context) error {
 	}
 
 	// Update stored tokens
-	tokenType := response.TokenType
-	if tokenType == "" {
-		tokenType = "bearer"
-	}
-	a.http.SetTokens(&AuthTokens{
-		AccessToken:  response.AccessToken,
-		RefreshToken: response.RefreshToken,
-		TokenType:    tokenType,
-	})
+	a.storeAuthTokens(response.AccessToken, response.RefreshToken, response.TokenType)
 
 	return nil
 }
@@ -253,19 +227,26 @@ func (a *AuthResource) VerifyOTP(ctx context.Context, req *VerifyOTPRequest) (*U
 		return nil, err
 	}
 
-	if response.AccessToken != "" && response.RefreshToken != "" {
-		tokenType := response.TokenType
-		if tokenType == "" {
-			tokenType = "bearer"
-		}
-		a.http.SetTokens(&AuthTokens{
-			AccessToken:  response.AccessToken,
-			RefreshToken: response.RefreshToken,
-			TokenType:    tokenType,
-		})
-	}
+	a.storeAuthTokens(response.AccessToken, response.RefreshToken, response.TokenType)
 
 	return &response.User, nil
+}
+
+// storeAuthTokens persists the access/refresh tokens from an auth response on
+// the client, defaulting the token type to "bearer". No-op if either token is
+// empty (e.g. an endpoint that doesn't issue a session).
+func (a *AuthResource) storeAuthTokens(accessToken, refreshToken, tokenType string) {
+	if accessToken == "" || refreshToken == "" {
+		return
+	}
+	if tokenType == "" {
+		tokenType = "bearer"
+	}
+	a.http.SetTokens(&AuthTokens{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		TokenType:    tokenType,
+	})
 }
 
 // ResendOTP resends the registration OTP code.
@@ -274,6 +255,51 @@ func (a *AuthResource) VerifyOTP(ctx context.Context, req *VerifyOTPRequest) (*U
 func (a *AuthResource) ResendOTP(ctx context.Context, email string) error {
 	return a.http.Post(ctx, "/api/v1/auth/register/resend-otp",
 		map[string]string{"email": email}, nil, WithoutAuth())
+}
+
+// RequestEmailOTP sends a passwordless sign-in code to an email address.
+//
+// This is the first step of the magic-link-style email sign-in: the server
+// emails a 6-digit code. The account is provisioned lazily on first successful
+// VerifyEmailOTP, so this call neither requires nor reveals whether an account
+// already exists.
+//
+// Errors:
+//   - APIError (503): If email-based sign-in is not available (SMTP not configured)
+//   - APIError (429): If rate-limited
+func (a *AuthResource) RequestEmailOTP(ctx context.Context, email string) error {
+	return a.http.Post(ctx, "/api/v1/auth/email-otp/request",
+		map[string]string{"email": email}, nil, WithoutAuth())
+}
+
+// VerifyEmailOTP verifies a passwordless sign-in code and stores the resulting
+// JWT session on the client.
+//
+// On the first successful verification for an email, the server provisions a
+// passwordless account (username derived from the email, no password — like
+// OAuth). Subsequent sign-ins reuse the same account. After this returns, the
+// client is authenticated and can mint API tokens, etc.
+//
+// Errors:
+//   - APIError (400): If the code is invalid or expired
+//   - APIError (429): If the maximum number of attempts was exceeded
+func (a *AuthResource) VerifyEmailOTP(ctx context.Context, email, code string) (*User, error) {
+	var response struct {
+		User         User   `json:"user"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		TokenType    string `json:"token_type"`
+	}
+
+	err := a.http.Post(ctx, "/api/v1/auth/email-otp/verify",
+		map[string]string{"email": email, "code": code}, &response, WithoutAuth())
+	if err != nil {
+		return nil, err
+	}
+
+	a.storeAuthTokens(response.AccessToken, response.RefreshToken, response.TokenType)
+
+	return &response.User, nil
 }
 
 // RequestPasswordReset requests a password-reset OTP.
