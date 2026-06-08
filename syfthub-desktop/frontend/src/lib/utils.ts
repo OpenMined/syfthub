@@ -31,6 +31,17 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+// Non-backtracking pattern (no nested quantifiers) — a UX gate only; the
+// backend's EmailStr is the real validator.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidEmail(email: string): boolean {
+  return EMAIL_PATTERN.test(email.trim());
+}
+
+/** Default SyftHub server URL used by onboarding. */
+export const DEFAULT_SYFTHUB_URL = 'https://syfthub-dev.openmined.org';
+
 /** Env var keys that need multiline (textarea) rendering in forms. */
 export const MULTILINE_ENV_KEYS = new Set(['SYSTEM_PROMPT']);
 

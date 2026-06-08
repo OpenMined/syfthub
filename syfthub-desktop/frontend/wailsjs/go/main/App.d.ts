@@ -142,6 +142,8 @@ export function RemoveSkill(arg1:string,arg2:string):Promise<void>;
 
 export function RenameEndpoint(arg1:string,arg2:string):Promise<string>;
 
+export function ResendEmailSignIn():Promise<void>;
+
 export function ResetPaymentCap(arg1:string):Promise<void>;
 
 export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
@@ -190,6 +192,8 @@ export function StartAgentSessionWithCredential(arg1:string,arg2:string,arg3:str
 
 export function StartAgentSessionWithHistory(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function StartEmailSignIn(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function Stop():Promise<void>;
 
 export function StopAgentSession():Promise<void>;
@@ -209,6 +213,8 @@ export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:
 export function UpdateSettlement(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
 
 export function ValidateAttachmentPath(arg1:string):Promise<main.AttachmentSummary>;
+
+export function VerifyEmailSignIn(arg1:string):Promise<void>;
 
 export function WalletBalance():Promise<main.WalletBalance>;
 

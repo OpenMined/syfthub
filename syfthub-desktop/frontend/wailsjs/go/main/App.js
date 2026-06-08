@@ -278,6 +278,10 @@ export function RenameEndpoint(arg1, arg2) {
   return window['go']['main']['App']['RenameEndpoint'](arg1, arg2);
 }
 
+export function ResendEmailSignIn() {
+  return window['go']['main']['App']['ResendEmailSignIn']();
+}
+
 export function ResetPaymentCap(arg1) {
   return window['go']['main']['App']['ResetPaymentCap'](arg1);
 }
@@ -374,6 +378,10 @@ export function StartAgentSessionWithHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartAgentSessionWithHistory'](arg1, arg2, arg3);
 }
 
+export function StartEmailSignIn(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartEmailSignIn'](arg1, arg2, arg3);
+}
+
 export function Stop() {
   return window['go']['main']['App']['Stop']();
 }
@@ -412,6 +420,10 @@ export function UpdateSettlement(arg1, arg2, arg3, arg4, arg5) {
 
 export function ValidateAttachmentPath(arg1) {
   return window['go']['main']['App']['ValidateAttachmentPath'](arg1);
+}
+
+export function VerifyEmailSignIn(arg1) {
+  return window['go']['main']['App']['VerifyEmailSignIn'](arg1);
 }
 
 export function WalletBalance() {

@@ -57,6 +57,7 @@ type App struct {
 	syftClient       *syfthub.Client             // Hub API client; nil if not configured
 	username         string                      // Authenticated user's username (set after login)
 	setup            setupState                  // Tracks the currently running setup flow
+	onboarding       onboardingState             // Transient login/register+OTP onboarding state; guarded by its own mutex
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
