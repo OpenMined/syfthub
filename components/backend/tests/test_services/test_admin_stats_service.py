@@ -41,6 +41,7 @@ class TestEmptyDatabase:
         assert {p.provider.value for p in overview.by_auth_provider} == {
             "local",
             "google",
+            "email_otp",
         }
 
         # Signup trend zero-filled to exactly trend_days.
@@ -102,7 +103,7 @@ class TestAggregationCorrectness:
         role_map = {r.role.value: r.count for r in overview.by_role}
         assert role_map == {"admin": 1, "user": 2, "guest": 1}
         provider_map = {p.provider.value: p.count for p in overview.by_auth_provider}
-        assert provider_map == {"local": 3, "google": 1}
+        assert provider_map == {"local": 3, "google": 1, "email_otp": 0}
 
     def test_last_login_buckets_sum_to_total(
         self, test_session: Session, seeded: None

@@ -147,7 +147,7 @@ def test_overview_shape(client: TestClient, admin_headers: dict) -> None:
     roles = {r["role"] for r in body["by_role"]}
     assert roles == {"admin", "user", "guest"}
     providers = {p["provider"] for p in body["by_auth_provider"]}
-    assert providers == {"local", "google"}
+    assert providers == {"local", "google", "email_otp"}
 
     # Last-login buckets: all five present, mutually exclusive sum == total.
     buckets = body["last_login"]["buckets"]
