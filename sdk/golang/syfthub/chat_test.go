@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 )
@@ -893,4 +894,69 @@ func TestGetStringAndGetInt(t *testing.T) {
 	if getInt(m, "nonexistent") != 0 {
 		t.Errorf("getInt(nonexistent) should return 0")
 	}
+}
+
+func TestExpandCollectivePaths(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]string{"alice/a", "bob/b"})
+	}))
+	defer server.Close()
+
+	httpClient := newHTTPClient(server.URL, DefaultTimeout)
+	chat := newChatResource(newHubResource(httpClient), newAuthResource(httpClient), "https://aggregator.example.com", 30*time.Second)
+	ctx := context.Background()
+
+	t.Run("expands a bare collective and dedups against a standalone path", func(t *testing.T) {
+		requested = nil
+		result, err := chat.expandCollectivePaths(ctx, []string{"alice/a", "collective/genomics"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := []string{"alice/a", "bob/b"}; !slices.Equal(result, want) {
+			t.Errorf("result = %v, want %v", result, want)
+		}
+		if want := "/api/v1/collectives/by-slug/genomics/endpoint-paths"; len(requested) != 1 || requested[0] != want {
+			t.Errorf("requested = %v, want one call to %q", requested, want)
+		}
+	})
+
+	t.Run("the all alias hits the no-subset route", func(t *testing.T) {
+		requested = nil
+		if _, err := chat.expandCollectivePaths(ctx, []string{"collective/genomics/all"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := "/api/v1/collectives/by-slug/genomics/endpoint-paths"; requested[0] != want {
+			t.Errorf("all alias requested %q, want %q", requested[0], want)
+		}
+	})
+
+	t.Run("a subset slug hits the shared-endpoints route", func(t *testing.T) {
+		requested = nil
+		if _, err := chat.expandCollectivePaths(ctx, []string{"collective/genomics/oncology"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "/api/v1/collectives/by-slug/genomics/shared-endpoints/oncology/endpoint-paths"
+		if requested[0] != want {
+			t.Errorf("subset requested %q, want %q", requested[0], want)
+		}
+	})
+
+	t.Run("non-collective paths pass through and dedup", func(t *testing.T) {
+		result, err := chat.expandCollectivePaths(ctx, []string{"x/y", "x/y", "z/w"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := []string{"x/y", "z/w"}; !slices.Equal(result, want) {
+			t.Errorf("result = %v, want %v", result, want)
+		}
+	})
+
+	t.Run("a malformed collective path errors", func(t *testing.T) {
+		if _, err := chat.expandCollectivePaths(ctx, []string{"collective/"}); err == nil {
+			t.Fatal("expected an error for a malformed collective path")
+		}
+	})
 }

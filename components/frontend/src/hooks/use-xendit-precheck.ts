@@ -7,12 +7,24 @@
  * and fetches each balance via a satellite token. Returns the rows that
  * still need a paid subscription so the chat view can open the gate
  * modal — or an empty array when the user is clear to send.
+ *
+ * A selected **Collective API** is a single ChatSource with no policies of its
+ * own (`full_path` = `collective/<slug>[/<shared-slug>]`); the SDK fans it out
+ * to its member endpoints at query time. So this precheck expands such a source
+ * via its billing summary into the prepaid wallets of its members and gates
+ * them exactly like standalone prepaid endpoints. MPP members are not pre-gated
+ * here — like standalone MPP endpoints they settle via the aggregator's 402
+ * flow at query time.
  */
 import { useCallback } from 'react';
 
+import type { CollectivePrepaidMember } from '@/lib/collective-billing';
+import type { CollectiveBillingSummary } from '@/lib/collectives-api';
 import type { ChatSource, Policy } from '@/lib/types';
 import type { MoneyBundle, ParsedXenditConfig, PolicyUnit } from '@/lib/xendit-client';
 
+import { collectivePrepaidMembers, parseCollectivePath } from '@/lib/collective-billing';
+import { getCollectiveBillingSummary } from '@/lib/collectives-api';
 import { syftClient } from '@/lib/sdk-client';
 import { fetchBalance, getSatelliteToken, parseXenditConfig } from '@/lib/xendit-client';
 
@@ -42,6 +54,13 @@ export interface PendingSubscription {
   unit: PolicyUnit;
   /** Last balance reading (0 when unsubscribed). */
   balance: number;
+  /**
+   * Whether the chat gate may offer to remove this row from the selection.
+   * Standalone endpoints are removable; rows expanded from a Collective API are
+   * not (you can't drop one member of a collective). Treated as `true` when
+   * omitted, so callers that build subscriptions outside the gate need not set it.
+   */
+  removable?: boolean;
 }
 
 interface ResolvedXenditPolicy {
@@ -83,6 +102,8 @@ function endpointReferenceFor(source: ChatSource, role: EndpointRole): EndpointR
 interface XenditCandidate {
   endpoint: EndpointReference;
   policy: ResolvedXenditPolicy;
+  /** Whether the gate row may be removed (false for collective members). */
+  removable: boolean;
 }
 
 function candidatesFromSource(source: ChatSource, role: EndpointRole): XenditCandidate[] {
@@ -92,9 +113,52 @@ function candidatesFromSource(source: ChatSource, role: EndpointRole): XenditCan
   const out: XenditCandidate[] = [];
   for (const policy of source.policies) {
     const xendit = resolveXenditPolicy(policy);
-    if (xendit) out.push({ endpoint: ref, policy: xendit });
+    if (xendit) out.push({ endpoint: ref, policy: xendit, removable: true });
   }
   return out;
+}
+
+/** Map one collective prepaid member to a gate candidate (non-removable). */
+function candidateFromCollectiveMember(member: CollectivePrepaidMember): XenditCandidate {
+  return {
+    endpoint: {
+      id: String(member.endpointId),
+      path: member.path,
+      owner: member.ownerUsername,
+      slug: member.slug,
+      name: member.name,
+      role: 'data_source'
+    },
+    policy: {
+      paymentUrl: member.paymentUrl,
+      creditsUrl: member.creditsUrl,
+      bundles: member.bundles,
+      currency: member.currency,
+      pricePerUnit: member.pricePerUnit,
+      unit: member.unit
+    },
+    removable: false
+  };
+}
+
+/**
+ * Expand a Collective API source into the prepaid candidates of its members.
+ *
+ * Fetches the source's billing summary (auth-gated) and pulls out the prepaid
+ * members. A non-collective source, an unresolvable summary (404/401 → `null`),
+ * or one with no prepaid members all yield `[]`, so a failed expansion never
+ * blocks send — the aggregator's per-member enforcement remains the backstop.
+ */
+async function candidatesFromCollective(source: ChatSource): Promise<XenditCandidate[]> {
+  const parsed = parseCollectivePath(source.full_path);
+  if (!parsed) return [];
+  let summary: CollectiveBillingSummary | null;
+  try {
+    summary = await getCollectiveBillingSummary(parsed.slug, parsed.sharedSlug);
+  } catch {
+    return [];
+  }
+  return collectivePrepaidMembers(summary).map((member) => candidateFromCollectiveMember(member));
 }
 
 function collectCandidates(model: ChatSource | null, dataSources: ChatSource[]): XenditCandidate[] {
@@ -124,9 +188,17 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
 
   const runPrecheck = useCallback(
     async (signal?: AbortSignal): Promise<PendingSubscription[]> => {
-      const candidates = collectCandidates(model, dataSources);
-      if (candidates.length === 0) return [];
+      // Auth-gate first: the billing-summary expansion (and satellite tokens)
+      // both need a signed-in user, so bail before any network work otherwise.
       if (!syftClient.getTokens()) return [];
+
+      // Standalone endpoints expose their policies inline; Collective API
+      // sources have none and must be expanded via their billing summary.
+      const collectiveLists = await Promise.all(
+        dataSources.map((ds) => candidatesFromCollective(ds))
+      );
+      const candidates = [...collectCandidates(model, dataSources), ...collectiveLists.flat()];
+      if (candidates.length === 0) return [];
 
       // One satellite token per distinct owner — multiple wallets owned by
       // the same publisher reuse the token.
@@ -175,7 +247,8 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
           currency: c.policy.currency,
           pricePerUnit: c.policy.pricePerUnit,
           unit: c.policy.unit,
-          balance
+          balance,
+          removable: c.removable
         });
       }
       return out;

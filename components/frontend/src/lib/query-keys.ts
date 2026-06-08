@@ -74,3 +74,11 @@ export const sharedEndpointKeys = {
   detail: (collectiveId: number, sharedSlug: string) =>
     [...sharedEndpointKeys.all, 'detail', collectiveId, sharedSlug] as const
 };
+
+export const billingSummaryKeys = {
+  all: ['billing-summary'] as const,
+  bySharedEndpoint: (collectiveSlug: string, sharedSlug?: string) =>
+    [...billingSummaryKeys.all, collectiveSlug, sharedSlug ?? 'all'] as const,
+  readiness: (creditsUrls: readonly string[]) =>
+    [...billingSummaryKeys.all, 'readiness', creditsUrls] as const
+};

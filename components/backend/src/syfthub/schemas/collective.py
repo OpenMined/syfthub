@@ -518,3 +518,101 @@ class InvitationEmailContext(BaseModel):
     collective_slug: str = Field(..., description="Slug of the collective")
     endpoint_name: str = Field(..., description="Name of the invited endpoint")
     endpoint_id: int = Field(..., description="ID of the invited endpoint")
+
+
+# ----------------------------------------------------------------------
+# Billing summary — aggregate pricing + per-member settlement metadata
+# ----------------------------------------------------------------------
+
+
+class PriceByCurrency(BaseModel):
+    """A single currency's slice of an aggregated price.
+
+    Distinct currencies are never converted into one another; a shared
+    endpoint that mixes IDR and EUR members yields one entry per currency
+    (e.g. ``10000 IDR`` + ``10 EUR``).
+    """
+
+    currency: str = Field(..., description="ISO-ish currency code, e.g. IDR / EUR")
+    amount: float = Field(..., description="Summed per-request price in this currency")
+
+
+class MoneyBundle(BaseModel):
+    """A purchasable prepaid credit bundle advertised by a publisher policy."""
+
+    name: str = Field(..., description="Bundle identifier as published by the gateway")
+    amount: float = Field(..., description="Credit amount the bundle grants")
+
+
+class MemberBillingDetail(BaseModel):
+    """How a single member endpoint bills, normalized for the buyer UI.
+
+    ``kind`` partitions members into the three settlement buckets the UI
+    cares about:
+
+    - ``prepaid`` — a Xendit/Stripe prepaid-credits policy; the buyer needs a
+      funded wallet with the publisher (``credits_url``) and can top it up via
+      ``payment_url``.
+    - ``mpp`` — a metered MPP/accounting policy paid from the buyer's single
+      Hub wallet at request time.
+    - ``free`` — no enabled billing policy; no settlement required.
+    """
+
+    kind: str = Field(..., description="One of 'prepaid', 'mpp', 'free'")
+    provider: Optional[str] = Field(
+        None, description="Prepaid gateway provider ('xendit' / 'stripe')"
+    )
+    currency: Optional[str] = Field(None, description="Prepaid currency code")
+    price_per_unit: Optional[float] = Field(
+        None, description="Prepaid price per billing unit (request/document)"
+    )
+    unit: str = Field("request", description="Billing unit: 'request' or 'document'")
+    payment_url: Optional[str] = Field(
+        None, description="Publisher endpoint to purchase a bundle (prepaid only)"
+    )
+    credits_url: Optional[str] = Field(
+        None, description="Publisher endpoint to read the buyer's balance (prepaid)"
+    )
+    invoices_url: Optional[str] = Field(
+        None, description="Publisher endpoint to list invoices (prepaid, optional)"
+    )
+    bundles: List[MoneyBundle] = Field(
+        default_factory=list, description="Purchasable prepaid bundles"
+    )
+
+
+class CollectiveMemberBilling(BaseModel):
+    """A member endpoint's identity plus its normalized billing detail."""
+
+    endpoint_id: int = Field(..., description="Member endpoint's unique identifier")
+    endpoint_name: Optional[str] = Field(None, description="Display name")
+    endpoint_slug: Optional[str] = Field(None, description="URL slug")
+    endpoint_owner_username: Optional[str] = Field(
+        None, description="Username of the endpoint's owner (the settlement party)"
+    )
+    endpoint_owner_full_name: Optional[str] = Field(
+        None, description="Full name of the endpoint's owner"
+    )
+    endpoint_type: Optional[str] = Field(None, description="Endpoint type")
+    billing: MemberBillingDetail = Field(..., description="Normalized billing detail")
+
+
+class CollectiveBillingSummaryResponse(BaseModel):
+    """Aggregate pricing + settlement metadata for a shared endpoint.
+
+    Powers both the estimated-price badge (``estimated_price``) and the
+    "who do I have an account with" settlement modal (``members``). The
+    estimated price sums only prepaid per-request prices, grouped by currency;
+    metered MPP members and free members do not contribute to it.
+    """
+
+    members: List[CollectiveMemberBilling] = Field(
+        default_factory=list, description="Participating (approved) member endpoints"
+    )
+    estimated_price: List[PriceByCurrency] = Field(
+        default_factory=list,
+        description="Per-currency sum of prepaid per-request prices",
+    )
+    free_count: int = Field(0, description="Members with no billing policy")
+    prepaid_count: int = Field(0, description="Members with a prepaid-credits policy")
+    mpp_count: int = Field(0, description="Members billed via a metered MPP policy")
