@@ -312,31 +312,49 @@ jobs:
             --sign "$APPLE_DEVELOPER_ID_IDENTITY" "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
 
-      - name: Prepare artifacts
+      - name: Package .app into a DMG
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          set -euo pipefail
           mkdir -p dist
 
-          # Create zip of the .app bundle. `ditto` (not `zip`) preserves
-          # extended attributes and resource forks, which notarization
-          # requires for signed bundles. We use ditto unconditionally so
-          # signed and unsigned outputs are byte-shaped the same way.
-          cd build/bin
-          APP=$(find . -maxdepth 1 -name "*.app" -type d | head -1)
+          APP=$(find build/bin -maxdepth 1 -name "*.app" -type d | head -1)
           if [ -z "$APP" ]; then
             echo "::error::No .app bundle found"
-            ls -la
+            ls -la build/bin
             exit 1
           fi
-          ditto -c -k --sequesterRsrc --keepParent "$APP" ../../dist/syfthub-desktop-macos-arm64.zip
 
-          # Create checksum
-          cd ../../dist
-          shasum -a 256 syfthub-desktop-macos-arm64.zip > syfthub-desktop-macos-arm64.zip.sha256
+          # Stage the signed .app next to an /Applications symlink so the
+          # mounted DMG presents a drag-to-install target. `ditto` (not cp)
+          # preserves the code signature and extended attributes.
+          STAGING=$(mktemp -d)
+          ditto "$APP" "$STAGING/$(basename "$APP")"
+          ln -s /Applications "$STAGING/Applications"
 
-          echo "macOS arm64 build artifacts:"
-          ls -la
+          # Build a compressed, read-only DMG. hdiutil is built into macOS,
+          # so no extra tooling (create-dmg/brew) is required.
+          hdiutil create \
+            -volname "SyftHub Desktop" \
+            -srcfolder "$STAGING" \
+            -fs HFS+ \
+            -format UDZO \
+            -ov \
+            dist/syfthub-desktop-macos-arm64.dmg
+          rm -rf "$STAGING"
+
+          echo "macOS arm64 DMG:"
+          ls -la dist
+
+      - name: Codesign DMG
+        env:
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+        run: |
+          set -euo pipefail
+          codesign --force --timestamp \
+            --sign "$APPLE_DEVELOPER_ID_IDENTITY" dist/syfthub-desktop-macos-arm64.dmg
+          codesign --verify --verbose=2 dist/syfthub-desktop-macos-arm64.dmg
 
       - name: Notarize and staple
         env:
@@ -345,29 +363,31 @@ jobs:
           APPLE_NOTARIZATION_APP_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_APP_PASSWORD }}
         run: |
           set -euo pipefail
-          xcrun notarytool submit dist/syfthub-desktop-macos-arm64.zip \
+          # Notarizing the DMG also notarizes the .app inside it (Apple
+          # registers the app's cdhash). We staple the ticket onto the DMG
+          # so a browser-downloaded (quarantined) DMG opens without a
+          # Gatekeeper round-trip. The in-app updater copies the .app OUT
+          # of the DMG, where it carries no quarantine xattr, so it launches
+          # on its signature + notarization alone — no separate .app staple
+          # is required.
+          xcrun notarytool submit dist/syfthub-desktop-macos-arm64.dmg \
             --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
             --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
             --password "$APPLE_NOTARIZATION_APP_PASSWORD" \
             --wait
-          # Re-zip with the stapled ticket so downloaded users get it.
-          UNZIPPED=$(mktemp -d)
-          ditto -x -k dist/syfthub-desktop-macos-arm64.zip "$UNZIPPED"
-          APP=$(find "$UNZIPPED" -maxdepth 2 -name "*.app" -type d | head -1)
-          xcrun stapler staple "$APP"
-          rm dist/syfthub-desktop-macos-arm64.zip
-          ditto -c -k --sequesterRsrc --keepParent "$APP" dist/syfthub-desktop-macos-arm64.zip
-          # Recompute checksum after stapling
+          xcrun stapler staple dist/syfthub-desktop-macos-arm64.dmg
+
+          # Checksum the final, stapled DMG (stapling mutates the file).
           cd dist
-          shasum -a 256 syfthub-desktop-macos-arm64.zip > syfthub-desktop-macos-arm64.zip.sha256
+          shasum -a 256 syfthub-desktop-macos-arm64.dmg > syfthub-desktop-macos-arm64.dmg.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: syfthub-desktop-macos-arm64
           path: |
-            syfthub-desktop/dist/syfthub-desktop-macos-arm64.zip
-            syfthub-desktop/dist/syfthub-desktop-macos-arm64.zip.sha256
+            syfthub-desktop/dist/syfthub-desktop-macos-arm64.dmg
+            syfthub-desktop/dist/syfthub-desktop-macos-arm64.dmg.sha256
           retention-days: 1
 
   # ============================================================================
@@ -423,7 +443,7 @@ jobs:
             |----------|--------------|----------|
             | **Linux** | x64 | [syfthub-desktop-linux-amd64](https://github.com/${{ env.REPO }}/releases/download/desktop/v${{ env.VERSION }}/syfthub-desktop-linux-amd64) |
             | **Windows** | x64 | [syfthub-desktop-windows-amd64.exe](https://github.com/${{ env.REPO }}/releases/download/desktop/v${{ env.VERSION }}/syfthub-desktop-windows-amd64.exe) |
-            | **macOS** | Apple Silicon (M1/M2/M3) | [syfthub-desktop-macos-arm64.zip](https://github.com/${{ env.REPO }}/releases/download/desktop/v${{ env.VERSION }}/syfthub-desktop-macos-arm64.zip) |
+            | **macOS** | Apple Silicon (M1/M2/M3) | [syfthub-desktop-macos-arm64.dmg](https://github.com/${{ env.REPO }}/releases/download/desktop/v${{ env.VERSION }}/syfthub-desktop-macos-arm64.dmg) |
 
             ### Installation
 
@@ -441,10 +461,10 @@ jobs:
             Download the `.exe` file and run directly. No installation required.
 
             #### macOS
-            1. Download the `.zip` file
-            2. Extract the archive
-            3. Move `SyftHub Desktop.app` to your Applications folder
-            4. Double-click to open — the app is signed and notarized, so it launches without a Gatekeeper prompt
+            1. Download the `.dmg` file
+            2. Double-click to open it
+            3. Drag `SyftHub Desktop.app` onto the `Applications` shortcut
+            4. Launch from Applications — the app is signed and notarized, so it opens without a Gatekeeper prompt
 
             > Future updates install automatically from within the app.
 
@@ -465,8 +485,8 @@ jobs:
             release/syfthub-desktop-linux-amd64.sha256
             release/syfthub-desktop-windows-amd64.exe
             release/syfthub-desktop-windows-amd64.exe.sha256
-            release/syfthub-desktop-macos-arm64.zip
-            release/syfthub-desktop-macos-arm64.zip.sha256
+            release/syfthub-desktop-macos-arm64.dmg
+            release/syfthub-desktop-macos-arm64.dmg.sha256
             release/checksums.txt
 
   # ============================================================================
@@ -531,7 +551,7 @@ jobs:
           gh release download "$TAG" --repo "$REPO" --dir sums \
             --pattern 'syfthub-desktop-linux-amd64.sha256' \
             --pattern 'syfthub-desktop-windows-amd64.exe.sha256' \
-            --pattern 'syfthub-desktop-macos-arm64.zip.sha256'
+            --pattern 'syfthub-desktop-macos-arm64.dmg.sha256'
           ls -la sums
 
       - name: Build manifest.json
@@ -545,12 +565,12 @@ jobs:
           # Extract just the hex sha (first whitespace-delimited token)
           LINUX_SHA=$(awk '{print $1}' sums/syfthub-desktop-linux-amd64.sha256 | tr -d '\r' | head -c 64)
           WIN_SHA=$(awk '{print $1}' sums/syfthub-desktop-windows-amd64.exe.sha256 | tr -d '\r' | head -c 64)
-          MAC_SHA=$(awk '{print $1}' sums/syfthub-desktop-macos-arm64.zip.sha256 | tr -d '\r' | head -c 64)
+          MAC_SHA=$(awk '{print $1}' sums/syfthub-desktop-macos-arm64.dmg.sha256 | tr -d '\r' | head -c 64)
 
           # Get artifact sizes from the release metadata
           LINUX_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-linux-amd64") | .size' /tmp/release.json)
           WIN_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-windows-amd64.exe") | .size' /tmp/release.json)
-          MAC_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-macos-arm64.zip") | .size' /tmp/release.json)
+          MAC_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-macos-arm64.dmg") | .size' /tmp/release.json)
 
           BASE="https://github.com/${REPO}/releases/download/desktop/v${VERSION}"
 
@@ -566,7 +586,7 @@ jobs:
             --arg win_url "$BASE/syfthub-desktop-windows-amd64.exe" \
             --arg win_sha "$WIN_SHA" \
             --argjson win_size "$WIN_SIZE" \
-            --arg mac_url "$BASE/syfthub-desktop-macos-arm64.zip" \
+            --arg mac_url "$BASE/syfthub-desktop-macos-arm64.dmg" \
             --arg mac_sha "$MAC_SHA" \
             --argjson mac_size "$MAC_SIZE" \
             '{

@@ -43,8 +43,9 @@ func appBundleRoot(exePath string) string {
 // swapAndRelaunch on macOS replaces the entire .app bundle.
 //
 // Unlike Linux/Windows — where the downloaded artifact is a bare binary
-// renamed over the running one — the macOS artifact is a .zip produced by
-// `ditto` containing the signed .app. We extract it with `ditto` (NOT
+// renamed over the running one — the macOS artifact is a notarized .dmg
+// (release-desktop.yml, build-macos-arm64) containing the signed .app. We
+// mount the image read-only and copy the bundle out with `ditto` (NOT
 // archive/zip) so the bundle's extended attributes and code signature
 // survive: a signature broken by a naive unzip would be rejected by
 // Gatekeeper and fail to launch.
@@ -52,26 +53,24 @@ func appBundleRoot(exePath string) string {
 // The swap is a directory rename at bundle granularity, mirroring the
 // Linux ".old" dance — the running process keeps executing from the
 // moved-aside bundle while the new one takes the original path.
-func swapAndRelaunch(exePath, zipPath string) error {
+func swapAndRelaunch(exePath, dmgPath string) error {
 	bundle := appBundleRoot(exePath)
 	if bundle == "" {
 		return fmt.Errorf("locate .app bundle from %q: %w", exePath, ErrUnsupportedPlatform)
 	}
 	parent := filepath.Dir(bundle)
 
-	// Extract into a temp dir on the SAME volume as the bundle so the
-	// final move-into-place is an atomic rename, not a cross-device copy.
+	// Copy the new bundle into a temp dir on the SAME volume as the current
+	// bundle so the final move-into-place is an atomic rename, not a
+	// cross-device copy. (The .app lives on the read-only DMG volume — a
+	// different device — so it must be copied out before the swap.)
 	staging, err := os.MkdirTemp(parent, ".syfthub-update-")
 	if err != nil {
 		return fmt.Errorf("create staging dir: %w", err)
 	}
 	defer os.RemoveAll(staging)
 
-	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", zipPath, staging).CombinedOutput(); err != nil {
-		return fmt.Errorf("ditto extract: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-
-	newApp, err := findAppBundle(staging)
+	newApp, err := extractAppFromDMG(dmgPath, staging)
 	if err != nil {
 		return err
 	}
@@ -92,9 +91,45 @@ func swapAndRelaunch(exePath, zipPath string) error {
 	return nil
 }
 
+// extractAppFromDMG mounts the downloaded .dmg read-only, copies the
+// single .app bundle it contains into staging, and detaches the image.
+// `ditto` preserves the code signature and extended attributes across the
+// copy off the read-only DMG volume. Returns the path to the copied .app
+// inside staging.
+func extractAppFromDMG(dmgPath, staging string) (string, error) {
+	mountPoint, err := os.MkdirTemp("", "syfthub-dmg-mount-")
+	if err != nil {
+		return "", fmt.Errorf("create mount point: %w", err)
+	}
+	defer os.RemoveAll(mountPoint)
+
+	// Attach read-only at our own mount point, no Finder window, skipping
+	// the (already SHA-256-verified) image checksum.
+	attach := exec.Command("/usr/bin/hdiutil", "attach", dmgPath,
+		"-mountpoint", mountPoint, "-nobrowse", "-readonly", "-noverify", "-noautoopen")
+	if out, err := attach.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("hdiutil attach: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	// Always detach, even if the copy below fails.
+	defer func() {
+		_ = exec.Command("/usr/bin/hdiutil", "detach", mountPoint, "-force").Run()
+	}()
+
+	srcApp, err := findAppBundle(mountPoint)
+	if err != nil {
+		return "", err
+	}
+
+	dstApp := filepath.Join(staging, filepath.Base(srcApp))
+	if out, err := exec.Command("/usr/bin/ditto", srcApp, dstApp).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("ditto copy from dmg: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return dstApp, nil
+}
+
 // findAppBundle returns the single top-level *.app directory inside dir.
-// ditto archives created with --keepParent unpack to exactly one .app at
-// the root; any __MACOSX sibling is ignored.
+// A mounted DMG volume root holds exactly one .app plus an /Applications
+// symlink; the symlink is not a directory entry so it is ignored.
 func findAppBundle(dir string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
