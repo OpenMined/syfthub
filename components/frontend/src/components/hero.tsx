@@ -19,6 +19,7 @@ import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useCollectives } from '@/hooks/use-collectives';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useSharedEndpointsForCollectives } from '@/hooks/use-shared-endpoints';
 import { getPublicEndpointByPath } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
@@ -81,6 +82,7 @@ export function Hero({
   });
   const { sources } = useDataSources();
   const { data: collectives } = useCollectives();
+  const { data: collectiveSharedEndpoints } = useSharedEndpointsForCollectives(collectives ?? []);
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -272,6 +274,7 @@ export function Hero({
         selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
         onConfirm={handleSourceModalConfirm}
         availableCollectives={collectives ?? []}
+        availableSharedEndpoints={collectiveSharedEndpoints ?? []}
       />
     </>
   );
