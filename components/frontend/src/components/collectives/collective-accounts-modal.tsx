@@ -20,10 +20,6 @@
  */
 import { useMemo } from 'react';
 
-import type { EndpointReference, PendingSubscription } from '@/hooks/use-xendit-precheck';
-import type { CollectiveBillingSummary } from '@/lib/collectives-api';
-import type { PolicyUnit } from '@/lib/xendit-client';
-
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import CheckCircle2 from 'lucide-react/dist/esm/icons/check-circle-2';
 import Coins from 'lucide-react/dist/esm/icons/coins';
@@ -40,6 +36,7 @@ import {
 } from '@/hooks/use-prepaid-wallet-balances';
 import { useWalletBalance } from '@/hooks/use-wallet-api';
 import { useRegisterOnFundingDetected } from '@/hooks/use-xendit-subscriptions';
+import { collectivePrepaidGroups } from '@/lib/collective-billing';
 import { cn } from '@/lib/utils';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
@@ -53,45 +50,6 @@ export interface CollectiveAccountsModalProps {
   title?: string;
 }
 
-/** Group prepaid members by publisher wallet (credits_url ≈ per owner). */
-function buildPrepaidGroups(summary: CollectiveBillingSummary | null): PendingSubscription[] {
-  if (!summary) return [];
-  const byWallet = new Map<string, PendingSubscription>();
-  for (const member of summary.members) {
-    const b = member.billing;
-    if (b.kind !== 'prepaid') continue;
-    if (!b.credits_url || !b.payment_url) continue;
-    if (!member.endpoint_owner_username || !member.endpoint_slug) continue;
-
-    const reference: EndpointReference = {
-      id: String(member.endpoint_id),
-      path: `${member.endpoint_owner_username}/${member.endpoint_slug}`,
-      owner: member.endpoint_owner_username,
-      slug: member.endpoint_slug,
-      name: member.endpoint_name ?? member.endpoint_slug,
-      role: 'data_source'
-    };
-
-    const existing = byWallet.get(b.credits_url);
-    if (existing) {
-      existing.endpoints.push(reference);
-      continue;
-    }
-    byWallet.set(b.credits_url, {
-      walletKey: b.credits_url,
-      endpoints: [reference],
-      paymentUrl: b.payment_url,
-      creditsUrl: b.credits_url,
-      bundles: b.bundles.map((bundle) => ({ name: bundle.name, amount: bundle.amount })),
-      currency: b.currency ?? 'IDR',
-      pricePerUnit: b.price_per_unit,
-      unit: (b.unit === 'document' ? 'document' : 'request') as PolicyUnit,
-      balance: 0
-    });
-  }
-  return [...byWallet.values()];
-}
-
 export function CollectiveAccountsModal({
   isOpen,
   onClose,
@@ -103,7 +61,7 @@ export function CollectiveAccountsModal({
     enabled: isOpen
   });
 
-  const prepaidGroups = useMemo(() => buildPrepaidGroups(summary ?? null), [summary]);
+  const prepaidGroups = useMemo(() => collectivePrepaidGroups(summary), [summary]);
 
   // ── balances: one entry per credits_url, seeded at 0 ──────────────────────
   const seedBalances = useMemo(() => {

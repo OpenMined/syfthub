@@ -106,9 +106,15 @@ export function PaymentGate({
               pending={p}
               liveBalance={balances[p.walletKey] ?? 0}
               isActive={descriptor ? isWalletActive(descriptor) : false}
-              onRemove={() => {
-                onRemovePending(p);
-              }}
+              // Collective-API member rows can't be removed individually — you
+              // can't drop one member of a collective from the selection.
+              onRemove={
+                p.removable === false
+                  ? undefined
+                  : () => {
+                      onRemovePending(p);
+                    }
+              }
             />
           );
         })}

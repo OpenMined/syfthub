@@ -607,23 +607,42 @@ export interface CollectiveBillingSummary {
 }
 
 /**
- * Fetch the billing summary for a shared endpoint. Public-readable.
+ * Fetch the billing summary for a shared endpoint. **Requires authentication**
+ * — the response exposes per-member publisher payment/credits URLs, so the
+ * backend route is auth-gated.
  *
  * Pass `sharedSlug` to scope to a curated subset; omit it (or pass `'all'`)
  * for the default `collective/<slug>` shared endpoint covering all approved
- * members. Returns `null` on 404 so callers can render "no pricing".
+ * members.
+ *
+ * Returns `null` on 404 (no such collective/subset) and on 401 (the caller is
+ * not signed in), so callers — the public detail-page price badge included —
+ * can simply render nothing rather than surfacing an error to logged-out
+ * visitors. Other non-2xx statuses still throw.
  */
 export async function getCollectiveBillingSummary(
   collectiveSlug: string,
   sharedSlug?: string
 ): Promise<CollectiveBillingSummary | null> {
-  const base = `${BASE}/by-slug/${encodeURIComponent(collectiveSlug)}`;
+  const base = `/by-slug/${encodeURIComponent(collectiveSlug)}`;
   const path =
     sharedSlug && sharedSlug !== 'all'
       ? `${base}/shared-endpoints/${encodeURIComponent(sharedSlug)}/billing-summary`
       : `${base}/billing-summary`;
-  const response = await fetch(path);
-  if (response.status === 404) return null;
+
+  // Refresh once on a stale access token (mirrors `request`), but treat a
+  // still-unauthenticated response as "no pricing" instead of an error.
+  let response = await sendRequest(path, 'GET', undefined, true);
+  if (response.status === 401) {
+    try {
+      await syftClient.auth.refresh();
+      persistTokens();
+      response = await sendRequest(path, 'GET', undefined, true);
+    } catch {
+      return null;
+    }
+  }
+  if (response.status === 401 || response.status === 404) return null;
   if (!response.ok) {
     throw new Error(
       await errorMessage(response, `Failed to load billing summary (${response.status})`)

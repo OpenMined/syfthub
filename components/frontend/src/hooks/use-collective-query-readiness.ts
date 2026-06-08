@@ -54,11 +54,19 @@ export function useCollectiveQueryReadiness(
   }, [summary]);
 
   const hasMpp = (summary?.mpp_count ?? 0) > 0;
-  const mppTotal = useMemo(() => {
-    if (!summary) return 0;
-    return summary.members
-      .filter((m) => m.billing.kind === 'mpp')
-      .reduce((sum, m) => sum + (m.billing.price_per_unit ?? 0), 0);
+  // Sum MPP per-request prices per currency. The single Hub wallet is one
+  // currency, so members priced in a different currency can't be settled from
+  // it — they must block readiness rather than being folded into one
+  // cross-currency total that would be compared against the wrong balance.
+  const mppByCurrency = useMemo(() => {
+    const out: Record<string, number> = {};
+    if (!summary) return out;
+    for (const m of summary.members) {
+      if (m.billing.kind !== 'mpp') continue;
+      const currency = m.billing.currency ?? 'USD';
+      out[currency] = (out[currency] ?? 0) + (m.billing.price_per_unit ?? 0);
+    }
+    return out;
   }, [summary]);
 
   const { isConfigured } = useWalletContext();
@@ -100,7 +108,16 @@ export function useCollectiveQueryReadiness(
     const balance = balances[w.creditsUrl];
     return typeof balance === 'number' && balance >= w.threshold;
   });
-  const mppReady = !hasMpp || (isConfigured && (walletBalance?.balance ?? 0) >= mppTotal);
+  // The Hub wallet settles only its own currency; an MPP member priced in any
+  // other currency can't be paid from it, so a non-zero sum there blocks.
+  const hubCurrency = walletBalance?.currency ?? 'USD';
+  const hubBalance = walletBalance?.balance ?? 0;
+  const mppReady =
+    !hasMpp ||
+    (isConfigured &&
+      Object.entries(mppByCurrency).every(([currency, sum]) =>
+        currency === hubCurrency ? hubBalance >= sum : sum <= 0
+      ));
 
   return prepaidReady && mppReady ? 'ready' : 'blocked';
 }
