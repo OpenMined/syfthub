@@ -352,7 +352,7 @@ function EndpointItem({
 }
 
 export function Sidebar({ onSettingsClick }: SidebarProps) {
-  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, setCreateDialogOpen, showLibrary, setShowLibrary } = useAppStore();
+  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, showLibrary, setShowLibrary } = useAppStore();
 
   // Local filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -397,7 +397,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => setCreateDialogOpen(true)}
+                onClick={() => setShowLibrary(true)}
                 className="
                   flex-shrink-0 w-9 h-9 flex items-center justify-center
                   rounded-lg border border-border
@@ -406,13 +406,13 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
                   transition-colors duration-150
                   focus:outline-none focus:ring-2 focus:ring-ring/30
                 "
-                aria-label="Create new endpoint"
+                aria-label="Install endpoint from library"
               >
                 <Plus className="w-5 h-5" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Create Endpoint</p>
+              <p>Install Endpoint</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -428,9 +428,9 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
               <FolderOpen className="w-6 h-6 text-muted-foreground" />
             </div>
             <p className="text-sm font-medium text-foreground mb-1">No endpoints yet</p>
-            <p className="text-xs text-muted-foreground mb-4">Create your first endpoint to get started</p>
+            <p className="text-xs text-muted-foreground mb-4">Install an endpoint from the library to get started</p>
             <button
-              onClick={() => setCreateDialogOpen(true)}
+              onClick={() => setShowLibrary(true)}
               className="
                 inline-flex items-center gap-2 px-4 py-2
                 bg-primary hover:bg-primary/90
@@ -440,7 +440,7 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
               "
             >
               <Plus className="w-4 h-4" />
-              Create Endpoint
+              Install Endpoint
             </button>
           </div>
         ) : filteredEndpoints.length === 0 ? (

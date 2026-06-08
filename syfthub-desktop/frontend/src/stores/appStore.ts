@@ -77,11 +77,13 @@ export type ActiveChat =
 const CHAT_SIDEBAR_STORAGE_KEY = 'syfthub.chat.sidebar.collapsed';
 
 function loadChatSidebarCollapsed(): boolean {
-  if (typeof window === 'undefined') return false;
+  // Default to collapsed: only an explicit '0' (the user expanded it before)
+  // keeps the sidebar open; a missing key — first run — starts collapsed.
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage.getItem(CHAT_SIDEBAR_STORAGE_KEY) === '1';
+    return window.localStorage.getItem(CHAT_SIDEBAR_STORAGE_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -704,7 +706,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   error: null,
   activeTab: 'settings',
   settingsSection: 'overview',
-  mainView: 'endpoints',
+  mainView: 'chat',
   activeChat: { kind: 'live' },
   chatSidebarCollapsed: loadChatSidebarCollapsed(),
   showLibrary: false,
