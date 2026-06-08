@@ -357,6 +357,31 @@ func (h *HubResource) Get(ctx context.Context, path string) (*EndpointPublic, er
 	return nil, newNotFoundError(fmt.Sprintf("Endpoint not found: '%s'", path))
 }
 
+// GetCollectiveEndpointPaths returns the owner/slug paths of a collective's
+// approved member endpoints, optionally narrowed to a single shared-endpoint
+// subset.
+//
+// Used by the chat resource to expand collective/<slug> and
+// collective/<slug>/<shared-slug> data-source references into the individual
+// endpoint paths before building the aggregator request. Pass an empty
+// sharedSlug for "all approved members". The route is public.
+//
+// Errors:
+//   - NotFoundError: If the collective (or shared endpoint) does not exist
+func (h *HubResource) GetCollectiveEndpointPaths(ctx context.Context, slug, sharedSlug string) ([]string, error) {
+	base := fmt.Sprintf("/api/v1/collectives/by-slug/%s", url.PathEscape(slug))
+	path := base + "/endpoint-paths"
+	if sharedSlug != "" {
+		path = fmt.Sprintf("%s/shared-endpoints/%s/endpoint-paths", base, url.PathEscape(sharedSlug))
+	}
+
+	var paths []string
+	if err := h.http.Get(ctx, path, &paths, WithoutAuth()); err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
 // Star stars an endpoint.
 //
 // Errors:

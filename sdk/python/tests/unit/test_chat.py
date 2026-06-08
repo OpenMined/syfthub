@@ -767,3 +767,67 @@ class TestTypeMatches:
         assert got is want, (
             f"_type_matches({actual_type!r}, {expected_type!r}) = {got}, want {want}"
         )
+
+
+class TestExpandCollectivePaths:
+    """Tests for ChatResource._expand_collective_paths()."""
+
+    @staticmethod
+    def _chat(
+        base_url: str, fake_tokens: AuthTokens, member_paths: list[str]
+    ) -> tuple[Any, list[tuple[str, str | None]]]:
+        """Build a chat resource whose hub returns fixed collective member paths."""
+        client = SyftHubClient(base_url=base_url)
+        client._http.set_tokens(fake_tokens)
+        calls: list[tuple[str, str | None]] = []
+
+        def fake_paths(slug: str, shared_slug: str | None = None) -> list[str]:
+            calls.append((slug, shared_slug))
+            return member_paths
+
+        client.chat._hub.get_collective_endpoint_paths = fake_paths  # type: ignore[method-assign]
+        return client.chat, calls
+
+    def test_expands_bare_collective(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, calls = self._chat(base_url, fake_tokens, ["alice/a", "bob/b"])
+        result = chat._expand_collective_paths(["collective/genomics"])
+        assert result == ["alice/a", "bob/b"]
+        assert calls == [("genomics", None)]
+
+    def test_all_alias_maps_to_no_subset(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, calls = self._chat(base_url, fake_tokens, ["alice/a"])
+        chat._expand_collective_paths(["collective/genomics/all"])
+        assert calls == [("genomics", None)]
+
+    def test_subset_slug_passed_through(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, calls = self._chat(base_url, fake_tokens, ["alice/a"])
+        chat._expand_collective_paths(["collective/genomics/oncology"])
+        assert calls == [("genomics", "oncology")]
+
+    def test_non_collective_passthrough_and_dedup(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, _ = self._chat(base_url, fake_tokens, ["alice/a"])
+        result = chat._expand_collective_paths(["bob/b", "bob/b", "collective/g"])
+        # bob/b is deduped; the collective's member is appended after.
+        assert result == ["bob/b", "alice/a"]
+
+    def test_dedup_across_collective_and_standalone(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, _ = self._chat(base_url, fake_tokens, ["alice/a", "bob/b"])
+        result = chat._expand_collective_paths(["alice/a", "collective/g"])
+        assert result == ["alice/a", "bob/b"]
+
+    def test_malformed_collective_raises(
+        self, base_url: str, fake_tokens: AuthTokens
+    ) -> None:
+        chat, _ = self._chat(base_url, fake_tokens, [])
+        with pytest.raises(EndpointResolutionError):
+            chat._expand_collective_paths(["collective/"])
