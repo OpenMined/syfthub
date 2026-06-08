@@ -20,6 +20,7 @@ from syfthub.domain.exceptions import (
 )
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
+    AuthProvider,
     AuthResponse,
     RefreshTokenRequest,
     RegistrationResponse,
@@ -480,29 +481,13 @@ class AuthService(BaseService):
             else:
                 # Create new user
                 logger.info(f"Creating new user via Google OAuth: {email}")
-                username = self._generate_unique_username(email)
-
-                user_data = UserCreate(
-                    username=username,
-                    email=email,
-                    full_name=full_name or email.split("@")[0],
-                    is_active=True,
-                    is_email_verified=True,  # Google verifies emails before providing them
-                )
-
-                user = self.user_repository.create_user(
-                    user_data=user_data,
-                    password_hash=None,  # OAuth users don't have passwords
-                    auth_provider="google",
+                user = self._provision_passwordless_user(
+                    email,
+                    auth_provider=AuthProvider.GOOGLE.value,
+                    full_name=full_name,  # Google's emails are pre-verified
                     google_id=google_id,
                     avatar_url=avatar_url,
                 )
-
-                if not user:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to create user account",
-                    )
 
         # At this point, user should never be None
         # (either found by google_id or created new)
@@ -520,6 +505,123 @@ class AuthService(BaseService):
             )
 
         logger.info(f"Google OAuth login successful: {user.username} ({user.email})")
+
+        # Best-effort: stamp last successful login (see login_user).
+        self.user_repository.update_last_login(user.id)
+
+        return self._build_auth_response(user)
+
+    def _provision_passwordless_user(
+        self,
+        email: str,
+        auth_provider: str,
+        *,
+        full_name: str | None = None,
+        google_id: str | None = None,
+        avatar_url: str | None = None,
+    ) -> User:
+        """Create a passwordless, pre-verified user from an owned email.
+
+        Shared by the OAuth (google_login) and email-OTP provisioning paths:
+        both mint an account with no password and a verified email. Callers own
+        the lookup and any collision policy (deliberately different between the
+        two — OAuth rejects an email collision, email-OTP reuses it); this only
+        performs the create-and-check.
+
+        Args:
+            email: The verified email address (used verbatim; normalize upstream).
+            auth_provider: The AuthProvider value to stamp on the account.
+            full_name: Display name; defaults to the email local-part.
+            google_id: Google subject id, for OAuth provisioning.
+            avatar_url: Avatar URL, for OAuth provisioning.
+
+        Returns:
+            The newly-created user.
+
+        Raises:
+            HTTPException: 500 if user creation fails.
+        """
+        user_data = UserCreate(
+            username=self._generate_unique_username(email),
+            email=email,
+            full_name=full_name or email.split("@")[0],
+            is_active=True,
+            is_email_verified=True,  # caller has proven email ownership
+        )
+        user = self.user_repository.create_user(
+            user_data=user_data,
+            password_hash=None,  # passwordless — OAuth / email-OTP
+            auth_provider=auth_provider,
+            google_id=google_id,
+            avatar_url=avatar_url,
+        )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user account",
+            )
+        return user
+
+    def _ensure_email_otp_user(self, email: str) -> User:
+        """Find or lazily provision a passwordless user for email-OTP sign-in.
+
+        Mirrors the OAuth model (google_login): a user with no password is
+        created on first sign-in. This MUST be called only AFTER the OTP has
+        been verified, so the email is proven to belong to the requester — no
+        account is ever created from an unverified request.
+
+        Args:
+            email: The verified email address.
+
+        Returns:
+            The existing or newly-created user.
+
+        Raises:
+            HTTPException: If user creation fails.
+        """
+        normalized = email.lower()
+
+        user = self.user_repository.get_by_email(normalized)
+        if user:
+            return user
+
+        user = self._provision_passwordless_user(
+            normalized, auth_provider=AuthProvider.EMAIL_OTP.value
+        )
+        logger.info(
+            "Provisioned passwordless user %s via email OTP (%s)",
+            user.username,
+            normalized,
+        )
+        return user
+
+    def complete_email_otp_login(self, email: str) -> AuthResponse:
+        """Issue tokens for a verified email-OTP sign-in.
+
+        Provisions the account on first sign-in (see _ensure_email_otp_user),
+        stamps email verification for any pre-existing unverified account (the
+        OTP proved ownership), and rejects deactivated accounts.
+
+        Args:
+            email: The email whose OTP was just verified.
+
+        Returns:
+            AuthResponse with user info and freshly minted tokens.
+
+        Raises:
+            HTTPException: If the account is deactivated.
+        """
+        user = self._ensure_email_otp_user(email)
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is deactivated",
+            )
+
+        # Stamp verification for a pre-existing, still-unverified account.
+        if not user.is_email_verified:
+            self.user_repository.set_email_verified(user.id)
 
         # Best-effort: stamp last successful login (see login_user).
         self.user_repository.update_last_login(user.id)

@@ -28,6 +28,7 @@ _jinja_env = Environment(
 SUBJECTS = {
     "registration": "Your SyftHub verification code",
     "password_reset": "Your SyftHub password reset code",
+    "email_login": "Your SyftHub sign-in code",
 }
 
 _otp_template = _jinja_env.get_template("otp_email.html")

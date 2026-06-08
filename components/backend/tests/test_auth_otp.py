@@ -210,6 +210,84 @@ def test_resend_otp_nonexistent_email(client: TestClient) -> None:
 
 
 # =============================================================================
+# Passwordless email OTP sign-in
+# POST /auth/email-otp/request  +  /auth/email-otp/verify
+# =============================================================================
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_email_otp_request_sends_code(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """Requesting an email sign-in code returns 200 when SMTP is configured."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    response = client.post(
+        "/api/v1/auth/email-otp/request",
+        json={"email": "newuser@example.com"},
+    )
+    assert response.status_code == 200
+
+
+def test_email_otp_request_unavailable_without_smtp(client: TestClient) -> None:
+    """Without SMTP configured, passwordless email sign-in is unavailable (503)."""
+    response = client.post(
+        "/api/v1/auth/email-otp/request",
+        json={"email": "newuser@example.com"},
+    )
+    assert response.status_code == 503
+
+
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_email_otp_verify_provisions_new_user(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """Verifying a code for a new email provisions a passwordless account."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    with patch("syfthub.services.otp_service.OTPService.verify_otp", return_value=True):
+        response = client.post(
+            "/api/v1/auth/email-otp/verify",
+            json={"email": "magic@example.com", "code": "123456"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_token"]
+    assert data["refresh_token"]
+    assert data["user"]["email"] == "magic@example.com"
+
+    # The provisioned account is passwordless — password login is rejected.
+    login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "magic@example.com", "password": "whatever123"},
+    )
+    assert login.status_code == 401
+
+
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_email_otp_verify_reuses_existing_user(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """Email OTP sign-in for an existing email reuses that account (no duplicate)."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    _register_user(client)  # otpuser / otp@example.com (unverified)
+    with patch("syfthub.services.otp_service.OTPService.verify_otp", return_value=True):
+        response = client.post(
+            "/api/v1/auth/email-otp/verify",
+            json={"email": "otp@example.com", "code": "123456"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user"]["username"] == "otpuser"
+    assert data["user"]["email"] == "otp@example.com"
+
+
+def test_email_otp_verify_invalid_code(client: TestClient) -> None:
+    """An invalid/absent email OTP code returns 400."""
+    response = client.post(
+        "/api/v1/auth/email-otp/verify",
+        json={"email": "magic@example.com", "code": "000000"},
+    )
+    assert response.status_code == 400
+
+
+# =============================================================================
 # POST /login with email verification
 # =============================================================================
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)

@@ -23,6 +23,7 @@ class AuthProvider(str, Enum):
 
     LOCAL = "local"
     GOOGLE = "google"
+    EMAIL_OTP = "email_otp"
 
 
 def _validate_password_strength(v: str) -> str:
@@ -165,6 +166,18 @@ class ResendOTPRequest(BaseModel):
     """Request to resend an OTP code."""
 
     email: EmailStr = Field(..., description="Email address to resend the OTP to")
+
+
+class EmailOTPRequest(BaseModel):
+    """Request a passwordless email sign-in code.
+
+    The account is provisioned lazily on first successful verification, so this
+    carries only the email address.
+    """
+
+    email: EmailStr = Field(
+        ..., description="Email address to send the sign-in code to"
+    )
 
 
 class PasswordResetRequest(BaseModel):
