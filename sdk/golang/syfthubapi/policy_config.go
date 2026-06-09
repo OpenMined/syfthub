@@ -60,12 +60,16 @@ const (
 	PolicyTypePromptFilter = "prompt_filter"
 	PolicyTypeAttribution  = "attribution"
 	PolicyTypeManualReview = "manual_review"
-	PolicyTypeTransaction  = "transaction"
-	PolicyTypeCustom       = "custom"
-	PolicyTypeAllOf        = "all_of"
-	PolicyTypeAnyOf        = "any_of"
-	PolicyTypeNot          = "not"
-	PolicyTypeXendit       = "xendit"
+	// PolicyTypeMpp is the single canonical pay-as-you-go (MPP) billing type —
+	// exactly what syft-space publishes (the policy type is the wallet provider,
+	// mpp/xendit). Legacy "mpp_accounting"/"accounting"/"transaction" spellings
+	// were collapsed into it.
+	PolicyTypeMpp    = "mpp"
+	PolicyTypeCustom = "custom"
+	PolicyTypeAllOf  = "all_of"
+	PolicyTypeAnyOf  = "any_of"
+	PolicyTypeNot    = "not"
+	PolicyTypeXendit = "xendit"
 )
 
 // ValidPolicyTypes is the set of valid policy type strings.
@@ -76,7 +80,7 @@ var ValidPolicyTypes = map[string]bool{
 	PolicyTypePromptFilter: true,
 	PolicyTypeAttribution:  true,
 	PolicyTypeManualReview: true,
-	PolicyTypeTransaction:  true,
+	PolicyTypeMpp:          true,
 	PolicyTypeCustom:       true,
 	PolicyTypeAllOf:        true,
 	PolicyTypeAnyOf:        true,

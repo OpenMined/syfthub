@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 
-import { formatConfigKey, formatCost } from './transaction-policy-content';
+import { formatConfigKey, formatCost } from './policy-format';
 
 // Render config value based on type
 // eslint-disable-next-line sonarjs/function-return-type -- Different JSX elements are all valid React.ReactNode

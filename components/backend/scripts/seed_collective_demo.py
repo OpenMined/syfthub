@@ -36,20 +36,20 @@ from pathlib import Path
 # Make ``syfthub`` importable when run directly from components/backend/.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from sqlalchemy import inspect, select  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
+from sqlalchemy import inspect, select
+from sqlalchemy.orm import Session
 
-from syfthub.auth.security import hash_password  # noqa: E402
-from syfthub.core.config import settings  # noqa: E402
-from syfthub.database.connection import engine  # noqa: E402
-from syfthub.models.collective import (  # noqa: E402
+from syfthub.auth.security import hash_password
+from syfthub.core.config import settings
+from syfthub.database.connection import engine
+from syfthub.models.collective import (
     CollectiveMemberModel,
     CollectiveModel,
     CollectiveSharedEndpointMemberModel,
     CollectiveSharedEndpointModel,
 )
-from syfthub.models.endpoint import EndpointModel  # noqa: E402
-from syfthub.models.user import UserModel  # noqa: E402
+from syfthub.models.endpoint import EndpointModel
+from syfthub.models.user import UserModel
 
 # --------------------------------------------------------------------------
 # Demo fixture definitions
@@ -67,7 +67,9 @@ BUYER_USERNAME = "demo-buyer"
 _GW = "https://pay.demo.syfthub.local"
 
 
-def _prepaid_policy(currency: str, price: float, bundles: list[tuple[str, float]]) -> dict:
+def _prepaid_policy(
+    currency: str, price: float, bundles: list[tuple[str, float]]
+) -> dict:
     """Build an enabled Xendit per-request prepaid policy dict."""
     return {
         "type": "xendit",
@@ -89,7 +91,7 @@ def _prepaid_policy(currency: str, price: float, bundles: list[tuple[str, float]
 def _mpp_policy(price: float = 0.30, currency: str = "USD") -> dict:
     """Build an enabled MPP policy dict — per-request, settled via the Hub wallet."""
     return {
-        "type": "transaction",
+        "type": "mpp",
         "version": "1.0",
         "enabled": True,
         "description": f"Per-request billing via the Hub (MPP) wallet, {currency}",
@@ -110,7 +112,9 @@ PUBLISHERS: list[dict] = [
         "full_name": "Jakarta Open Data",
         "endpoint_name": "Jakarta Traffic Feed",
         "policies": [
-            _prepaid_policy("IDR", 2500, [("Starter 50k", 50_000), ("Pro 200k", 200_000)])
+            _prepaid_policy(
+                "IDR", 2500, [("Starter 50k", 50_000), ("Pro 200k", 200_000)]
+            )
         ],
     },
     {
@@ -118,20 +122,26 @@ PUBLISHERS: list[dict] = [
         "full_name": "Bandung Air Quality",
         "endpoint_name": "Bandung Air Quality Index",
         "policies": [
-            _prepaid_policy("IDR", 1500, [("Starter 30k", 30_000), ("Pro 150k", 150_000)])
+            _prepaid_policy(
+                "IDR", 1500, [("Starter 30k", 30_000), ("Pro 150k", 150_000)]
+            )
         ],
     },
     {
         "username": "nyc-markets",
         "full_name": "NYC Market Data",
         "endpoint_name": "NYC Market Ticks",
-        "policies": [_prepaid_policy("USD", 0.40, [("Small $10", 10), ("Large $50", 50)])],
+        "policies": [
+            _prepaid_policy("USD", 0.40, [("Small $10", 10), ("Large $50", 50)])
+        ],
     },
     {
         "username": "sf-weather",
         "full_name": "SF Weather Labs",
         "endpoint_name": "SF Weather Stream",
-        "policies": [_prepaid_policy("USD", 0.25, [("Small $5", 5), ("Large $25", 25)])],
+        "policies": [
+            _prepaid_policy("USD", 0.25, [("Small $5", 5), ("Large $25", 25)])
+        ],
     },
     {
         "username": "open-gov",
@@ -178,9 +188,11 @@ def _wipe(session: Session) -> None:
     Deletes via the ORM so cascades fire: a collective drops its members and
     shared endpoints, an endpoint drops its membership rows.
     """
-    users = session.execute(
-        select(UserModel).where(UserModel.username.in_(ALL_USERNAMES))
-    ).scalars().all()
+    users = (
+        session.execute(select(UserModel).where(UserModel.username.in_(ALL_USERNAMES)))
+        .scalars()
+        .all()
+    )
     user_ids = [u.id for u in users]
 
     collective = session.execute(
@@ -191,9 +203,13 @@ def _wipe(session: Session) -> None:
         session.flush()
 
     if user_ids:
-        endpoints = session.execute(
-            select(EndpointModel).where(EndpointModel.user_id.in_(user_ids))
-        ).scalars().all()
+        endpoints = (
+            session.execute(
+                select(EndpointModel).where(EndpointModel.user_id.in_(user_ids))
+            )
+            .scalars()
+            .all()
+        )
         for endpoint in endpoints:
             session.delete(endpoint)
         session.flush()

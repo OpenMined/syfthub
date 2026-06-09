@@ -23,7 +23,7 @@ import { parseXenditConfig, UNIT_LABEL } from '@/lib/xendit-client';
 
 import { GenericPolicyContent } from './generic-policy-content';
 import { MppPolicyContent } from './mpp-policy-content';
-import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
+import { formatConfigKey } from './policy-format';
 import { XenditPolicyContent } from './xendit-policy-content';
 
 // Policy types that drive the prepaid-credits card. Both providers share the
@@ -36,12 +36,14 @@ function isPrepaidBalanceType(type: string): type is PrepaidProvider {
   return (PREPAID_BALANCE_TYPES as Set<string>).has(type);
 }
 
-// Pay-as-you-go (MPP) policy types. These share the premium balance-card
-// layout with the prepaid providers, but bill automatically per request out of
-// the user's MPP wallet — so there is no bundle picker or "Buy credits" CTA.
-// `mpp`, `mpp_accounting`, and `accounting` are all emitted in the wild for the
-// same per-request strategy (same config shape: price/currency/unit_type).
-const MPP_BALANCE_TYPES = new Set<string>(['mpp', 'mpp_accounting', 'accounting']);
+// Pay-as-you-go (MPP) policy type. Shares the premium balance-card layout with
+// the prepaid providers, but bills automatically per request out of the user's
+// MPP wallet — so there is no bundle picker or "Buy credits" CTA. `mpp` is the
+// single canonical type — exactly what syft-space publishes (the policy type is
+// the wallet provider, `mpp`/`xendit`); legacy `mpp_accounting`/`accounting`/
+// `transaction` spellings were collapsed into it. Keep in lockstep with the
+// backend `_MPP_POLICY_TYPES`.
+const MPP_BALANCE_TYPES = new Set<string>(['mpp']);
 function isMppBalanceType(type: string): boolean {
   return MPP_BALANCE_TYPES.has(type);
 }
@@ -54,9 +56,7 @@ const MPP_PROVIDER_LABEL = 'Tempo';
 const BALANCE_PROVIDER_LABELS: Record<string, string> = {
   xendit: 'Xendit',
   stripe: 'Stripe',
-  mpp: MPP_PROVIDER_LABEL,
-  mpp_accounting: MPP_PROVIDER_LABEL,
-  accounting: MPP_PROVIDER_LABEL
+  mpp: MPP_PROVIDER_LABEL
 };
 function getBalanceProviderLabel(policyType: string): string | null {
   return BALANCE_PROVIDER_LABELS[policyType] ?? null;
@@ -84,19 +84,8 @@ const POLICY_TYPE_CONFIG: Record<
     description: string;
   }
 > = {
-  // Transaction/Pricing policies. mpp, mpp_accounting, and accounting are
-  // aliases for the same pay-as-you-go strategy, so they share one config object.
+  // Pay-as-you-go pricing — the single canonical MPP type.
   mpp: MPP_POLICY_CONFIG,
-  mpp_accounting: MPP_POLICY_CONFIG,
-  accounting: MPP_POLICY_CONFIG,
-  transaction: {
-    icon: Coins,
-    label: 'Transaction Policy',
-    color: 'text-emerald-600 dark:text-emerald-400',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
-    borderColor: 'border-emerald-200 dark:border-emerald-800',
-    description: 'Pay-per-use pricing for this endpoint'
-  },
   xendit: {
     icon: CreditCard,
     label: 'Prepaid credits',
@@ -195,14 +184,10 @@ export interface PolicyItemProperties {
 
 function renderPolicyContent(
   policy: Policy,
-  isTransaction: boolean,
   prepaidProvider: PrepaidProvider | null,
   endpointSlug?: string,
   endpointOwner?: string
 ): React.ReactElement {
-  if (isTransaction) {
-    return <TransactionPolicyContent config={policy.config} />;
-  }
   if (prepaidProvider) {
     return (
       <XenditPolicyContent
@@ -329,9 +314,8 @@ function BalancePolicyCard({
               (isMpp ? (
                 <MppPolicyContent config={policy.config} />
               ) : (
-                // Reached only for prepaid (isMpp is handled above; transaction
-                // never enters the balance card), so isTransaction is always false.
-                renderPolicyContent(policy, false, prepaidProvider, endpointSlug, endpointOwner)
+                // Reached only for prepaid (isMpp is handled above).
+                renderPolicyContent(policy, prepaidProvider, endpointSlug, endpointOwner)
               ))}
           </div>
         </div>
@@ -365,7 +349,6 @@ export const PolicyItem = memo(function PolicyItem({
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
-  const isTransaction = policyTypeLower === 'transaction';
   const prepaidProvider: PrepaidProvider | null = isPrepaidBalanceType(policyTypeLower)
     ? policyTypeLower
     : null;
@@ -445,13 +428,7 @@ export const PolicyItem = memo(function PolicyItem({
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(
-              policy,
-              isTransaction,
-              prepaidProvider,
-              endpointSlug,
-              endpointOwner
-            )}
+            renderPolicyContent(policy, prepaidProvider, endpointSlug, endpointOwner)}
 
           {policy.version ? (
             <div className='mt-2'>

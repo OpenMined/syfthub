@@ -40,7 +40,7 @@ describe('extractTransactionPolicy', () => {
 
   it('returns the enabled transaction policy', () => {
     const policy = {
-      type: 'transaction',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
       description: 'Transaction policy',
@@ -51,7 +51,7 @@ describe('extractTransactionPolicy', () => {
 
   it('ignores disabled transaction policies', () => {
     const policy = {
-      type: 'transaction',
+      type: 'mpp',
       version: '1.0',
       enabled: false,
       description: '',
@@ -62,7 +62,7 @@ describe('extractTransactionPolicy', () => {
 
   it('is case-insensitive on type', () => {
     const policy = {
-      type: 'Transaction',
+      type: 'MPP',
       version: '1.0',
       enabled: true,
       description: '',
@@ -71,31 +71,33 @@ describe('extractTransactionPolicy', () => {
     expect(extractTransactionPolicy([policy])).toEqual(policy);
   });
 
-  it('returns the enabled accounting policy', () => {
+  it('returns the enabled pay-as-you-go policy with per-token costs', () => {
     const policy = {
-      type: 'accounting',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
-      description: 'Accounting policy',
+      description: 'Pay-as-you-go policy',
       config: { costs: { inputTokens: 0.003, outputTokens: 0.004, currency: 'USD' } }
     };
     expect(extractTransactionPolicy([policy])).toEqual(policy);
   });
 
-  it('is case-insensitive on accounting type', () => {
-    const policy = {
-      type: 'Accounting',
-      version: '1.0',
-      enabled: true,
-      description: '',
-      config: {}
-    };
-    expect(extractTransactionPolicy([policy])).toEqual(policy);
+  it('does not match legacy mpp_accounting/accounting/transaction spellings', () => {
+    for (const legacy of ['mpp_accounting', 'accounting', 'transaction']) {
+      const policy = {
+        type: legacy,
+        version: '1.0',
+        enabled: true,
+        description: '',
+        config: {}
+      };
+      expect(extractTransactionPolicy([policy])).toBeNull();
+    }
   });
 
   it('ignores disabled accounting policies', () => {
     const policy = {
-      type: 'accounting',
+      type: 'mpp',
       version: '1.0',
       enabled: false,
       description: '',
@@ -122,7 +124,7 @@ describe('extractCostsFromPolicy', () => {
 
   it('returns defaults for policy without config', () => {
     const policy = {
-      type: 'transaction',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
       description: '',
@@ -139,7 +141,7 @@ describe('extractCostsFromPolicy', () => {
 
   it('extracts costs from policy config', () => {
     const policy = {
-      type: 'transaction',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
       description: '',
@@ -156,7 +158,7 @@ describe('extractCostsFromPolicy', () => {
 
   it('extracts per-call pricing from policy config', () => {
     const policy = {
-      type: 'accounting',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
       description: 'Per-call pricing',
@@ -173,7 +175,7 @@ describe('extractCostsFromPolicy', () => {
 
   it('falls back to per-token when pricingMode is per_call but price is missing', () => {
     const policy = {
-      type: 'accounting',
+      type: 'mpp',
       version: '1.0',
       enabled: true,
       description: '',
@@ -219,7 +221,7 @@ describe('getCostsFromSource', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'transaction',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -240,7 +242,7 @@ describe('getCostsFromSource', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'accounting',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -261,7 +263,7 @@ describe('getCostsFromSource', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'accounting',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -294,7 +296,7 @@ describe('calculateModelCost', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'transaction',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -322,7 +324,7 @@ describe('calculateModelCost', () => {
       slug: 'gpt-4-code-helper',
       policies: [
         {
-          type: 'accounting',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -374,7 +376,7 @@ describe('calculateFullCostBreakdown', () => {
       slug: 'gpt',
       policies: [
         {
-          type: 'transaction',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -387,7 +389,7 @@ describe('calculateFullCostBreakdown', () => {
       slug: 'ds',
       policies: [
         {
-          type: 'transaction',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -530,7 +532,7 @@ describe('estimatePerRequestCost', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'transaction',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -547,7 +549,7 @@ describe('estimatePerRequestCost', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'accounting',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',
@@ -562,7 +564,7 @@ describe('estimatePerRequestCost', () => {
     const source = createMockChatSource({
       policies: [
         {
-          type: 'accounting',
+          type: 'mpp',
           version: '1.0',
           enabled: true,
           description: '',

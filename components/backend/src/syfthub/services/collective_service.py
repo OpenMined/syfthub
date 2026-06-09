@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Sequence
 
 from fastapi import HTTPException, status
 
@@ -72,11 +72,14 @@ _JOINABLE_ENDPOINT_TYPES: frozenset[str] = frozenset(
 # chat PaymentGate / wallet-panel settlement UX.
 _PREPAID_PROVIDERS: frozenset[str] = frozenset({"xendit", "stripe"})
 
-# Policy ``type`` values metered against the buyer's single Hub (MPP) wallet at
-# request time — no upfront prepaid wallet per publisher.
-_MPP_POLICY_TYPES: frozenset[str] = frozenset(
-    {"mpp_accounting", "transaction", "accounting"}
-)
+# The single canonical pay-as-you-go (MPP) policy ``type`` — billed per request
+# against the buyer's single Hub (MPP) wallet, with no upfront prepaid wallet per
+# publisher. ``mpp`` is exactly what syft-space publishes: its publish handler
+# overrides the policy type with the wallet provider (``mpp`` / ``xendit``). The
+# legacy ``mpp_accounting`` / ``accounting`` / ``transaction`` spellings were
+# collapsed into it by the ``unify_mpp_policy_type`` migration; keep in lockstep
+# with the frontend ``MPP_BALANCE_TYPES`` set in ``policy-item.tsx``.
+_MPP_POLICY_TYPES: frozenset[str] = frozenset({"mpp"})
 
 
 def _is_url(value: Any) -> bool:
@@ -173,6 +176,40 @@ def _parse_per_request_price(
     )
 
 
+def _policy_field(policy: Any, name: str, default: Any) -> Any:
+    """Read a policy field from either a Pydantic ``Policy`` or a plain dict.
+
+    Top-level policies reach us as ``Policy`` instances, but a composite
+    policy nests its children as raw dicts inside ``config["policies"]`` (the
+    schema's flexible ``config`` is never re-validated into ``Policy``), so the
+    classifier must read both shapes uniformly.
+    """
+    if isinstance(policy, dict):
+        return policy.get(name, default)
+    return getattr(policy, name, default)
+
+
+def _iter_billing_leaves(policies: Any) -> Iterator[Any]:
+    """Yield every enabled *leaf* policy, descending into composite wrappers.
+
+    Composite policies (``all_of`` / ``any_of`` / ``not`` / ``access_group``)
+    carry their children under ``config["policies"]`` and are evaluated
+    recursively by the policy runner. A pricing policy bundled with an access
+    policy inside such a wrapper is therefore still active billing — so the
+    billing classifier must look through the wrapper too, not just at the
+    top-level ``type``. A disabled wrapper short-circuits its whole subtree.
+    """
+    for policy in policies or []:
+        if not _policy_field(policy, "enabled", True):
+            continue
+        config = _policy_field(policy, "config", {}) or {}
+        children = config.get("policies") if isinstance(config, dict) else None
+        if isinstance(children, list) and children:
+            yield from _iter_billing_leaves(children)
+        else:
+            yield policy
+
+
 def _classify_billing(endpoint: Endpoint) -> MemberBillingDetail:
     """Reduce an endpoint's policies to a single normalized billing detail.
 
@@ -180,19 +217,20 @@ def _classify_billing(endpoint: Endpoint) -> MemberBillingDetail:
     settles* — ``prepaid`` (a per-publisher Xendit/Stripe wallet) vs ``mpp``
     (the buyer's single Hub wallet) — or ``free`` when no billing policy is
     enabled. Precedence: a usable prepaid policy wins, then an MPP policy.
-    Disabled policies are ignored.
+    Disabled policies are ignored, and a pricing policy nested inside a
+    composite (``all_of`` / ``access_group`` / …) counts the same as a
+    top-level one.
     """
     mpp_config: Optional[dict[str, Any]] = None
-    for policy in endpoint.policies:
-        if not policy.enabled:
-            continue
-        ptype = policy.type.lower()
+    for policy in _iter_billing_leaves(endpoint.policies):
+        ptype = str(_policy_field(policy, "type", "")).lower()
+        config = _policy_field(policy, "config", {}) or {}
         if ptype in _PREPAID_PROVIDERS:
-            parsed = _parse_prepaid_config(policy.config or {})
+            parsed = _parse_prepaid_config(config)
             if parsed is not None:
                 return MemberBillingDetail(kind="prepaid", provider=ptype, **parsed)
         elif ptype in _MPP_POLICY_TYPES and mpp_config is None:
-            mpp_config = policy.config or {}
+            mpp_config = config
     if mpp_config is not None:
         currency, price, unit = _parse_per_request_price(mpp_config)
         return MemberBillingDetail(
