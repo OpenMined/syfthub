@@ -39,7 +39,9 @@ function isPrepaidBalanceType(type: string): type is PrepaidProvider {
 // Pay-as-you-go (MPP) policy types. These share the premium balance-card
 // layout with the prepaid providers, but bill automatically per request out of
 // the user's MPP wallet — so there is no bundle picker or "Buy credits" CTA.
-const MPP_BALANCE_TYPES = new Set<string>(['mpp_accounting', 'accounting']);
+// `mpp`, `mpp_accounting`, and `accounting` are all emitted in the wild for the
+// same per-request strategy (same config shape: price/currency/unit_type).
+const MPP_BALANCE_TYPES = new Set<string>(['mpp', 'mpp_accounting', 'accounting']);
 function isMppBalanceType(type: string): boolean {
   return MPP_BALANCE_TYPES.has(type);
 }
@@ -52,6 +54,7 @@ const MPP_PROVIDER_LABEL = 'Tempo';
 const BALANCE_PROVIDER_LABELS: Record<string, string> = {
   xendit: 'Xendit',
   stripe: 'Stripe',
+  mpp: MPP_PROVIDER_LABEL,
   mpp_accounting: MPP_PROVIDER_LABEL,
   accounting: MPP_PROVIDER_LABEL
 };
@@ -81,8 +84,9 @@ const POLICY_TYPE_CONFIG: Record<
     description: string;
   }
 > = {
-  // Transaction/Pricing policies. mpp_accounting and accounting are aliases for
-  // the same pay-as-you-go strategy, so they share one config object.
+  // Transaction/Pricing policies. mpp, mpp_accounting, and accounting are
+  // aliases for the same pay-as-you-go strategy, so they share one config object.
+  mpp: MPP_POLICY_CONFIG,
   mpp_accounting: MPP_POLICY_CONFIG,
   accounting: MPP_POLICY_CONFIG,
   transaction: {
