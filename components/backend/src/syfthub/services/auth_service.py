@@ -119,12 +119,19 @@ class AuthService(BaseService):
                 detail="Password must be at least 8 characters long",
             )
 
-        # Check if user already exists in SyftHub
-        if self.user_repository.username_exists(register_data.username):
-            raise UserAlreadyExistsError("username", register_data.username)
-
+        # A duplicate email is a real "account already exists" error the user
+        # must see and act on.
         if self.user_repository.email_exists(register_data.email):
             raise UserAlreadyExistsError("email", register_data.email)
+
+        # The username is auto-derived from the email on the client, so the user
+        # never picked it. Collisions are expected — e.g. plus-addressing, where
+        # user+a@example.com and user+b@example.com both reduce to the base
+        # "user" — so fall back to a unique variant rather than failing
+        # registration with a confusing "username already exists" error.
+        username = register_data.username
+        if self.user_repository.username_exists(username):
+            username = self._generate_unique_username(register_data.email)
 
         # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
@@ -134,7 +141,7 @@ class AuthService(BaseService):
 
         # Create user data
         user_data = UserCreate(
-            username=register_data.username,
+            username=username,
             email=register_data.email,
             full_name=register_data.full_name,
             is_active=True,
