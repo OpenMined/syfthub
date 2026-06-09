@@ -151,7 +151,7 @@ def test_parse_per_request_price_missing_price() -> None:
 def test_classify_prepaid_wins_over_mpp() -> None:
     detail = _classify_billing(
         _endpoint(
-            _policy("mpp_accounting", {"price": 1.0, "currency": "USD"}),
+            _policy("mpp", {"price": 1.0, "currency": "USD"}),
             _policy("xendit", _PREPAID_CONFIG),
         )
     )
@@ -162,11 +162,22 @@ def test_classify_prepaid_wins_over_mpp() -> None:
 
 def test_classify_mpp_when_only_metered_policy() -> None:
     detail = _classify_billing(
-        _endpoint(_policy("mpp_accounting", {"price": 3.0, "currency": "USD"}))
+        _endpoint(_policy("mpp", {"price": 3.0, "currency": "USD"}))
     )
     assert detail.kind == "mpp"
     assert detail.price_per_unit == 3.0
     assert detail.currency == "USD"
+
+
+def test_classify_legacy_mpp_aliases_no_longer_matched() -> None:
+    # ``mpp_accounting`` / ``accounting`` / ``transaction`` were collapsed into
+    # the single canonical ``mpp`` by the unify_mpp_policy_type migration, so the
+    # classifier no longer recognizes the legacy spellings on their own.
+    for legacy in ("mpp_accounting", "accounting", "transaction"):
+        detail = _classify_billing(
+            _endpoint(_policy(legacy, {"price": 0.30, "currency": "USD"}))
+        )
+        assert detail.kind == "free", legacy
 
 
 def test_classify_free_when_no_billing_policy() -> None:
@@ -188,7 +199,7 @@ def test_classify_prepaid_missing_urls_falls_through_to_mpp() -> None:
     detail = _classify_billing(
         _endpoint(
             _policy("stripe", {"price": 5}),  # no usable URLs
-            _policy("accounting", {"price": 1.25, "currency": "USD"}),
+            _policy("mpp", {"price": 1.25, "currency": "USD"}),
         )
     )
     assert detail.kind == "mpp"
@@ -199,3 +210,66 @@ def test_classify_stripe_provider_recorded() -> None:
     detail = _classify_billing(_endpoint(_policy("stripe", _PREPAID_CONFIG)))
     assert detail.kind == "prepaid"
     assert detail.provider == "stripe"
+
+
+# ----------------------------------------------------------------------
+# _classify_billing — composite (nested) policies
+# ----------------------------------------------------------------------
+
+
+def _composite(ptype: str, *children: Any, enabled: bool = True) -> Any:
+    """A composite wrapper (all_of / any_of / access_group) whose children
+    live under ``config['policies']`` as plain dicts — the on-the-wire shape a
+    publisher's composite policy is stored in."""
+    child_dicts = [
+        {"type": c.type, "enabled": c.enabled, "config": c.config} for c in children
+    ]
+    return SimpleNamespace(
+        type=ptype, enabled=enabled, config={"policies": child_dicts}
+    )
+
+
+def test_classify_mpp_nested_in_all_of() -> None:
+    # An mpp policy bundled with an access policy inside an ``all_of`` must still
+    # classify as mpp, not free — the Collective API modal reads this ``kind``.
+    detail = _classify_billing(
+        _endpoint(
+            _composite(
+                "all_of",
+                _policy("access_group", {"users": ["*"]}),
+                _policy("mpp", {"price": 0.30, "currency": "USD"}),
+            )
+        )
+    )
+    assert detail.kind == "mpp"
+    assert detail.price_per_unit == 0.30
+    assert detail.currency == "USD"
+
+
+def test_classify_prepaid_nested_in_access_group() -> None:
+    detail = _classify_billing(
+        _endpoint(_composite("access_group", _policy("xendit", _PREPAID_CONFIG)))
+    )
+    assert detail.kind == "prepaid"
+    assert detail.provider == "xendit"
+
+
+def test_classify_deeply_nested_mpp() -> None:
+    inner = _composite("any_of", _policy("mpp", {"price": 1.0, "currency": "EUR"}))
+    detail = _classify_billing(_endpoint(_composite("all_of", inner)))
+    assert detail.kind == "mpp"
+    assert detail.currency == "EUR"
+
+
+def test_classify_disabled_composite_wrapper_ignored() -> None:
+    # Disabling the wrapper deactivates everything nested inside it.
+    detail = _classify_billing(
+        _endpoint(
+            _composite(
+                "all_of",
+                _policy("mpp", {"price": 0.30, "currency": "USD"}),
+                enabled=False,
+            )
+        )
+    )
+    assert detail.kind == "free"
