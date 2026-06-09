@@ -118,7 +118,8 @@ type RequestContext struct {
 	PolicyResult *PolicyResultOutput
 
 	// TransactionToken is the pre-authorized billing token for this request.
-	// Used by TransactionPolicy to verify billing authorization before execution.
+	// Used by the pay-as-you-go (mpp) policy to verify billing authorization
+	// before execution.
 	TransactionToken string
 }
 
@@ -517,7 +518,8 @@ type ExecutorInput struct {
 	WorkDir string `json:"work_dir,omitempty"`
 
 	// TransactionToken is the pre-authorized billing token for this request.
-	// Used by TransactionPolicy to verify billing authorization before execution.
+	// Used by the pay-as-you-go (mpp) policy to verify billing authorization
+	// before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
 }
 

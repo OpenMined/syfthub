@@ -444,11 +444,15 @@ func normalizePolicyType(t string) string {
 		"PromptFilterPolicy": syfthubapi.PolicyTypePromptFilter,
 		"AttributionPolicy":  syfthubapi.PolicyTypeAttribution,
 		"ManualReviewPolicy": syfthubapi.PolicyTypeManualReview,
-		"TransactionPolicy":  syfthubapi.PolicyTypeTransaction,
-		"CustomPolicy":       syfthubapi.PolicyTypeCustom,
-		"AllOfPolicy":        syfthubapi.PolicyTypeAllOf,
-		"AnyOfPolicy":        syfthubapi.PolicyTypeAnyOf,
-		"NotPolicy":          syfthubapi.PolicyTypeNot,
+		// Pay-as-you-go policy → canonical mpp wire type. The real policy-manager
+		// class is X402PayPerRequestPolicy; TransactionPolicy is a legacy class
+		// name kept as a migration alias.
+		"X402PayPerRequestPolicy": syfthubapi.PolicyTypeMpp,
+		"TransactionPolicy":       syfthubapi.PolicyTypeMpp,
+		"CustomPolicy":            syfthubapi.PolicyTypeCustom,
+		"AllOfPolicy":             syfthubapi.PolicyTypeAllOf,
+		"AnyOfPolicy":             syfthubapi.PolicyTypeAnyOf,
+		"NotPolicy":               syfthubapi.PolicyTypeNot,
 	}
 
 	if normalized, ok := typeMap[t]; ok {
