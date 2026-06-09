@@ -96,16 +96,57 @@ class TestAuthServiceRegistration:
             assert result.user["id"] == 1
             assert result.user["username"] == "testuser"
 
-    def test_register_user_duplicate_username(self, auth_service, sample_user_register):
-        """Test registration with existing username fails."""
-        with patch.object(
-            auth_service.user_repository, "username_exists", return_value=True
+    def test_register_user_duplicate_username_falls_back(
+        self, auth_service, sample_user_register
+    ):
+        """A taken username (auto-derived from email) is resolved to a unique
+        variant instead of failing registration."""
+        with (
+            patch.object(
+                auth_service.user_repository, "username_exists", return_value=True
+            ),
+            patch.object(
+                auth_service.user_repository, "email_exists", return_value=False
+            ),
+            patch.object(
+                auth_service,
+                "_generate_unique_username",
+                return_value="testuser123",
+            ) as mock_gen,
+            patch.object(auth_service.user_repository, "create_user") as mock_create,
+            patch(
+                "syfthub.services.auth_service.hash_password",
+                return_value="hashed_pass",
+            ),
+            patch(
+                "syfthub.services.auth_service.create_access_token",
+                return_value="access_token",
+            ),
+            patch(
+                "syfthub.services.auth_service.create_refresh_token",
+                return_value="refresh_token",
+            ),
         ):
-            with pytest.raises(UserAlreadyExistsError) as exc_info:
-                auth_service.register_user(sample_user_register)
+            mock_user = User(
+                id=1,
+                username="testuser123",
+                email="test@example.com",
+                full_name="Test User",
+                role="user",
+                is_active=True,
+                created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+                updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+                age=25,
+                password_hash="hashed_pass",
+            )
+            mock_create.return_value = mock_user
 
-            assert exc_info.value.field == "username"
-            assert "Username already exists" in str(exc_info.value)
+            result = auth_service.register_user(sample_user_register)
+
+            # Fallback was used to derive a unique username from the email.
+            mock_gen.assert_called_once_with(sample_user_register.email)
+            assert mock_create.call_args.kwargs["user_data"].username == "testuser123"
+            assert result.user["username"] == "testuser123"
 
     def test_register_user_duplicate_email(self, auth_service, sample_user_register):
         """Test registration with existing email fails."""
