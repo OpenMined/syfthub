@@ -58,6 +58,9 @@ services:
       - LOG_LEVEL=debug
       # Single origin since everything goes through proxy
       - CORS_ORIGINS=http://localhost:8080
+      # Public frontend base URL used to build links in outgoing emails
+      # (e.g. collective invitation accept/decline links)
+      - FRONTEND_URL=http://localhost:8080
       # MPP / Tempo configuration
       - TEMPO_TESTNET=true
       - MPP_SECRET_KEY=${MPP_SECRET_KEY:-}

@@ -132,8 +132,15 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 		return nil, err
 	}
 
+	// Expand any collective/<slug> paths into their approved member paths
+	// before resolving each data source to an endpoint reference.
+	expandedDataSources, err := c.expandCollectivePaths(ctx, req.DataSources)
+	if err != nil {
+		return nil, err
+	}
+
 	var dsRefs []EndpointRef
-	for _, ds := range req.DataSources {
+	for _, ds := range expandedDataSources {
 		ref, err := c.resolveEndpointRef(ctx, ds, "data_source")
 		if err != nil {
 			return nil, err
@@ -179,6 +186,71 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 	requestBody := c.buildRequestBody(req, modelRef, dsRefs, defaults, tokens, stream)
 
 	return &chatPrepared{requestBody: requestBody, aggregatorURL: aggregatorURL}, nil
+}
+
+// collectivePrefix marks a data-source path that addresses a collective rather
+// than a single endpoint.
+const collectivePrefix = "collective/"
+
+// expandCollectivePaths replaces any collective/<slug>[/<shared-slug>] entries
+// in the data-source list with the individual owner/slug paths of the
+// collective's approved members.
+//
+// Path forms recognised (mirrors the TypeScript and Python SDKs):
+//   - collective/<slug>             → every approved member
+//   - collective/<slug>/all         → equivalent alias of the above
+//   - collective/<slug>/<sub-slug>  → the named subset, intersected with the
+//     collective's currently approved members
+//
+// Non-collective entries pass through unchanged and string paths are
+// de-duplicated, so a regular endpoint that also belongs to a selected
+// collective is not queried twice.
+func (c *ChatResource) expandCollectivePaths(ctx context.Context, dataSources []string) ([]string, error) {
+	expanded := make([]string, 0, len(dataSources))
+	seen := make(map[string]struct{})
+
+	add := func(path string) {
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		expanded = append(expanded, path)
+	}
+
+	for _, ds := range dataSources {
+		if !strings.HasPrefix(ds, collectivePrefix) {
+			add(ds)
+			continue
+		}
+
+		rest := strings.TrimPrefix(ds, collectivePrefix)
+		collectiveSlug := rest
+		sharedSlug := ""
+		if before, after, found := strings.Cut(rest, "/"); found {
+			collectiveSlug = before
+			// "all" is the implicit alias of "every approved member".
+			if after != "all" {
+				sharedSlug = after
+			}
+		}
+		if collectiveSlug == "" {
+			return nil, fmt.Errorf("malformed collective path: %s", ds)
+		}
+
+		memberPaths, err := c.hub.GetCollectiveEndpointPaths(ctx, collectiveSlug, sharedSlug)
+		if err != nil {
+			target := collectiveSlug
+			if sharedSlug != "" {
+				target = collectiveSlug + "/" + sharedSlug
+			}
+			return nil, fmt.Errorf("failed to resolve collective %q: %w", target, err)
+		}
+		for _, p := range memberPaths {
+			add(p)
+		}
+	}
+
+	return expanded, nil
 }
 
 // Complete sends a chat request and returns the complete response.

@@ -24,12 +24,15 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Modal } from '@/components/ui/modal';
 import { Textarea } from '@/components/ui/textarea';
+import { useCollectiveBilling } from '@/hooks/use-collective-billing';
 import {
   useCreateSharedEndpoint,
   useDeleteSharedEndpoint,
   useSharedEndpoints,
   useUpdateSharedEndpoint
 } from '@/hooks/use-shared-endpoints';
+
+import { CollectivePrice } from './collective-price';
 
 interface SharedEndpointsTabProperties {
   collective: Collective;
@@ -61,10 +64,10 @@ export function SharedEndpointsTab({
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <div>
-          <h2 className='font-rubik text-foreground text-lg font-medium'>Shared Endpoints</h2>
+          <h2 className='font-rubik text-foreground text-lg font-medium'>Collective APIs</h2>
           <p className='text-muted-foreground text-sm'>
-            Curated subsets of this collective's approved members. Each one is addressable as{' '}
-            <code>{collective.shared_endpoint_path}/&lt;slug&gt;</code>.
+            Curated subsets of this collective's approved members, each exposed as a Collective API
+            addressable at <code>{collective.shared_endpoint_path}/&lt;slug&gt;</code>.
           </p>
         </div>
         <Button
@@ -74,12 +77,12 @@ export function SharedEndpointsTab({
           disabled={noMembers}
           title={
             noMembers
-              ? 'Approve at least one member endpoint before creating a shared endpoint'
+              ? 'Approve at least one member endpoint before creating a Collective API'
               : undefined
           }
         >
           <Plus className='mr-2 h-4 w-4' />
-          New shared endpoint
+          New Collective API
         </Button>
       </div>
 
@@ -182,6 +185,7 @@ function SharedEndpointsList({
  * purely informational and has no edit/delete affordances.
  */
 function DefaultAllRow({ collective, approvedMemberCount }: Readonly<DefaultAllRowProperties>) {
+  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(collective.slug);
   return (
     <Card className='border-border/60 bg-muted/20 p-4'>
       <div className='flex items-start gap-4'>
@@ -196,7 +200,10 @@ function DefaultAllRow({ collective, approvedMemberCount }: Readonly<DefaultAllR
           <p className='text-muted-foreground mt-0.5 text-xs'>
             Fans out to every approved endpoint in the collective.
           </p>
-          <CopyPath path={`${collective.shared_endpoint_path}/all`} className='mt-2' />
+          <div className='mt-2 flex flex-wrap items-center gap-2'>
+            <CopyPath path={`${collective.shared_endpoint_path}/all`} />
+            <CollectivePrice summary={billing} isLoading={billingLoading} />
+          </div>
         </div>
         <div className='text-muted-foreground shrink-0 text-right text-xs'>
           {approvedMemberCount} active
@@ -216,6 +223,10 @@ function SharedEndpointRow({ collective, shared, onEdit }: Readonly<SharedEndpoi
   const deleteMutation = useDeleteSharedEndpoint();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inactiveCount = shared.member_count - shared.active_member_count;
+  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(
+    collective.slug,
+    shared.slug
+  );
 
   return (
     <Card className='p-4'>
@@ -239,7 +250,10 @@ function SharedEndpointRow({ collective, shared, onEdit }: Readonly<SharedEndpoi
           {shared.description && (
             <p className='text-muted-foreground mt-0.5 text-xs'>{shared.description}</p>
           )}
-          <CopyPath path={shared.shared_endpoint_path} className='mt-2' />
+          <div className='mt-2 flex flex-wrap items-center gap-2'>
+            <CopyPath path={shared.shared_endpoint_path} />
+            <CollectivePrice summary={billing} isLoading={billingLoading} />
+          </div>
         </div>
         <div className='flex shrink-0 items-center gap-2 text-right'>
           <div className='text-muted-foreground text-xs'>
@@ -271,7 +285,7 @@ function SharedEndpointRow({ collective, shared, onEdit }: Readonly<SharedEndpoi
           onClose={() => {
             setConfirmDelete(false);
           }}
-          title='Delete shared endpoint?'
+          title='Delete Collective API?'
         >
           <div className='space-y-3 text-sm'>
             <p>
@@ -429,7 +443,7 @@ function SharedEndpointModal({
     <Modal
       isOpen
       onClose={onClose}
-      title={isEdit ? `Edit ${existing?.name ?? 'shared endpoint'}` : 'New shared endpoint'}
+      title={isEdit ? `Edit ${existing?.name ?? 'Collective API'}` : 'New Collective API'}
     >
       <div className='space-y-4'>
         <div>
@@ -487,7 +501,7 @@ function SharedEndpointModal({
         <div>
           <Label>Endpoints</Label>
           <p className='text-muted-foreground mt-1 mb-2 text-xs'>
-            Pick which approved member endpoints to include. The shared endpoint fans out only to
+            Pick which approved member endpoints to include. The Collective API fans out only to
             these at chat time.
           </p>
           <div className='border-border max-h-72 overflow-y-auto rounded-md border'>

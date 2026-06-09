@@ -490,7 +490,7 @@ export async function listSharedEndpointsByCollectiveSlug(
   if (response.status === 404) return [];
   if (!response.ok) {
     throw new Error(
-      await errorMessage(response, `Failed to load shared endpoints (${response.status})`)
+      await errorMessage(response, `Failed to load Collective APIs (${response.status})`)
     );
   }
   return (await response.json()) as CollectiveSharedEndpoint[];
@@ -539,4 +539,114 @@ export async function deleteSharedEndpoint(
     method: 'DELETE',
     auth: true
   });
+}
+
+// =============================================================================
+// Billing summary — aggregate pricing + per-member settlement metadata
+// =============================================================================
+
+/** How a single member endpoint bills (`MemberBillingDetail`). */
+export type MemberBillingKind = 'prepaid' | 'mpp' | 'free';
+
+/** A purchasable prepaid credit bundle advertised by a publisher policy. */
+export interface BillingMoneyBundle {
+  name: string;
+  amount: number;
+}
+
+/**
+ * Normalized billing detail for one member endpoint.
+ *
+ * - `prepaid` — Xendit/Stripe prepaid credits; the buyer needs a funded wallet
+ *   with the publisher (`credits_url`) and tops it up via `payment_url`.
+ * - `mpp` — metered against the buyer's single Hub wallet at request time.
+ * - `free` — no enabled billing policy; no settlement needed.
+ */
+export interface MemberBillingDetail {
+  kind: MemberBillingKind;
+  provider: string | null;
+  currency: string | null;
+  price_per_unit: number | null;
+  unit: string;
+  payment_url: string | null;
+  credits_url: string | null;
+  invoices_url: string | null;
+  bundles: BillingMoneyBundle[];
+}
+
+/** A member endpoint's identity plus its normalized billing detail. */
+export interface CollectiveMemberBilling {
+  endpoint_id: number;
+  endpoint_name: string | null;
+  endpoint_slug: string | null;
+  endpoint_owner_username: string | null;
+  endpoint_owner_full_name: string | null;
+  endpoint_type: string | null;
+  billing: MemberBillingDetail;
+}
+
+/** One currency's slice of an aggregated price — never converted to another. */
+export interface PriceByCurrency {
+  currency: string;
+  amount: number;
+}
+
+/**
+ * Aggregate pricing + settlement metadata for a shared endpoint
+ * (`CollectiveBillingSummaryResponse`).
+ *
+ * `estimated_price` sums only prepaid per-request prices, grouped by currency;
+ * metered MPP and free members do not contribute.
+ */
+export interface CollectiveBillingSummary {
+  members: CollectiveMemberBilling[];
+  estimated_price: PriceByCurrency[];
+  free_count: number;
+  prepaid_count: number;
+  mpp_count: number;
+}
+
+/**
+ * Fetch the billing summary for a shared endpoint. **Requires authentication**
+ * — the response exposes per-member publisher payment/credits URLs, so the
+ * backend route is auth-gated.
+ *
+ * Pass `sharedSlug` to scope to a curated subset; omit it (or pass `'all'`)
+ * for the default `collective/<slug>` shared endpoint covering all approved
+ * members.
+ *
+ * Returns `null` on 404 (no such collective/subset) and on 401 (the caller is
+ * not signed in), so callers — the public detail-page price badge included —
+ * can simply render nothing rather than surfacing an error to logged-out
+ * visitors. Other non-2xx statuses still throw.
+ */
+export async function getCollectiveBillingSummary(
+  collectiveSlug: string,
+  sharedSlug?: string
+): Promise<CollectiveBillingSummary | null> {
+  const base = `/by-slug/${encodeURIComponent(collectiveSlug)}`;
+  const path =
+    sharedSlug && sharedSlug !== 'all'
+      ? `${base}/shared-endpoints/${encodeURIComponent(sharedSlug)}/billing-summary`
+      : `${base}/billing-summary`;
+
+  // Refresh once on a stale access token (mirrors `request`), but treat a
+  // still-unauthenticated response as "no pricing" instead of an error.
+  let response = await sendRequest(path, 'GET', undefined, true);
+  if (response.status === 401) {
+    try {
+      await syftClient.auth.refresh();
+      persistTokens();
+      response = await sendRequest(path, 'GET', undefined, true);
+    } catch {
+      return null;
+    }
+  }
+  if (response.status === 401 || response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(
+      await errorMessage(response, `Failed to load billing summary (${response.status})`)
+    );
+  }
+  return (await response.json()) as CollectiveBillingSummary;
 }

@@ -25,7 +25,9 @@ from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.collective import (
     RESERVED_SHARED_ENDPOINT_SLUGS,
+    CollectiveBillingSummaryResponse,
     CollectiveCreate,
+    CollectiveMemberBilling,
     CollectiveMemberResponse,
     CollectiveResponse,
     CollectiveSharedEndpointCreate,
@@ -35,7 +37,10 @@ from syfthub.schemas.collective import (
     CollectiveUpdate,
     InvitationDecision,
     InvitationEmailContext,
+    MemberBillingDetail,
     MembershipStatus,
+    MoneyBundle,
+    PriceByCurrency,
     ReviewDecision,
     slugify_collective_name,
     slugify_shared_endpoint_name,
@@ -60,6 +65,140 @@ if TYPE_CHECKING:
 _JOINABLE_ENDPOINT_TYPES: frozenset[str] = frozenset(
     get_matching_types(EndpointType.DATA_SOURCE)
 )
+
+
+# Policy ``type`` values that bill via publisher-side prepaid credits (the buyer
+# funds a wallet with the publisher and we read/charge it). These map onto the
+# chat PaymentGate / wallet-panel settlement UX.
+_PREPAID_PROVIDERS: frozenset[str] = frozenset({"xendit", "stripe"})
+
+# Policy ``type`` values metered against the buyer's single Hub (MPP) wallet at
+# request time — no upfront prepaid wallet per publisher.
+_MPP_POLICY_TYPES: frozenset[str] = frozenset(
+    {"mpp_accounting", "transaction", "accounting"}
+)
+
+
+def _is_url(value: Any) -> bool:
+    """Whether ``value`` looks like an http(s) URL (mirrors the frontend guard)."""
+    return isinstance(value, str) and (
+        value.startswith("https://") or value.startswith("http://")
+    )
+
+
+def _pick(config: dict[str, Any], snake: str, camel: str) -> Any:
+    """Read a config value by snake_case then camelCase key.
+
+    Publisher policy ``config`` reaches us in either casing depending on the
+    publish path, so accept both (matching ``parseXenditConfig`` on the client).
+    """
+    if snake in config:
+        return config[snake]
+    return config.get(camel)
+
+
+def _parse_unit(config: dict[str, Any]) -> str:
+    """Read the billing unit from a policy config, defaulting to ``request``."""
+    unit_raw = _pick(config, "unit_type", "unitType")
+    if isinstance(unit_raw, str) and unit_raw.lower() in ("request", "document"):
+        return unit_raw.lower()
+    return "request"
+
+
+def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Normalize a prepaid policy ``config`` into billing-detail kwargs.
+
+    Returns ``None`` when the policy lacks the URLs needed to read a balance or
+    purchase credits — such a policy can't drive settlement, so the member is
+    treated as if it had no prepaid policy at all.
+    """
+    payment_url = _pick(config, "payment_url", "paymentUrl")
+    credits_url = _pick(config, "credits_url", "creditsUrl")
+    if not _is_url(payment_url) or not _is_url(credits_url):
+        return None
+
+    invoices_url = _pick(config, "invoices_url", "invoicesUrl")
+    currency = config.get("currency")
+    # New publishers send a generic ``price``; legacy policies used
+    # ``price_per_request``. Either yields the per-unit price.
+    price = config.get("price")
+    if not isinstance(price, (int, float)):
+        price = _pick(config, "price_per_request", "pricePerRequest")
+    unit = _parse_unit(config)
+    raw_bundles = config.get("bundles")
+    bundles: list[MoneyBundle] = []
+    if isinstance(raw_bundles, list):
+        for entry in raw_bundles:
+            if (
+                isinstance(entry, dict)
+                and isinstance(entry.get("name"), str)
+                and isinstance(entry.get("amount"), (int, float))
+            ):
+                bundles.append(
+                    MoneyBundle(name=entry["name"], amount=float(entry["amount"]))
+                )
+
+    return {
+        "currency": currency if isinstance(currency, str) else "IDR",
+        "price_per_unit": float(price) if isinstance(price, (int, float)) else None,
+        "unit": unit,
+        "payment_url": payment_url,
+        "credits_url": credits_url,
+        "invoices_url": invoices_url if _is_url(invoices_url) else None,
+        "bundles": bundles,
+    }
+
+
+def _parse_per_request_price(
+    config: dict[str, Any],
+) -> tuple[str, Optional[float], str]:
+    """Extract a per-request price + currency from a policy config.
+
+    Every endpoint bills per request regardless of how it is settled, so MPP
+    policies expose a flat price the same way prepaid ones do. Returns
+    ``(currency, price, unit)`` with ``price`` ``None`` when no flat per-request
+    price is published.
+    """
+    currency = config.get("currency")
+    price = config.get("price")
+    if not isinstance(price, (int, float)):
+        price = _pick(config, "price_per_request", "pricePerRequest")
+    if not isinstance(price, (int, float)):
+        price = _pick(config, "price_per_call", "pricePerCall")
+    unit = _parse_unit(config)
+    return (
+        currency if isinstance(currency, str) else "USD",
+        float(price) if isinstance(price, (int, float)) else None,
+        unit,
+    )
+
+
+def _classify_billing(endpoint: Endpoint) -> MemberBillingDetail:
+    """Reduce an endpoint's policies to a single normalized billing detail.
+
+    Every endpoint bills per request; ``kind`` only records *how the buyer
+    settles* — ``prepaid`` (a per-publisher Xendit/Stripe wallet) vs ``mpp``
+    (the buyer's single Hub wallet) — or ``free`` when no billing policy is
+    enabled. Precedence: a usable prepaid policy wins, then an MPP policy.
+    Disabled policies are ignored.
+    """
+    mpp_config: Optional[dict[str, Any]] = None
+    for policy in endpoint.policies:
+        if not policy.enabled:
+            continue
+        ptype = policy.type.lower()
+        if ptype in _PREPAID_PROVIDERS:
+            parsed = _parse_prepaid_config(policy.config or {})
+            if parsed is not None:
+                return MemberBillingDetail(kind="prepaid", provider=ptype, **parsed)
+        elif ptype in _MPP_POLICY_TYPES and mpp_config is None:
+            mpp_config = policy.config or {}
+    if mpp_config is not None:
+        currency, price, unit = _parse_per_request_price(mpp_config)
+        return MemberBillingDetail(
+            kind="mpp", currency=currency, price_per_unit=price, unit=unit
+        )
+    return MemberBillingDetail(kind="free")
 
 
 class CollectiveService(BaseService):
@@ -164,6 +303,116 @@ class CollectiveService(BaseService):
         approved_ids = self._approved_endpoint_ids(collective.id)
         active_ids = [eid for eid in configured_ids if eid in approved_ids]
         return self._resolve_endpoint_paths(active_ids)
+
+    def get_billing_summary(
+        self, collective_slug: str, shared_slug: Optional[str] = None
+    ) -> CollectiveBillingSummaryResponse:
+        """Aggregate pricing + per-member settlement metadata for a shared endpoint.
+
+        Resolves the participating (approved) member endpoints — all members
+        when ``shared_slug`` is ``None`` or ``"all"``, otherwise the configured
+        subset intersected with approved members — and classifies each into a
+        prepaid / mpp / free billing bucket. The estimated price sums prepaid
+        per-request prices grouped by currency; metered and free members do not
+        contribute to it. Public, like the ``endpoint-paths`` resolution.
+        """
+        collective = self.collective_repo.get_by_slug(collective_slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
+            )
+
+        if shared_slug is None or shared_slug == "all":
+            memberships = self.member_repo.list_members(
+                collective.id, [MembershipStatus.APPROVED.value]
+            )
+            endpoint_ids = [m.endpoint_id for m in memberships]
+        else:
+            shared = self.shared_endpoint_repo.get_by_collective_and_slug(
+                collective.id, shared_slug
+            )
+            if shared is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Shared endpoint not found",
+                )
+            configured_ids = self.shared_endpoint_member_repo.list_endpoint_ids(
+                shared.id
+            )
+            approved_ids = self._approved_endpoint_ids(collective.id)
+            endpoint_ids = [eid for eid in configured_ids if eid in approved_ids]
+
+        return self._build_billing_summary(endpoint_ids)
+
+    def _build_billing_summary(
+        self, endpoint_ids: Sequence[int]
+    ) -> CollectiveBillingSummaryResponse:
+        """Classify the given endpoints and aggregate their prepaid prices."""
+        endpoints = {
+            ep.id: ep for ep in self.endpoint_repo.get_by_ids(list(endpoint_ids))
+        }
+        owners = {
+            owner.id: owner
+            for owner in self.user_repo.get_by_ids(
+                list({ep.user_id for ep in endpoints.values()})
+            )
+        }
+
+        members: List[CollectiveMemberBilling] = []
+        # Sum per-request prices per currency without converting between
+        # currencies — distinct currencies surface as separate line items.
+        # Both prepaid and MPP members bill per request, so both contribute;
+        # only the settlement route differs.
+        price_by_currency: dict[str, float] = {}
+        free_count = prepaid_count = mpp_count = 0
+
+        for endpoint_id in endpoint_ids:
+            endpoint = endpoints.get(endpoint_id)
+            if endpoint is None:
+                continue  # endpoint left / was soft-deleted since approval
+            owner = owners.get(endpoint.user_id)
+            detail = _classify_billing(endpoint)
+
+            if detail.kind == "prepaid":
+                prepaid_count += 1
+            elif detail.kind == "mpp":
+                mpp_count += 1
+            else:
+                free_count += 1
+
+            if detail.price_per_unit is not None and detail.currency:
+                price_by_currency[detail.currency] = (
+                    price_by_currency.get(detail.currency, 0.0) + detail.price_per_unit
+                )
+
+            members.append(
+                CollectiveMemberBilling(
+                    endpoint_id=endpoint.id,
+                    endpoint_name=endpoint.name,
+                    endpoint_slug=endpoint.slug,
+                    endpoint_owner_username=(
+                        owner.username if owner is not None else None
+                    ),
+                    endpoint_owner_full_name=(
+                        owner.full_name if owner is not None else None
+                    ),
+                    endpoint_type=endpoint.type.value,
+                    billing=detail,
+                )
+            )
+
+        estimated_price = [
+            PriceByCurrency(currency=currency, amount=amount)
+            for currency, amount in price_by_currency.items()
+        ]
+        return CollectiveBillingSummaryResponse(
+            members=members,
+            estimated_price=estimated_price,
+            free_count=free_count,
+            prepaid_count=prepaid_count,
+            mpp_count=mpp_count,
+        )
 
     def list_collectives(
         self,

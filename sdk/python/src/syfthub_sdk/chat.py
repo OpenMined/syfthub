@@ -223,6 +223,10 @@ class ChatResource:
                 print(f"\\nSources: {[s.path for s in event.sources]}")
     """
 
+    # Data-source paths with this prefix address a collective and are expanded
+    # into their member endpoint paths before the aggregator request is built.
+    _COLLECTIVE_PREFIX = "collective/"
+
     def __init__(
         self,
         hub: HubResource,
@@ -264,6 +268,76 @@ class ChatResource:
             actual_type == EndpointType.AGENT.value
             and expected_type == EndpointType.MODEL.value
         )
+
+    def _expand_collective_paths(
+        self,
+        data_sources: list[str | EndpointRef | EndpointPublic],
+    ) -> list[str | EndpointRef | EndpointPublic]:
+        """Expand ``collective/<slug>[/<shared-slug>]`` paths into member paths.
+
+        Path forms recognised (mirrors the TypeScript SDK):
+
+        - ``collective/<slug>`` → every approved member
+        - ``collective/<slug>/all`` → equivalent alias of the above
+        - ``collective/<slug>/<shared-slug>`` → the named subset, intersected
+          with the collective's currently approved members
+
+        Non-collective string paths and ``EndpointRef``/``EndpointPublic``
+        entries pass through unchanged; string paths are de-duplicated so a
+        regular endpoint that also belongs to a selected collective is not
+        queried twice.
+
+        Raises:
+            EndpointResolutionError: If a collective path is malformed or its
+                members cannot be resolved.
+        """
+        expanded: list[str | EndpointRef | EndpointPublic] = []
+        seen_paths: set[str] = set()
+
+        for ds in data_sources:
+            if isinstance(ds, str) and ds.startswith(self._COLLECTIVE_PREFIX):
+                rest = ds[len(self._COLLECTIVE_PREFIX) :]
+                slash_at = rest.find("/")
+                collective_slug = rest if slash_at == -1 else rest[:slash_at]
+                raw_shared = None if slash_at == -1 else rest[slash_at + 1 :]
+                # ``all`` is the implicit alias of "every approved member" and
+                # maps to the same hub route as the no-subset form.
+                shared_slug = raw_shared if raw_shared and raw_shared != "all" else None
+
+                if not collective_slug:
+                    raise EndpointResolutionError(
+                        f"Malformed collective path: {ds}",
+                        endpoint_path=ds,
+                    )
+
+                try:
+                    member_paths = self._hub.get_collective_endpoint_paths(
+                        collective_slug, shared_slug
+                    )
+                except Exception as e:
+                    target = (
+                        f"{collective_slug}/{shared_slug}"
+                        if shared_slug
+                        else collective_slug
+                    )
+                    raise EndpointResolutionError(
+                        f"Failed to resolve collective '{target}': {e}",
+                        endpoint_path=ds,
+                    ) from e
+
+                for path in member_paths:
+                    if path not in seen_paths:
+                        seen_paths.add(path)
+                        expanded.append(path)
+            elif isinstance(ds, str):
+                if ds not in seen_paths:
+                    seen_paths.add(ds)
+                    expanded.append(ds)
+            else:
+                # EndpointRef or EndpointPublic — pass through without dedup.
+                expanded.append(ds)
+
+        return expanded
 
     def _resolve_endpoint_ref(
         self,
@@ -551,9 +625,12 @@ class ChatResource:
         effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
 
         model_ref = self._resolve_endpoint_ref(model, expected_type="model")
+        # Expand any collective/<slug> paths into their approved member paths
+        # before resolving each to an endpoint reference.
+        expanded_data_sources = self._expand_collective_paths(data_sources or [])
         ds_refs = [
             self._resolve_endpoint_ref(ds, expected_type="data_source")
-            for ds in (data_sources or [])
+            for ds in expanded_data_sources
         ]
 
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)

@@ -4,8 +4,10 @@ import type { Collective, CollectiveSharedEndpoint } from '@/lib/collectives-api
 import type { ChatSource } from '@/lib/types';
 
 import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import Database from 'lucide-react/dist/esm/icons/database';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Layers from 'lucide-react/dist/esm/icons/layers';
 import Search from 'lucide-react/dist/esm/icons/search';
 import Shield from 'lucide-react/dist/esm/icons/shield';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
@@ -186,179 +188,206 @@ const SourceItem = memo(function SourceItem({
   );
 });
 
-interface CollectiveItemProps {
-  collective: Collective;
-  isSelected: boolean;
+interface ScopeRowProps {
+  selected: boolean;
+  /** Superseded by an "Entire collective" selection — shown dimmed + disabled. */
+  covered?: boolean;
   onToggle: () => void;
-}
-
-const CollectiveItem = memo(function CollectiveItem({
-  collective,
-  isSelected,
-  onToggle
-}: Readonly<CollectiveItemProps>) {
-  return (
-    <div
-      className={`group flex w-full items-start gap-3 rounded-lg border p-3 transition-all ${
-        isSelected
-          ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/30'
-          : 'border-border bg-card hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20'
-      }`}
-    >
-      {/* Checkbox indicator */}
-      <button
-        type='button'
-        onClick={onToggle}
-        aria-pressed={isSelected}
-        className='mt-1 shrink-0 rounded focus-visible:ring-2 focus-visible:ring-indigo-500/50 focus-visible:outline-none'
-      >
-        <div
-          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
-            isSelected
-              ? 'border-indigo-500 bg-indigo-500 dark:border-indigo-600 dark:bg-indigo-600'
-              : 'border-input bg-background'
-          }`}
-          aria-hidden='true'
-        >
-          {isSelected && <Check className='h-3 w-3 text-white' />}
-        </div>
-      </button>
-
-      {/* Icon */}
-      <button
-        type='button'
-        onClick={onToggle}
-        className='flex shrink-0 items-start focus-visible:outline-none'
-        tabIndex={-1}
-      >
-        <div
-          className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
-            isSelected
-              ? 'bg-indigo-500 text-white'
-              : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300'
-          }`}
-        >
-          <Users className='h-4 w-4' />
-        </div>
-      </button>
-
-      {/* Content */}
-      <button
-        type='button'
-        onClick={onToggle}
-        className='min-w-0 flex-1 text-left focus-visible:outline-none'
-        tabIndex={-1}
-      >
-        <span className='font-inter text-foreground flex items-center gap-1 truncate text-sm font-medium'>
-          {collective.name}
-          {collective.verified && (
-            <ShieldCheck className='h-3.5 w-3.5 shrink-0 text-green-500' aria-label='Verified' />
-          )}
-        </span>
-        <span className='font-inter text-muted-foreground block truncate text-xs'>
-          {collective.shared_endpoint_path} &middot; {collective.member_count}{' '}
-          {collective.member_count === 1 ? 'endpoint' : 'endpoints'}
-        </span>
-        {collective.description && (
-          <p className='font-inter text-muted-foreground mt-1 line-clamp-2 text-xs'>
-            {collective.description}
-          </p>
-        )}
-      </button>
-
-      {/* Collective page link */}
-      <Link
-        to={`/c/${collective.slug}`}
-        target='_blank'
-        rel='noopener noreferrer'
-        className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
-        aria-label={`View ${collective.name} collective`}
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-      >
-        <ExternalLink className='h-4 w-4' />
-      </Link>
-    </div>
-  );
-});
-
-interface SharedEndpointItemProps {
-  collective: Collective;
-  shared: CollectiveSharedEndpoint;
-  isSelected: boolean;
-  onToggle: () => void;
+  icon?: React.ReactNode;
+  title: string;
+  subtitle: string;
+  /** The "Entire collective" row gets a faint distinct tint vs. the named APIs. */
+  accent?: boolean;
 }
 
 /**
- * Indented child row representing a curated subset of a collective's members.
- * Visually nested under its parent collective in the Collectives tab so the
- * relationship is obvious without a heavyweight expandable component tree.
+ * A single selectable scope inside a collective card — either the whole
+ * collective or one of its Collective APIs. Checkbox + title + member count,
+ * with a clear selected state and a "covered" (included) state when the whole
+ * collective is already chosen.
  */
-const SharedEndpointItem = memo(function SharedEndpointItem({
-  collective,
-  shared,
-  isSelected,
-  onToggle
-}: Readonly<SharedEndpointItemProps>) {
+const ScopeRow = memo(function ScopeRow({
+  selected,
+  covered = false,
+  onToggle,
+  icon,
+  title,
+  subtitle,
+  accent = false
+}: Readonly<ScopeRowProps>) {
   return (
-    <div
-      className={`group ml-6 flex w-full items-start gap-3 rounded-lg border border-l-2 p-3 transition-all ${
-        isSelected
-          ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/30'
-          : 'border-border bg-card border-l-indigo-300 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-l-indigo-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20'
+    <button
+      type='button'
+      onClick={covered ? undefined : onToggle}
+      disabled={covered}
+      aria-pressed={selected}
+      className={`group flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:outline-none ${
+        selected
+          ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/40'
+          : covered
+            ? 'cursor-default border-transparent opacity-55'
+            : accent
+              ? 'border-indigo-200/70 bg-indigo-50/40 hover:border-indigo-300 hover:bg-indigo-50/70 dark:border-indigo-900/70 dark:bg-indigo-950/15 dark:hover:border-indigo-700'
+              : 'border-border bg-card hover:border-indigo-300 hover:bg-indigo-50/40 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20'
       }`}
     >
-      <button
-        type='button'
-        onClick={onToggle}
-        aria-pressed={isSelected}
-        className='mt-1 shrink-0 rounded focus-visible:ring-2 focus-visible:ring-indigo-500/50 focus-visible:outline-none'
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
+          selected
+            ? 'border-indigo-500 bg-indigo-500 dark:border-indigo-600 dark:bg-indigo-600'
+            : 'border-input bg-background'
+        }`}
+        aria-hidden='true'
       >
-        <div
-          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
-            isSelected
-              ? 'border-indigo-500 bg-indigo-500 dark:border-indigo-600 dark:bg-indigo-600'
-              : 'border-input bg-background'
-          }`}
+        {selected && <Check className='h-3 w-3 text-white' />}
+      </span>
+      {icon && (
+        <span
+          className={`shrink-0 ${selected ? 'text-indigo-600 dark:text-indigo-300' : 'text-muted-foreground'}`}
           aria-hidden='true'
         >
-          {isSelected && <Check className='h-3 w-3 text-white' />}
-        </div>
-      </button>
-
-      <button
-        type='button'
-        onClick={onToggle}
-        className='min-w-0 flex-1 text-left focus-visible:outline-none'
-        tabIndex={-1}
-      >
+          {icon}
+        </span>
+      )}
+      <span className='min-w-0 flex-1'>
         <span className='font-inter text-foreground block truncate text-sm font-medium'>
-          {shared.name}
+          {title}
         </span>
-        <span className='font-inter text-muted-foreground block truncate text-xs'>
-          {shared.shared_endpoint_path} &middot; {shared.active_member_count}/{shared.member_count}{' '}
-          active
+        <span className='font-inter text-muted-foreground block truncate text-[11px]'>
+          {subtitle}
         </span>
-        {shared.description && (
-          <p className='font-inter text-muted-foreground mt-1 line-clamp-2 text-xs'>
-            {shared.description}
-          </p>
-        )}
-      </button>
+      </span>
+      {covered && (
+        <span className='bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium'>
+          Included
+        </span>
+      )}
+    </button>
+  );
+});
 
-      <Link
-        to={`/c/${collective.slug}`}
-        target='_blank'
-        rel='noopener noreferrer'
-        className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
-        aria-label={`View ${collective.name} collective`}
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-      >
-        <ExternalLink className='h-4 w-4' />
-      </Link>
+interface CollectiveGroupCardProps {
+  collective: Collective;
+  sharedEndpoints: CollectiveSharedEndpoint[];
+  wholeSelected: boolean;
+  selectedInGroup: number;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onToggleWhole: () => void;
+  isSharedSelected: (shared: CollectiveSharedEndpoint) => boolean;
+  onToggleShared: (shared: CollectiveSharedEndpoint) => void;
+}
+
+/**
+ * A collective rendered as a self-contained group card: an identity header that
+ * collapses/expands, an explicit "Entire collective" scope, and the collective's
+ * named APIs as clearly-secondary scopes. The card (a Gestalt common region)
+ * carries the grouping, so the whole-vs-subset relationship reads at a glance.
+ */
+const CollectiveGroupCard = memo(function CollectiveGroupCard({
+  collective,
+  sharedEndpoints,
+  wholeSelected,
+  selectedInGroup,
+  isExpanded,
+  onToggleExpand,
+  onToggleWhole,
+  isSharedSelected,
+  onToggleShared
+}: Readonly<CollectiveGroupCardProps>) {
+  const apiCount = sharedEndpoints.length;
+  const endpointLabel = collective.member_count === 1 ? 'endpoint' : 'endpoints';
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border transition-colors ${
+        selectedInGroup > 0 ? 'border-indigo-300 dark:border-indigo-800' : 'border-border'
+      }`}
+    >
+      {/* Header — identity + collapse only; never a selection control */}
+      <div className='bg-muted/40 flex items-center gap-2.5 p-2.5'>
+        <button
+          type='button'
+          onClick={onToggleExpand}
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${collective.name}`}
+          className='text-muted-foreground hover:text-foreground hover:bg-accent flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:outline-none'
+        >
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
+          />
+        </button>
+        <div className='flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300'>
+          <Users className='h-4 w-4' />
+        </div>
+        <button
+          type='button'
+          onClick={onToggleExpand}
+          className='min-w-0 flex-1 text-left focus-visible:outline-none'
+          tabIndex={-1}
+        >
+          <span className='font-inter text-foreground flex items-center gap-1 truncate text-sm font-semibold'>
+            {collective.name}
+            {collective.verified && (
+              <ShieldCheck
+                className='h-3.5 w-3.5 shrink-0 text-emerald-500'
+                aria-label='Verified'
+              />
+            )}
+          </span>
+          <span className='font-inter text-muted-foreground block truncate text-[11px]'>
+            {collective.member_count} {endpointLabel}
+            {apiCount > 0 && ` · ${String(apiCount)} ${apiCount === 1 ? 'API' : 'APIs'}`}
+          </span>
+        </button>
+        {selectedInGroup > 0 && (
+          <span className='shrink-0 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white'>
+            {selectedInGroup} selected
+          </span>
+        )}
+        <Link
+          to={`/c/${collective.slug}`}
+          target='_blank'
+          rel='noopener noreferrer'
+          className='text-muted-foreground hover:text-foreground hover:bg-accent flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors'
+          aria-label={`View ${collective.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          <ExternalLink className='h-3.5 w-3.5' />
+        </Link>
+      </div>
+
+      {/* Body — scopes */}
+      {isExpanded && (
+        <div className='space-y-1 p-2'>
+          <ScopeRow
+            selected={wholeSelected}
+            onToggle={onToggleWhole}
+            icon={<Layers className='h-4 w-4' />}
+            title='Entire collective'
+            subtitle={`All ${String(collective.member_count)} ${endpointLabel}`}
+            accent
+          />
+          {apiCount > 0 && (
+            <p className='font-inter text-muted-foreground px-1 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wider uppercase'>
+              Collective APIs
+            </p>
+          )}
+          {sharedEndpoints.map((shared) => (
+            <ScopeRow
+              key={shared.slug}
+              selected={isSharedSelected(shared)}
+              covered={wholeSelected}
+              onToggle={() => {
+                onToggleShared(shared);
+              }}
+              title={shared.name}
+              subtitle={`${String(shared.active_member_count)} of ${String(shared.member_count)} endpoints`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 });
@@ -408,6 +437,8 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ChatSource[] | null>(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  // Collapsed collective cards (by slug). Empty = all expanded.
+  const [collapsedCollectives, setCollapsedCollectives] = useState<Set<string>>(new Set());
 
   const showCollectivesTab = availableCollectives.length > 0;
 
@@ -592,28 +623,50 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     });
   }, []);
 
-  const toggleCollective = useCallback((collective: Collective) => {
-    const id = `collective:${collective.slug}`;
-    const chatSource = collectiveToChatSource(collective);
-    setLocalSelected((previous) => {
+  const toggleCollapse = useCallback((slug: string) => {
+    setCollapsedCollectives((previous) => {
       const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(slug)) {
+        next.delete(slug);
       } else {
-        next.add(id);
-      }
-      return next;
-    });
-    setResolvedSourcesMap((previous) => {
-      const next = new Map(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.set(id, chatSource);
+        next.add(slug);
       }
       return next;
     });
   }, []);
+
+  const toggleCollective = useCallback(
+    (collective: Collective) => {
+      const id = `collective:${collective.slug}`;
+      const chatSource = collectiveToChatSource(collective);
+      // Selecting the whole collective supersedes any of its named API subsets,
+      // so drop those to keep the selection unambiguous (and avoid double-billing).
+      const subsetIds = (sharedByCollective.get(collective.slug) ?? []).map(
+        (s) => `collective:${s.collective_slug}/${s.slug}`
+      );
+      setLocalSelected((previous) => {
+        const next = new Set(previous);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+          for (const sid of subsetIds) next.delete(sid);
+        }
+        return next;
+      });
+      setResolvedSourcesMap((previous) => {
+        const next = new Map(previous);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.set(id, chatSource);
+          for (const sid of subsetIds) next.delete(sid);
+        }
+        return next;
+      });
+    },
+    [sharedByCollective]
+  );
 
   const toggleSharedEndpoint = useCallback((shared: CollectiveSharedEndpoint) => {
     const id = `collective:${shared.collective_slug}/${shared.slug}`;
@@ -747,11 +800,10 @@ export const AddSourcesModal = memo(function AddSourcesModal({
             </div>
           )
         ) : sortedCollectives.length > 0 ? (
-          sortedCollectives.flatMap((collective) => {
+          sortedCollectives.map((collective) => {
             const sharedEndpoints = sharedByCollective.get(collective.slug) ?? [];
             const queryLower = debouncedSearchQuery.toLowerCase();
-            // Filter shared endpoints by the same search query so the parent +
-            // children render consistently when the user is searching.
+            // When searching, narrow the card's visible APIs to those that match too.
             const matchingShared = queryLower
               ? sharedEndpoints.filter(
                   (shared) =>
@@ -760,27 +812,30 @@ export const AddSourcesModal = memo(function AddSourcesModal({
                     shared.description.toLowerCase().includes(queryLower)
                 )
               : sharedEndpoints;
-            return [
-              <CollectiveItem
+            const wholeSelected = localSelected.has(`collective:${collective.slug}`);
+            const selectedSubsets = matchingShared.filter((shared) =>
+              localSelected.has(`collective:${collective.slug}/${shared.slug}`)
+            ).length;
+            return (
+              <CollectiveGroupCard
                 key={collective.slug}
                 collective={collective}
-                isSelected={localSelected.has(`collective:${collective.slug}`)}
-                onToggle={() => {
+                sharedEndpoints={matchingShared}
+                wholeSelected={wholeSelected}
+                selectedInGroup={(wholeSelected ? 1 : 0) + selectedSubsets}
+                isExpanded={isSearching || !collapsedCollectives.has(collective.slug)}
+                onToggleExpand={() => {
+                  toggleCollapse(collective.slug);
+                }}
+                onToggleWhole={() => {
                   toggleCollective(collective);
                 }}
-              />,
-              ...matchingShared.map((shared) => (
-                <SharedEndpointItem
-                  key={`${collective.slug}/${shared.slug}`}
-                  collective={collective}
-                  shared={shared}
-                  isSelected={localSelected.has(`collective:${collective.slug}/${shared.slug}`)}
-                  onToggle={() => {
-                    toggleSharedEndpoint(shared);
-                  }}
-                />
-              ))
-            ];
+                isSharedSelected={(shared) =>
+                  localSelected.has(`collective:${collective.slug}/${shared.slug}`)
+                }
+                onToggleShared={toggleSharedEndpoint}
+              />
+            );
           })
         ) : (
           <div className='py-8 text-center'>

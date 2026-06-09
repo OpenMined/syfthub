@@ -63,29 +63,41 @@ def test_register_user(client: TestClient) -> None:
     assert user["is_active"] is True
 
 
-def test_register_duplicate_username(client: TestClient) -> None:
-    """Test registering with duplicate username."""
-    user_data = {
-        "username": "testuser",
-        "email": "test@example.com",
-        "full_name": "Test User",
-        "password": "testpass123",
-    }
+def test_register_duplicate_username_resolved(client: TestClient) -> None:
+    """A colliding username (auto-derived from email) does not block registration
+    for a distinct email — the server assigns a unique variant instead.
 
-    # Register first user
-    response1 = client.post("/api/v1/auth/register", json=user_data)
+    Mirrors the real client behaviour where the username is derived from the
+    email local part: "user+test@" and "usertest@" both reduce to "usertest".
+    """
+    # First account claims the derived username "usertest".
+    response1 = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "usertest",
+            "email": "user+test@example.com",
+            "full_name": "Test User",
+            "password": "testpass123",
+        },
+    )
     assert response1.status_code == 201
+    assert response1.json()["user"]["username"] == "usertest"
 
-    # Try to register with same username
-    user_data2 = user_data.copy()
-    user_data2["email"] = "different@example.com"
-
-    response2 = client.post("/api/v1/auth/register", json=user_data2)
-    assert response2.status_code == 409
-    detail = response2.json()["detail"]
-    assert detail["code"] == "USER_ALREADY_EXISTS"
-    assert detail["field"] == "username"
-    assert "Username already exists" in detail["message"]
+    # A distinct email whose derived username collides still registers.
+    response2 = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "usertest",
+            "email": "usertest@example.com",
+            "full_name": "Other User",
+            "password": "testpass123",
+        },
+    )
+    assert response2.status_code == 201
+    # Same email-derived base, but uniquified so both accounts can coexist.
+    assigned = response2.json()["user"]["username"]
+    assert assigned != "usertest"
+    assert assigned.startswith("usertest")
 
 
 def test_register_duplicate_email(client: TestClient) -> None:

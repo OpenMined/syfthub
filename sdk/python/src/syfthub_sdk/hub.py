@@ -254,6 +254,40 @@ class HubResource:
         data = response if isinstance(response, dict) else {}
         return bool(data.get("starred", False))
 
+    def get_collective_endpoint_paths(
+        self, slug: str, shared_slug: str | None = None
+    ) -> list[str]:
+        """Get the owner/slug paths of a collective's approved member endpoints.
+
+        Used by the chat resource to expand a ``collective/<slug>`` (or
+        ``collective/<slug>/<shared-slug>``) data-source reference into the
+        individual endpoint paths before building the aggregator request.
+
+        Args:
+            slug: The collective slug (e.g. "genomics-research").
+            shared_slug: Optional curated-subset slug. When provided, only the
+                intersection of the subset's configured endpoints with the
+                collective's currently approved members is returned. Omit for
+                "all approved members".
+
+        Returns:
+            List of "owner/slug" path strings (empty if no approved members).
+
+        Raises:
+            NotFoundError: If the collective (or shared endpoint) does not exist.
+        """
+        from urllib.parse import quote
+
+        base = f"/api/v1/collectives/by-slug/{quote(slug, safe='')}"
+        path = (
+            f"{base}/shared-endpoints/{quote(shared_slug, safe='')}/endpoint-paths"
+            if shared_slug
+            else f"{base}/endpoint-paths"
+        )
+        # Public route (mirrors the TypeScript SDK's includeAuth: false).
+        response = self._http.get(path, include_auth=False)
+        return [str(p) for p in response] if isinstance(response, list) else []
+
     def _parse_path(self, path: str) -> tuple[str, str]:
         """Parse an endpoint path into owner and slug.
 

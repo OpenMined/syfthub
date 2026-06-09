@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { parseXenditConfig, UNIT_LABEL } from '@/lib/xendit-client';
 
 import { GenericPolicyContent } from './generic-policy-content';
+import { MppPolicyContent } from './mpp-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
 import { XenditPolicyContent } from './xendit-policy-content';
 
@@ -35,6 +36,42 @@ function isPrepaidBalanceType(type: string): type is PrepaidProvider {
   return (PREPAID_BALANCE_TYPES as Set<string>).has(type);
 }
 
+// Pay-as-you-go (MPP) policy types. These share the premium balance-card
+// layout with the prepaid providers, but bill automatically per request out of
+// the user's MPP wallet — so there is no bundle picker or "Buy credits" CTA.
+// `mpp`, `mpp_accounting`, and `accounting` are all emitted in the wild for the
+// same per-request strategy (same config shape: price/currency/unit_type).
+const MPP_BALANCE_TYPES = new Set<string>(['mpp', 'mpp_accounting', 'accounting']);
+function isMppBalanceType(type: string): boolean {
+  return MPP_BALANCE_TYPES.has(type);
+}
+// The MPP wallet provider is not encoded in policy.config — it is surfaced in
+// the UI the same way the prepaid providers name themselves under the title.
+const MPP_PROVIDER_LABEL = 'Tempo';
+
+// Display name shown under a balance card's title, keyed by policy type (e.g.
+// "via Xendit", "via Tempo"). Returns null for non-balance policy types.
+const BALANCE_PROVIDER_LABELS: Record<string, string> = {
+  xendit: 'Xendit',
+  stripe: 'Stripe',
+  mpp: MPP_PROVIDER_LABEL,
+  mpp_accounting: MPP_PROVIDER_LABEL,
+  accounting: MPP_PROVIDER_LABEL
+};
+function getBalanceProviderLabel(policyType: string): string | null {
+  return BALANCE_PROVIDER_LABELS[policyType] ?? null;
+}
+
+// Shared styling/copy for the pay-as-you-go (MPP) policy types.
+const MPP_POLICY_CONFIG = {
+  icon: Coins,
+  label: 'Pay as you go',
+  color: 'text-emerald-600 dark:text-emerald-400',
+  bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+  borderColor: 'border-emerald-200 dark:border-emerald-800',
+  description: 'Pay-per-request billing deducted automatically from your MPP wallet.'
+};
+
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
   string,
@@ -47,15 +84,11 @@ const POLICY_TYPE_CONFIG: Record<
     description: string;
   }
 > = {
-  // Transaction/Pricing policies
-  mpp_accounting: {
-    icon: Coins,
-    label: 'MPP Micro-payment',
-    color: 'text-emerald-600 dark:text-emerald-400',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
-    borderColor: 'border-emerald-200 dark:border-emerald-800',
-    description: 'Pay-per-request micro-payment via MPP blockchain'
-  },
+  // Transaction/Pricing policies. mpp, mpp_accounting, and accounting are
+  // aliases for the same pay-as-you-go strategy, so they share one config object.
+  mpp: MPP_POLICY_CONFIG,
+  mpp_accounting: MPP_POLICY_CONFIG,
+  accounting: MPP_POLICY_CONFIG,
   transaction: {
     icon: Coins,
     label: 'Transaction Policy',
@@ -184,6 +217,145 @@ function renderPolicyContent(
   return <GenericPolicyContent config={policy.config} />;
 }
 
+interface BalancePolicyCardProperties {
+  policy: Policy;
+  config: ReturnType<typeof getPolicyConfig>;
+  displayLabel: string;
+  description: string | null;
+  providerLabel: string | null;
+  prepaidProvider: PrepaidProvider | null;
+  isMpp: boolean;
+  endpointSlug?: string;
+  endpointOwner?: string;
+}
+
+/**
+ * Premium block-card layout shared by prepaid-credits and pay-as-you-go (MPP)
+ * policies: neutral card with an icon chip, "via <provider>" sub-header, an
+ * Active/Disabled status pill, and a "How does this work?" accordion. The body
+ * differs per kind — prepaid shows a bundle picker + Buy CTA, MPP shows the
+ * automatic per-request price.
+ */
+function BalancePolicyCard({
+  policy,
+  config,
+  displayLabel,
+  description,
+  providerLabel,
+  prepaidProvider,
+  isMpp,
+  endpointSlug,
+  endpointOwner
+}: Readonly<BalancePolicyCardProperties>) {
+  const Icon = config.icon;
+  // Prepaid surfaces its price in the header; MPP renders it inside the body
+  // (MppPolicyContent), so this is parsed for prepaid only.
+  const prepaidParsed = useMemo(
+    () => (prepaidProvider ? parseXenditConfig(policy.config) : null),
+    [prepaidProvider, policy.config]
+  );
+  const prepaidPricePerUnit =
+    prepaidParsed && prepaidParsed.pricePerUnit !== null && prepaidParsed.pricePerUnit > 0
+      ? prepaidParsed.pricePerUnit
+      : null;
+
+  return (
+    <div
+      className={cn(
+        'group bg-card relative rounded-lg border transition-colors transition-shadow duration-200',
+        'border-border',
+        policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
+      )}
+    >
+      <div className='p-4'>
+        <div className='flex items-start gap-3'>
+          <div
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+              config.bgColor,
+              'ring-1 ring-inset',
+              config.borderColor
+            )}
+          >
+            <Icon className={cn('h-4.5 w-4.5', config.color)} />
+          </div>
+
+          <div className='min-w-0 flex-1'>
+            <div className='flex items-start justify-between gap-2'>
+              <div className='min-w-0'>
+                <h3 className='text-foreground text-sm leading-tight font-semibold'>
+                  {displayLabel}
+                </h3>
+                <p className='text-muted-foreground mt-0.5 text-[11px]'>via {providerLabel}</p>
+              </div>
+              {policy.version ? (
+                <span className='text-muted-foreground bg-muted/60 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
+                  v{policy.version}
+                </span>
+              ) : null}
+            </div>
+
+            <div className='mt-1.5 flex items-center gap-1.5'>
+              <span
+                aria-hidden='true'
+                className={cn(
+                  'inline-block h-1.5 w-1.5 rounded-full',
+                  policy.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                )}
+              />
+              <span
+                className={cn(
+                  'text-[11px] font-medium',
+                  policy.enabled
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-muted-foreground'
+                )}
+              >
+                {policy.enabled ? 'Active' : 'Disabled'}
+              </span>
+            </div>
+
+            {description && (
+              <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
+            )}
+            {prepaidParsed && prepaidPricePerUnit !== null && (
+              <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
+                {prepaidParsed.currency} {prepaidPricePerUnit.toLocaleString()} per{' '}
+                {UNIT_LABEL[prepaidParsed.unit].singular}
+              </p>
+            )}
+
+            {Object.keys(policy.config).length > 0 &&
+              (isMpp ? (
+                <MppPolicyContent config={policy.config} />
+              ) : (
+                // Reached only for prepaid (isMpp is handled above; transaction
+                // never enters the balance card), so isTransaction is always false.
+                renderPolicyContent(policy, false, prepaidProvider, endpointSlug, endpointOwner)
+              ))}
+          </div>
+        </div>
+      </div>
+
+      <div className='border-border/60 border-t'>
+        {isMpp ? (
+          <HowItWorksAccordion>
+            Pay-as-you-go billing is automatic — there is nothing to top up. Whenever a request is
+            processed, the price per request shown above is deducted from your available MPP wallet
+            balance. Keep your wallet funded to keep making requests.
+          </HowItWorksAccordion>
+        ) : (
+          <HowItWorksAccordion>
+            Purchase credits upfront with a data owner. Your balance is shared across all of their
+            endpoints. Top up anytime — credits are deducted per request until your balance runs
+            out.
+          </HowItWorksAccordion>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Single policy item component - memoized to prevent unnecessary re-renders
 export const PolicyItem = memo(function PolicyItem({
   policy,
@@ -197,10 +369,13 @@ export const PolicyItem = memo(function PolicyItem({
   const prepaidProvider: PrepaidProvider | null = isPrepaidBalanceType(policyTypeLower)
     ? policyTypeLower
     : null;
-  // Provider-agnostic display name surfaced under the card title (e.g. "via Xendit").
-  const prepaidProviderLabel = prepaidProvider
-    ? prepaidProvider.charAt(0).toUpperCase() + prepaidProvider.slice(1)
-    : null;
+  const isMpp = isMppBalanceType(policyTypeLower);
+  // Both prepaid and pay-as-you-go render the same premium block card; only the
+  // body (bundle picker vs. price-per-request) and the accordion copy differ.
+  const usesBalanceCard = Boolean(prepaidProvider) || isMpp;
+  // Provider-agnostic display name surfaced under the card title (e.g. "via
+  // Xendit", "via Tempo").
+  const providerLabel = getBalanceProviderLabel(policyTypeLower);
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -212,100 +387,19 @@ export const PolicyItem = memo(function PolicyItem({
   const rawDescription = policy.description || config.description;
   const description = rawDescription && rawDescription !== displayLabel ? rawDescription : null;
 
-  const prepaidParsed = useMemo(
-    () => (prepaidProvider ? parseXenditConfig(policy.config) : null),
-    [prepaidProvider, policy.config]
-  );
-  const prepaidPricePerUnit =
-    prepaidParsed && prepaidParsed.pricePerUnit !== null && prepaidParsed.pricePerUnit > 0
-      ? prepaidParsed.pricePerUnit
-      : null;
-
-  if (prepaidProvider) {
+  if (usesBalanceCard) {
     return (
-      <div
-        className={cn(
-          'group bg-card relative rounded-lg border transition-colors transition-shadow duration-200',
-          'border-border',
-          policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
-        )}
-      >
-        <div className='p-4'>
-          <div className='flex items-start gap-3'>
-            <div
-              className={cn(
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-                config.bgColor,
-                'ring-1 ring-inset',
-                config.borderColor
-              )}
-            >
-              <Icon className={cn('h-4.5 w-4.5', config.color)} />
-            </div>
-
-            <div className='min-w-0 flex-1'>
-              <div className='flex items-start justify-between gap-2'>
-                <div className='min-w-0'>
-                  <h3 className='text-foreground text-sm leading-tight font-semibold'>
-                    {displayLabel}
-                  </h3>
-                  <p className='text-muted-foreground mt-0.5 text-[11px]'>
-                    via {prepaidProviderLabel}
-                  </p>
-                </div>
-                {policy.version ? (
-                  <span className='text-muted-foreground bg-muted/60 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
-                    v{policy.version}
-                  </span>
-                ) : null}
-              </div>
-
-              <div className='mt-1.5 flex items-center gap-1.5'>
-                <span
-                  aria-hidden='true'
-                  className={cn(
-                    'inline-block h-1.5 w-1.5 rounded-full',
-                    policy.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
-                  )}
-                />
-                <span
-                  className={cn(
-                    'text-[11px] font-medium',
-                    policy.enabled
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-muted-foreground'
-                  )}
-                >
-                  {policy.enabled ? 'Active' : 'Disabled'}
-                </span>
-              </div>
-
-              {description && (
-                <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
-              )}
-              {prepaidParsed && prepaidPricePerUnit !== null && (
-                <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
-                  {prepaidParsed.currency} {prepaidPricePerUnit.toLocaleString()} per{' '}
-                  {UNIT_LABEL[prepaidParsed.unit].singular}
-                </p>
-              )}
-
-              {Object.keys(policy.config).length > 0 &&
-                renderPolicyContent(
-                  policy,
-                  isTransaction,
-                  prepaidProvider,
-                  endpointSlug,
-                  endpointOwner
-                )}
-            </div>
-          </div>
-        </div>
-
-        <div className='border-border/60 border-t'>
-          <XenditHowItWorks />
-        </div>
-      </div>
+      <BalancePolicyCard
+        policy={policy}
+        config={config}
+        displayLabel={displayLabel}
+        description={description}
+        providerLabel={providerLabel}
+        prepaidProvider={prepaidProvider}
+        isMpp={isMpp}
+        endpointSlug={endpointSlug}
+        endpointOwner={endpointOwner}
+      />
     );
   }
 
@@ -370,7 +464,9 @@ export const PolicyItem = memo(function PolicyItem({
   );
 });
 
-function XenditHowItWorks() {
+// Shared "How does this work?" accordion for the balance cards. Only the body
+// copy differs between prepaid and pay-as-you-go, so the chrome lives here once.
+function HowItWorksAccordion({ children }: Readonly<{ children: React.ReactNode }>) {
   const [open, setOpen] = useState(false);
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -392,8 +488,7 @@ function XenditHowItWorks() {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <p className='text-muted-foreground border-border/60 max-w-prose border-t px-4 py-3 text-[11px] leading-relaxed'>
-          Purchase credits upfront with a data owner. Your balance is shared across all of their
-          endpoints. Top up anytime — credits are deducted per request until your balance runs out.
+          {children}
         </p>
       </CollapsibleContent>
     </Collapsible>
