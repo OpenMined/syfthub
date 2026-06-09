@@ -75,11 +75,13 @@ export const DEFAULT_ESTIMATION_PARAMS: EstimationParams = {
 // Policy Extraction
 // ============================================================================
 
-/** Policy types that carry billing/pricing configuration */
-const BILLING_POLICY_TYPES = new Set(['transaction', 'accounting']);
+// The single canonical pay-as-you-go (MPP) billing policy type. Legacy spellings
+// (`mpp_accounting`/`accounting`/`transaction`) were collapsed into `mpp`; keep in
+// lockstep with the backend `_MPP_POLICY_TYPES` and `MPP_BALANCE_TYPES`.
+const BILLING_POLICY_TYPES = new Set(['mpp']);
 
 /**
- * Extracts the billing policy (transaction or accounting) from an array of policies
+ * Extracts the billing (pay-as-you-go) policy from an array of policies.
  */
 export function extractTransactionPolicy(policies?: Policy[]): Policy | null {
   if (!policies || policies.length === 0) return null;
