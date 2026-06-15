@@ -35,7 +35,12 @@ def endpoint(test_session, user, sample_endpoint_data):
 class TestUpsertUptimeSample:
     def test_insert_new_row(self, test_session, endpoint):
         repo = EndpointRepository(test_session)
-        bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+        # Relative to now (floored to the hour like a real bucket) so the sample
+        # always lands inside the rolling 30-day query window — a hardcoded date
+        # would silently fall out of the window as wall-clock time advances.
+        bucket = datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(days=1)
 
         repo.upsert_uptime_sample(
             endpoint_id=endpoint.id,
@@ -52,7 +57,9 @@ class TestUpsertUptimeSample:
 
     def test_accumulates_into_existing_bucket(self, test_session, endpoint):
         repo = EndpointRepository(test_session)
-        bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+        bucket = datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(days=1)
 
         repo.upsert_uptime_sample(endpoint.id, bucket, True)
         repo.upsert_uptime_sample(endpoint.id, bucket, True)
@@ -67,7 +74,9 @@ class TestUpsertUptimeSample:
 
     def test_unhealthy_sample_only_increments_total(self, test_session, endpoint):
         repo = EndpointRepository(test_session)
-        bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+        bucket = datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(days=1)
 
         repo.upsert_uptime_sample(endpoint.id, bucket, False)
         test_session.commit()
