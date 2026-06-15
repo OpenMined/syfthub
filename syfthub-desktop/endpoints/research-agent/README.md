@@ -16,16 +16,22 @@ env:
 
 # Research Agent
 
-A real LLM-powered agent that uses MCP servers as its toolbelt.
+A real LLM-powered agent with built-in tools plus any **brokered MCP servers**
+the endpoint is allowed to use.
 
 ## How it works
 
-1. Loads MCP server definitions from `mcp.json`
-2. Starts each server and discovers its tools
-3. Passes tools to the LLM (auto-detected from your API key)
-4. Drives the tool-calling loop: LLM → tool call → MCP → result → LLM → …
-5. Streams tokens and events to the UI in real-time
-6. Supports multi-turn conversation
+1. Discovers brokered MCP tools from `SYFT_MCP_BASE_URL` / `SYFT_MCP_SERVERS`
+   (set by the host when this endpoint exposes MCP servers) — see `_mcp.py`
+2. Merges them with its built-in tools and passes all of them to the LLM
+   (provider auto-detected from your API key)
+3. Drives the tool-calling loop: LLM → tool call → (built-in or MCP) → result → LLM → …
+4. Streams tokens and events to the UI in real-time
+5. Supports multi-turn conversation
+
+In container mode the agent has **no direct internet**: both its model API and
+its MCP tool calls go through the host egress broker, which injects the real
+credential host-side. No API key or PAT ever enters the container.
 
 ## Setup
 
@@ -53,24 +59,20 @@ The provider is detected automatically from the key prefix:
 | `sk-ant-…` | Anthropic | `claude-3-5-haiku-20241022` |
 | `sk-…` / other | OpenAI | `gpt-4o-mini` |
 
-## Adding tools
+## Adding MCP tools
 
-Edit `mcp.json` to add any MCP server — no code changes needed:
+MCP servers are configured **on the host**, not in this endpoint — so their
+credentials never enter the container. To give this agent a new toolbelt:
 
-```json
-{
-  "mcpServers": {
-    "brave-search": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "env": { "BRAVE_API_KEY": "${BRAVE_API_KEY}" }
-    },
-    "fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    }
-  }
-}
-```
+1. **Settings → MCP Servers** (host): import your servers from your Claude
+   config, or add them to the host's `mcp/servers.json`, then **enable** the
+   ones you want available. A server definition holds its own credential (a PAT
+   or API key) — that stays on the host.
+2. **This endpoint → Sandbox → Tools (MCP)**: check the servers this agent may
+   call. That writes `sandbox.expose_mcp` to the endpoint's frontmatter.
+
+On the next reload the host brokers exactly those servers: the agent reaches
+each at `http://127.0.0.1:8788/mcp/<name>/` and the broker injects the
+credential. The agent sees tool names, schemas, and results — never the secret.
 
 Browse available MCP servers at [modelcontextprotocol.io/servers](https://modelcontextprotocol.io/servers).

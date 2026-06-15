@@ -181,7 +181,25 @@ TOOL_DEFS = [
 ]
 
 
+# Brokered MCP tools, if the endpoint exposes any (sandbox.expose_mcp). These
+# reach host MCP servers through the egress broker, which injects each server's
+# credential host-side — no PAT ever enters this container. Discovery failures
+# are non-fatal: the agent keeps its built-in tools.
+try:
+    import _mcp
+    _MCP_TOOL_DEFS, _MCP_DISPATCH = _mcp.discover()
+except Exception as e:  # pragma: no cover - defensive: never break the agent
+    print(f"[mcp] discovery failed: {e}", flush=True)
+    _MCP_TOOL_DEFS, _MCP_DISPATCH = [], {}
+
+TOOL_DEFS += _MCP_TOOL_DEFS
+
+
 def call_tool(name: str, arguments: dict) -> str:
+    # Brokered MCP tools are namespaced "mcp__<server>__<tool>".
+    mcp_fn = _MCP_DISPATCH.get(name)
+    if mcp_fn is not None:
+        return mcp_fn(arguments)
     spec = TOOLS.get(name)
     if not spec:
         return json.dumps({"error": f"Unknown tool: {name}"})
