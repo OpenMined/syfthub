@@ -65,6 +65,12 @@ type Config struct {
 	// will return Pending without a materialised challenge and the consumer
 	// will see a generic "pending review" notice instead of a payment modal.
 	MppxGate syfthubapi.MppxGate
+
+	// EgressProvisioner, when non-nil, is passed to the file-mode provider so
+	// every container endpoint's LLM egress is brokered host-side (the
+	// credential never enters the container). Built in syfthub-desktop main.
+	// nil leaves egress to the sandbox network config.
+	EgressProvisioner filemode.EgressProvisioner
 }
 
 // DefaultConfig returns configuration with sensible defaults.
@@ -274,6 +280,11 @@ func (a *App) Setup(ctx context.Context) error {
 		OnProgress:             a.onLoadProgress,
 		RoutingRecorderFactory: a.config.RoutingRecorderFactory,
 		MppxGate:               a.config.MppxGate,
+		EgressProvisioner:      a.config.EgressProvisioner,
+		// Container endpoints must always be brokered on the desktop: fail
+		// closed (refuse to build) rather than fall back to creds-in-container
+		// if the broker is unavailable.
+		RequireEgressBroker: true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create file provider: %w", err)

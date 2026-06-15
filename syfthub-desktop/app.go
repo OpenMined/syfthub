@@ -18,6 +18,7 @@ import (
 	"github.com/openmined/syfthub-desktop-gui/internal/updater"
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/egressbroker"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/mppxgate"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
@@ -71,6 +72,25 @@ type App struct {
 	updater          *updater.Checker              // Auto-update checker; nil until startup completes
 	downloader       *updater.Downloader           // Update-artifact downloader; nil until startup completes
 	installer        *updater.Installer            // In-place installer (binary swap on Linux/Windows, .app-bundle swap on macOS)
+
+	// egressBroker is the host-side credential broker: every container endpoint
+	// reaches its model API only through it, so the real credential never enters
+	// the container. egressKeys is the shared host-only store for per-endpoint
+	// OpenAI-compatible API keys (basic-agent style). egressProvisioner bundles
+	// them (plus the MCP host) for the SDK provider. All set at startup.
+	egressBroker      *egressbroker.Broker
+	egressKeys        *egressKeyStore
+	egressProvisioner *egressProvisioner
+
+	// mcpRegistry is the host-only catalog of MCP tool servers (with their
+	// credentials); mcpHost runs per-endpoint MCP bridges and builds the broker
+	// routes that let a container reach an allowlisted server without holding
+	// its PAT. mcpOAuth runs the browser OAuth flow for remote servers that
+	// require it (e.g. figma) and serves the refreshed tokens to the bridge.
+	// All set at startup alongside the egress broker.
+	mcpRegistry *mcpRegistry
+	mcpHost     *mcpHost
+	mcpOAuth    *oauthManager
 
 	// reviewPublisher delivers manual-review resolutions to caller inboxes
 	// over JetStream. Set once the NATS transport is up (post-Setup); nil in
@@ -197,6 +217,16 @@ func (a *App) startup(ctx context.Context) {
 	// pathUSD RPC URL — concerns the SDK package shouldn't know about.
 	a.config.MppxGate = a.newMppxGate()
 
+	// Wire the egress broker so every container endpoint's LLM credential stays
+	// on the host. Built here because it depends on the local desktop dir and
+	// the host's ~/.claude/.credentials.json. newEgressProvisioner caches the
+	// broker and its sub-objects on a.*, so it runs under a.mu (the settings-save
+	// path already holds it; startup acquires it here) to stay race-free with
+	// shutdown's reads of a.egressBroker / a.mcpHost.
+	a.mu.Lock()
+	a.config.EgressProvisioner = a.newEgressProvisioner()
+	a.mu.Unlock()
+
 	// Log startup
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI starting up")
 	runtime.LogInfo(ctx, fmt.Sprintf("Endpoints path: %s", a.config.EndpointsPath))
@@ -272,6 +302,18 @@ func (a *App) shutdown(ctx context.Context) {
 	// down the listener and publisher; closing the underlying *sql.DB pools
 	// after that is safe.
 	a.closeAllDBs()
+
+	// Tear down every egress broker socket and MCP bridge child.
+	a.mu.RLock()
+	broker := a.egressBroker
+	mcpHost := a.mcpHost
+	a.mu.RUnlock()
+	if mcpHost != nil {
+		mcpHost.Stop()
+	}
+	if broker != nil {
+		broker.Stop()
+	}
 }
 
 // GetStatus returns the current application status.
@@ -737,6 +779,7 @@ func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error
 	}
 	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
 	a.config.MppxGate = a.newMppxGate()
+	a.config.EgressProvisioner = a.newEgressProvisioner()
 	// Push the fresh gate into the already-running SyftAPI. Without this,
 	// settings saved AFTER Start was called would only update a.config but
 	// the live api keeps its boot-time (often nil) gate, so x402 policies

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
@@ -18,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
@@ -41,21 +43,21 @@ func (a *App) reloadAfterEndpointMutation(slug string) {
 
 // EndpointDetail provides full endpoint information for the detail view.
 type EndpointDetail struct {
-	Slug            string           `json:"slug"`
-	Name            string           `json:"name"`
-	Description     string           `json:"description"`
-	Type            string           `json:"type"`
-	Version         string           `json:"version"`
-	Enabled         bool             `json:"enabled"`
-	HasReadme       bool             `json:"hasReadme"`
-	HasPolicies     bool             `json:"hasPolicies"`
-	DepsCount       int              `json:"depsCount"`
-	EnvCount        int              `json:"envCount"`
-	RunnerCode      string           `json:"runnerCode"`
-	ReadmeContent   string           `json:"readmeContent"`
-	Policies    []Policy         `json:"policies"`
-	SetupStatus     *SetupStatusInfo `json:"setupStatus,omitempty"`
-	SetupSpec       *SetupSpecInfo   `json:"setupSpec,omitempty"`
+	Slug          string           `json:"slug"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Type          string           `json:"type"`
+	Version       string           `json:"version"`
+	Enabled       bool             `json:"enabled"`
+	HasReadme     bool             `json:"hasReadme"`
+	HasPolicies   bool             `json:"hasPolicies"`
+	DepsCount     int              `json:"depsCount"`
+	EnvCount      int              `json:"envCount"`
+	RunnerCode    string           `json:"runnerCode"`
+	ReadmeContent string           `json:"readmeContent"`
+	Policies      []Policy         `json:"policies"`
+	SetupStatus   *SetupStatusInfo `json:"setupStatus,omitempty"`
+	SetupSpec     *SetupSpecInfo   `json:"setupSpec,omitempty"`
 }
 
 // EnvVar represents an environment variable.
@@ -68,6 +70,15 @@ type EnvVar struct {
 type Dependency struct {
 	Package string `json:"package"`
 	Version string `json:"version"`
+}
+
+// MountEntry represents a host path bind-mounted into the endpoint's container
+// (README.md frontmatter `container.mounts`). Only meaningful in container mode.
+type MountEntry struct {
+	Source   string `json:"source"`   // Host path; may contain ~ and $VAR (stored verbatim)
+	Target   string `json:"target"`   // In-container path; always under /home/runner/
+	ReadOnly bool   `json:"readOnly"` // Mount read-only (default true via the UI)
+	IsDir    bool   `json:"isDir"`    // Whether the expanded source is a directory (for the icon)
 }
 
 // Policy represents a single policy configuration.
@@ -218,7 +229,6 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 
 	return detail, nil
 }
-
 
 // GetRunnerCode returns the runner.py content for an endpoint.
 func (a *App) GetRunnerCode(slug string) (string, error) {
@@ -390,6 +400,470 @@ func (a *App) DeleteEnvironment(slug, key string) error {
 // writeEnvFile writes environment variables to a .env file.
 func (a *App) writeEnvFile(path string, vars []EnvVar) error {
 	return nodeops.WriteEnvFile(path, toNodeopsEnvVars(vars))
+}
+
+// mountHomeRoot is the only in-container location the agent handler can see:
+// the in-container bwrap sandbox re-binds the runner's $HOME and nothing else,
+// so a mount whose target is outside it would be invisible to the handler.
+// The UI and these bindings both enforce it.
+const mountHomeRoot = "/home/runner"
+const mountHomePrefix = mountHomeRoot + "/"
+
+// mountVolumesPrefix is where drag-and-drop mounts land: a fixed, predictable
+// in-container location (<prefix><basename of the host path>) so the user
+// never has to reason about target paths. It matches the volumes dir the
+// in-container sandbox exposes to the handler.
+const mountVolumesPrefix = mountHomePrefix + "volumes/"
+
+// GetEndpointMounts returns the container bind mounts declared in an endpoint's
+// README.md frontmatter. Returns an empty slice when none are declared.
+func (a *App) GetEndpointMounts(slug string) ([]MountEntry, error) {
+	_, fm, err := a.endpointFrontmatter(slug)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []MountEntry{}, nil
+		}
+		return nil, err
+	}
+
+	mounts := mountsFromFrontmatter(fm)
+	for i := range mounts {
+		// Stat the exact path the SDK will mount (same expansion semantics).
+		src, err := filemode.ExpandMountSource(mounts[i].Source)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(src); err == nil {
+			mounts[i].IsDir = info.IsDir()
+		}
+	}
+	return mounts, nil
+}
+
+// SetEndpointMount adds or updates (keyed by target) a container bind mount.
+// The target is normalized under /home/runner/volumes/ (the only path the
+// sandbox exposes); a bare suffix is accepted and prefixed. The source is
+// stored verbatim, with the user's home dir collapsed to ~ for portability.
+// Reloads the endpoint so a running container picks up the new mount.
+func (a *App) SetEndpointMount(slug, source, target string, readOnly bool) error {
+	src := collapseHome(strings.TrimSpace(source))
+	if src == "" {
+		return fmt.Errorf("mount source is required")
+	}
+	tgt, err := normalizeMountTarget(target)
+	if err != nil {
+		return err
+	}
+	return a.upsertEndpointMounts(slug, []MountEntry{{Source: src, Target: tgt, ReadOnly: readOnly}})
+}
+
+// AddEndpointMounts adds one read-only mount per host path, each at
+// mountVolumesPrefix + <basename>. A multi-item drop in the UI lands here so
+// the frontmatter is written — and the endpoint reloaded — once for the whole
+// batch instead of once per item.
+func (a *App) AddEndpointMounts(slug string, sources []string) error {
+	entries := make([]MountEntry, 0, len(sources))
+	for _, p := range sources {
+		src := collapseHome(strings.TrimSpace(p))
+		base := filepath.Base(strings.TrimSpace(p))
+		if src == "" || base == "" || base == "." || base == string(filepath.Separator) {
+			continue
+		}
+		// Read-only by default — the safe choice for exposing host data to an
+		// agent. The user flips individual mounts to RW from the list.
+		entries = append(entries, MountEntry{Source: src, Target: mountVolumesPrefix + base, ReadOnly: true})
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("no usable mount sources given")
+	}
+	return a.upsertEndpointMounts(slug, entries)
+}
+
+// upsertEndpointMounts merges the given entries (keyed by target) into the
+// endpoint's declared mounts, persists the frontmatter once, and reloads once.
+func (a *App) upsertEndpointMounts(slug string, entries []MountEntry) error {
+	err := a.mutateMounts(slug, func(mounts []MountEntry) []MountEntry {
+		for _, e := range entries {
+			found := false
+			for i := range mounts {
+				if mounts[i].Target == e.Target {
+					mounts[i] = e
+					found = true
+					break
+				}
+			}
+			if !found {
+				mounts = append(mounts, e)
+			}
+		}
+		return mounts
+	})
+	if err != nil {
+		return err
+	}
+	if a.ctx != nil {
+		for _, e := range entries {
+			runtime.LogInfo(a.ctx, fmt.Sprintf("Set mount on %s: %s -> %s (read_only=%v)", slug, e.Source, e.Target, e.ReadOnly))
+		}
+	}
+	return nil
+}
+
+// DeleteEndpointMount removes the bind mount with the given container target.
+func (a *App) DeleteEndpointMount(slug, target string) error {
+	tgt := strings.TrimSpace(target)
+	err := a.mutateMounts(slug, func(mounts []MountEntry) []MountEntry {
+		out := make([]MountEntry, 0, len(mounts))
+		for _, m := range mounts {
+			if m.Target != tgt {
+				out = append(out, m)
+			}
+		}
+		return out
+	})
+	if err != nil {
+		return err
+	}
+	if a.ctx != nil {
+		runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted mount on %s: %s", slug, tgt))
+	}
+	return nil
+}
+
+// mutateMounts runs the read-modify-write cycle shared by every mount
+// mutation: parse the frontmatter once, apply mutate to the declared mounts,
+// persist, and reload the endpoint once.
+func (a *App) mutateMounts(slug string, mutate func([]MountEntry) []MountEntry) error {
+	readmePath, fm, err := a.endpointFrontmatter(slug)
+	if err != nil {
+		return err
+	}
+	if err := a.writeEndpointMounts(readmePath, fm, mutate(mountsFromFrontmatter(fm))); err != nil {
+		return fmt.Errorf("failed to update mounts: %w", err)
+	}
+	a.reloadAfterEndpointMutation(slug)
+	return nil
+}
+
+// endpointFrontmatter resolves an endpoint's README.md path and parses its
+// frontmatter map — the shared preamble of every mount/sandbox binding.
+// Callers that tolerate a missing README check os.IsNotExist on err.
+func (a *App) endpointFrontmatter(slug string) (readmePath string, fm map[string]any, err error) {
+	if err := validateSlug(slug); err != nil {
+		return "", nil, err
+	}
+	config, err := a.getConfig()
+	if err != nil {
+		return "", nil, err
+	}
+	readmePath = filepath.Join(config.EndpointsPath, slug, "README.md")
+	fm, err = a.loadFrontmatterMap(readmePath)
+	return readmePath, fm, err
+}
+
+// loadFrontmatterMap parses a README.md's YAML frontmatter into a generic map,
+// preserving every key (including container/sandbox/runtime) so callers can
+// read-modify-write a single nested section without dropping the rest.
+func (a *App) loadFrontmatterMap(readmePath string) (map[string]any, error) {
+	f, err := os.Open(readmePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	yamlBytes, _, err := nodeops.SplitFrontmatter(f)
+	if err != nil {
+		return nil, err
+	}
+	fm := map[string]any{}
+	if err := yaml.Unmarshal(yamlBytes, &fm); err != nil {
+		return nil, fmt.Errorf("failed to parse frontmatter: %w", err)
+	}
+	return fm, nil
+}
+
+// frontmatterSection decodes a frontmatter sub-value into the SDK schema type
+// that owns it, by round-tripping through YAML — the schema has exactly one
+// owner: the SDK type the provider actually enforces. The value came from a
+// YAML parse, so re-marshaling cannot fail; a wrong-typed field surfaces as a
+// yaml.TypeError, which still decodes every other field — malformed entries
+// degrade rather than failing the read.
+func frontmatterSection[T any](v any) T {
+	var out T
+	if data, err := yaml.Marshal(v); err == nil {
+		_ = yaml.Unmarshal(data, &out) // type errors leave the bad field zeroed
+	}
+	return out
+}
+
+// mountsFromFrontmatter extracts the container.mounts list from a parsed
+// frontmatter map via filemode.ContainerMount (the schema owner). Always
+// returns a non-nil slice so callers (and the JSON bridge) never see null.
+func mountsFromFrontmatter(fm map[string]any) []MountEntry {
+	out := []MountEntry{}
+	container, _ := fm["container"].(map[string]any)
+	if container == nil {
+		return out
+	}
+	for _, m := range frontmatterSection[[]filemode.ContainerMount](container["mounts"]) {
+		if m.Source == "" || m.Target == "" {
+			continue
+		}
+		out = append(out, MountEntry{Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
+	}
+	return out
+}
+
+// writeEndpointMounts persists the given mounts into container.mounts (as
+// filemode.ContainerMount, the schema owner), leaving any existing
+// container.image (and every other frontmatter key) untouched. fm is the
+// caller's already-parsed frontmatter for readmePath — passed in so a
+// mutation parses the file once instead of re-reading it here.
+func (a *App) writeEndpointMounts(readmePath string, fm map[string]any, mounts []MountEntry) error {
+	container, _ := fm["container"].(map[string]any)
+	if container == nil {
+		container = map[string]any{}
+	}
+
+	list := make([]filemode.ContainerMount, 0, len(mounts))
+	for _, m := range mounts {
+		list = append(list, filemode.ContainerMount{Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
+	}
+	container["mounts"] = list
+
+	return nodeops.UpdateReadmeFrontmatter(readmePath, map[string]any{"container": container})
+}
+
+// normalizeMountTarget coerces a target into a clean path under the in-container
+// volumes dir (/home/runner/volumes/). A bare suffix ("work") is prefixed; an
+// absolute path is validated to be under the volumes prefix and cleaned to
+// defeat ../ escapes. The volumes dir is the ONLY location the in-container
+// bwrap sandbox binds back over the tmpfs'd $HOME, so a target anywhere else —
+// even elsewhere under /home/runner/ — would be silently invisible to the
+// handler. Enforcing the volumes prefix here keeps "accepted" and "visible" the
+// same set; AddEndpointMounts already targets volumes/, so it is unaffected.
+func normalizeMountTarget(target string) (string, error) {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return "", fmt.Errorf("mount target is required")
+	}
+	if !strings.HasPrefix(t, "/") {
+		t = mountVolumesPrefix + t
+	}
+	clean := path.Clean(t)
+	if clean == strings.TrimSuffix(mountVolumesPrefix, "/") {
+		return "", fmt.Errorf("mount target cannot be %s itself", clean)
+	}
+	if !strings.HasPrefix(clean, mountVolumesPrefix) {
+		return "", fmt.Errorf("mount target must be under %s (got %q) — only that path is visible inside the sandbox", mountVolumesPrefix, target)
+	}
+	return clean, nil
+}
+
+// collapseHome replaces a leading absolute home dir with ~ so stored sources
+// stay portable and consistent with hand-authored frontmatter.
+func collapseHome(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if p == home {
+			return "~"
+		}
+		if strings.HasPrefix(p, home+string(os.PathSeparator)) {
+			return "~" + p[len(home):]
+		}
+	}
+	return p
+}
+
+// SandboxSettings is the editable view of an endpoint's README.md frontmatter
+// `sandbox:` block (filemode.SandboxConfig). JSON is camelCase for the
+// frontend; the on-disk YAML keys are snake_case (see writeEndpointSandbox).
+// Network is intentionally absent: egress is always brokered host-side in
+// container mode (see egress.go), so the runner reaches only its model API.
+// NOTE: the Limits fields are persisted but not yet enforced by the runner.
+type SandboxSettings struct {
+	ExposeEnv       []string `json:"exposeEnv"`
+	ExposeResources []string `json:"exposeResources"`
+	ExposeMCP       []string `json:"exposeMcp"`      // host MCP server names this endpoint may call
+	WorkspaceScope  string   `json:"workspaceScope"` // "" | "shared" | "per_user" | "per_session"
+	WorkspacePath   string   `json:"workspacePath"`
+	CPUCores        float64  `json:"cpuCores"`
+	MemoryMB        int      `json:"memoryMb"`
+	TimeoutSeconds  int      `json:"timeoutSeconds"`
+	TmpfsMB         int      `json:"tmpfsMb"`
+}
+
+// GetEndpointSandbox reads the sandbox block from an endpoint's frontmatter.
+// Returns zero-valued settings when no sandbox block is present.
+func (a *App) GetEndpointSandbox(slug string) (*SandboxSettings, error) {
+	_, fm, err := a.endpointFrontmatter(slug)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &SandboxSettings{}, nil
+		}
+		return nil, err
+	}
+	s := sandboxFromFrontmatter(fm)
+	return &s, nil
+}
+
+// SetEndpointSandbox validates and persists the sandbox block, preserving any
+// unmanaged keys (e.g. workspace.quota_mb) and every sibling frontmatter key,
+// then reloads the endpoint so the container rebuilds with the new isolation.
+func (a *App) SetEndpointSandbox(slug string, s SandboxSettings) error {
+	if err := validateSandbox(&s); err != nil {
+		return err
+	}
+	readmePath, fm, err := a.endpointFrontmatter(slug)
+	if err != nil {
+		return err
+	}
+	if err := a.writeEndpointSandbox(readmePath, fm, s); err != nil {
+		return fmt.Errorf("failed to update sandbox: %w", err)
+	}
+
+	if a.ctx != nil {
+		runtime.LogInfo(a.ctx, fmt.Sprintf("Updated sandbox config for %s", slug))
+	}
+	a.reloadAfterEndpointMutation(slug)
+	return nil
+}
+
+// validateSandbox normalizes (trim/dedupe/clamp) and validates enum fields in
+// place. Returns an error for an unknown workspace scope.
+func validateSandbox(s *SandboxSettings) error {
+	switch s.WorkspaceScope {
+	case "", "shared", "per_user", "per_session":
+	default:
+		return fmt.Errorf("invalid workspace scope %q", s.WorkspaceScope)
+	}
+	s.ExposeEnv = cleanStrings(s.ExposeEnv)
+	s.ExposeResources = cleanStrings(s.ExposeResources)
+	s.ExposeMCP = cleanStrings(s.ExposeMCP)
+	s.WorkspacePath = strings.TrimSpace(s.WorkspacePath)
+	if s.CPUCores < 0 {
+		s.CPUCores = 0
+	}
+	if s.MemoryMB < 0 {
+		s.MemoryMB = 0
+	}
+	if s.TimeoutSeconds < 0 {
+		s.TimeoutSeconds = 0
+	}
+	if s.TmpfsMB < 0 {
+		s.TmpfsMB = 0
+	}
+	return nil
+}
+
+// sandboxFromFrontmatter reads the sandbox block via filemode.SandboxConfig
+// (the schema owner).
+func sandboxFromFrontmatter(fm map[string]any) SandboxSettings {
+	cfg := frontmatterSection[filemode.SandboxConfig](fm["sandbox"])
+	return SandboxSettings{
+		ExposeEnv:       cleanStrings(cfg.ExposeEnv),
+		ExposeResources: cleanStrings(cfg.ExposeResources),
+		ExposeMCP:       cleanStrings(cfg.ExposeMCP),
+		WorkspaceScope:  cfg.Workspace.Scope,
+		WorkspacePath:   cfg.Workspace.Path,
+		CPUCores:        cfg.Limits.CPUCores,
+		MemoryMB:        cfg.Limits.MemoryMB,
+		TimeoutSeconds:  cfg.Limits.TimeoutSeconds,
+		TmpfsMB:         cfg.Limits.TmpfsMB,
+	}
+}
+
+// writeEndpointSandbox merges settings into the existing sandbox map (keeping
+// unmanaged keys such as workspace.quota_mb) and persists it. Default/empty
+// values delete their key so the frontmatter stays minimal. fm is the caller's
+// already-parsed frontmatter for readmePath.
+func (a *App) writeEndpointSandbox(readmePath string, fm map[string]any, s SandboxSettings) error {
+	sb, _ := fm["sandbox"].(map[string]any)
+	if sb == nil {
+		sb = map[string]any{}
+	}
+
+	// Subprocesses are always permitted and children inherit the full env, so
+	// both knobs are obsolete; strip them so the frontmatter carries no dead key.
+	delete(sb, "allow_subprocess")
+	delete(sb, "subprocess_env")
+	putSlice(sb, "expose_env", s.ExposeEnv)
+	putSlice(sb, "expose_resources", s.ExposeResources)
+	putSlice(sb, "expose_mcp", s.ExposeMCP)
+
+	ws, _ := sb["workspace"].(map[string]any)
+	if ws == nil {
+		ws = map[string]any{}
+	}
+	if s.WorkspaceScope != "" {
+		ws["scope"] = s.WorkspaceScope
+	} else {
+		delete(ws, "scope")
+	}
+	if s.WorkspacePath != "" && s.WorkspacePath != "workspace" {
+		ws["path"] = s.WorkspacePath
+	} else {
+		delete(ws, "path")
+	}
+	if len(ws) == 0 {
+		delete(sb, "workspace")
+	} else {
+		sb["workspace"] = ws
+	}
+
+	lim, _ := sb["limits"].(map[string]any)
+	if lim == nil {
+		lim = map[string]any{}
+	}
+	putNum(lim, "cpu_cores", s.CPUCores)
+	putNum(lim, "memory_mb", s.MemoryMB)
+	putNum(lim, "timeout_seconds", s.TimeoutSeconds)
+	putNum(lim, "tmpfs_mb", s.TmpfsMB)
+	if len(lim) == 0 {
+		delete(sb, "limits")
+	} else {
+		sb["limits"] = lim
+	}
+
+	return nodeops.UpdateReadmeFrontmatter(readmePath, map[string]any{"sandbox": sb})
+}
+
+func cleanStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func putSlice(m map[string]any, k string, v []string) {
+	if len(v) == 0 {
+		delete(m, k)
+		return
+	}
+	arr := make([]any, len(v))
+	for i, s := range v {
+		arr[i] = s
+	}
+	m[k] = arr
+}
+
+// putNum sets m[k]=v when v is positive and deletes the key otherwise, keeping
+// default/zero limits out of the persisted frontmatter.
+func putNum[T int | float64](m map[string]any, k string, v T) {
+	if v > 0 {
+		m[k] = v
+	} else {
+		delete(m, k)
+	}
 }
 
 // GetDependencies returns Python dependencies for an endpoint.
