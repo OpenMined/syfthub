@@ -93,6 +93,23 @@ func firstPolicyNotice(evs []AgentEventPayload) *policyNotice {
 	return nil
 }
 
+// indexOfEachEvent returns the index of the first occurrence of each event type
+// in want (preserving want's order), or -1 when an event type is absent.
+func indexOfEachEvent(evs []AgentEventPayload, want []string) []int {
+	idx := make([]int, len(want))
+	for i := range idx {
+		idx[i] = -1
+	}
+	for i, ev := range evs {
+		for j, et := range want {
+			if idx[j] == -1 && ev.EventType == et {
+				idx[j] = i
+			}
+		}
+	}
+	return idx
+}
+
 // A — policies pass: the agent's reply is delivered unchanged.
 func TestAgentExecutor_AllowsReplyThrough(t *testing.T) {
 	fe := &fakeExecutor{pre: &PolicyResultOutput{Allowed: true}, post: allowPost}
@@ -641,5 +658,136 @@ func TestAgentExecutor_PendingNoticeNilRecorderIsSafe(t *testing.T) {
 	)
 	if n := firstPolicyNotice(evs); n == nil || n.Status != policyStatusPending {
 		t.Errorf("pending notice still expected with nil recorder; got %+v", n)
+	}
+}
+
+// O — when a post policy holds the reply (manual_review substitution), the
+// turn's buffered reasoning and tool output MUST NOT leak. A tool-using
+// agent's answer lives in those thinking/tool events, so historically they
+// streamed straight through while only the final message was held — the user
+// saw the answer AND a "pending review" card. They must now be dropped along
+// with the real reply, leaving only the pending notice.
+func TestAgentExecutor_HeldReplyDropsBufferedReasoningAndTools(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				Result:  json.RawMessage(`"Submitted for manual review"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Substituted: true, PolicyName: "manual_review",
+					Metadata: map[string]any{"review_id": "abc123def456", "status": "pending"},
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentThinking,
+			Data:      json.RawMessage(`{"content":"SECRET reasoning that reveals the answer"}`),
+		})
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentToolCall,
+			Data:      json.RawMessage(`{"name":"db_query","tool_call_id":"t1"}`),
+		})
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentToolResult,
+			Data:      json.RawMessage(`{"tool_call_id":"t1","content":"SECRET tool output"}`),
+		})
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	if hasEvent(evs, EventTypeAgentThinking) {
+		t.Error("agent.thinking leaked past a manual_review hold")
+	}
+	if hasEvent(evs, EventTypeAgentToolCall) {
+		t.Error("agent.tool_call leaked past a manual_review hold")
+	}
+	if hasEvent(evs, EventTypeAgentToolResult) {
+		t.Error("agent.tool_result leaked past a manual_review hold")
+	}
+	// Belt and suspenders: no delivered event may carry the secret content or
+	// the real reply.
+	for _, ev := range evs {
+		if strings.Contains(string(ev.Data), "SECRET") || strings.Contains(string(ev.Data), "the real reply") {
+			t.Errorf("held turn leaked answer content via %s: %s", ev.EventType, ev.Data)
+		}
+	}
+	n := firstPolicyNotice(evs)
+	if n == nil || n.Status != policyStatusPending {
+		t.Fatalf("expected a pending policy notice; got %+v", n)
+	}
+}
+
+// P — when the reply is allowed unchanged, the turn's buffered reasoning and
+// tool events are released to the caller in the order the agent produced them,
+// immediately before the reply. Policied agents don't stream live, but an
+// allowed turn must still show its full reasoning/tool trace.
+func TestAgentExecutor_AllowedReplyReleasesBufferedContentInOrder(t *testing.T) {
+	fe := &fakeExecutor{pre: &PolicyResultOutput{Allowed: true}, post: allowPost}
+	inner := func(_ context.Context, s *AgentSession) error {
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentThinking,
+			Data:      json.RawMessage(`{"content":"reasoning"}`),
+		})
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentToolCall,
+			Data:      json.RawMessage(`{"name":"calc","tool_call_id":"t1"}`),
+		})
+		_ = s.Send(AgentEventPayload{
+			EventType: EventTypeAgentToolResult,
+			Data:      json.RawMessage(`{"tool_call_id":"t1","content":"42"}`),
+		})
+		return s.Send(agentMessageEvent("the answer is 42"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	order := []string{
+		EventTypeAgentThinking, EventTypeAgentToolCall,
+		EventTypeAgentToolResult, EventTypeAgentMessage,
+	}
+	idx := indexOfEachEvent(evs, order)
+	for i, et := range order {
+		if idx[i] < 0 {
+			t.Fatalf("expected event %s to be delivered on an allowed turn", et)
+		}
+		if i > 0 && idx[i] < idx[i-1] {
+			t.Errorf("event %s out of order: index %d precedes %s at %d",
+				et, idx[i], order[i-1], idx[i-1])
+		}
+	}
+	if got := firstContent(evs, EventTypeAgentMessage); got != "the answer is 42" {
+		t.Errorf("agent.message content = %q, want %q", got, "the answer is 42")
+	}
+}
+
+// Q — the explicit Substituted flag withholds the reply even when the
+// substituted body happens to equal the agent's reply (so the legacy
+// delivered!=reply fallback would miss it). Proves detection no longer relies
+// on content comparison alone.
+func TestAgentExecutor_SubstitutedFlagWithholdsEvenWhenBodyMatches(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				// Identical text to the agent's reply — only the flag distinguishes it.
+				Result: json.RawMessage(`"the real reply"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Substituted: true, PolicyName: "manual_review",
+					Metadata: map[string]any{"review_id": "ffff0000ffff"},
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	n := firstPolicyNotice(evs)
+	if n == nil || n.Status != policyStatusPending {
+		t.Fatalf("Substituted flag should surface a pending notice even when the body matches; got %+v", n)
 	}
 }

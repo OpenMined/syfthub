@@ -318,51 +318,137 @@ func (a *AgentExecutor) relayAttachments(ctx context.Context, outer, inner *Agen
 	}
 }
 
-// relayOutbound forwards inner runtime events to the outer session. The agent's
-// reply (agent.message) is post-checked; streamed tokens are suppressed so an
-// un-reviewed reply never reaches the user; the inner terminal event is
-// consumed and returned as the handler outcome (the outer session's RunHandler
-// emits the single terminal event).
+// maxBufferedTurnEvents / maxBufferedTurnBytes cap the per-turn content buffer
+// so a runaway agent that emits answer-bearing events without ever producing a
+// reply cannot grow it without bound. The byte cap matters because a single
+// event's Data is unbounded (e.g. a multi-megabyte tool_result) — an
+// event-count cap alone would not actually bound memory. Beyond either cap,
+// further content events are dropped (never shown) — which is safe, since a
+// dropped event cannot leak — at the cost of completeness on an allowed turn.
+// A normal turn stays far below both caps.
+const (
+	maxBufferedTurnEvents = 4096
+	maxBufferedTurnBytes  = 16 << 20 // 16 MiB
+)
+
+// relayOutbound forwards inner runtime events to the outer session, gating
+// every answer-bearing event behind the turn's post-execution policy check.
+//
+// The agent's reply (agent.message) is post-checked. The events that PRODUCE
+// that reply — agent.thinking, agent.tool_call, agent.tool_result and
+// agent-emitted attachments — are buffered for the current turn and released to
+// the caller only when the reply is delivered unchanged; they are dropped when
+// the reply is held (manual_review) or blocked. Otherwise a hold would still
+// leak the agent's reasoning and tool output, which for a tool-using agent IS
+// the answer — the bug this gating fixes. This extends the original
+// token-suppression rationale (a policied agent never streams an un-reviewed
+// reply) from raw tokens to every answer-bearing event.
+//
+// The switch fails CLOSED: only the events explicitly known to carry no answer
+// content (progress, interaction, error, payment) are forwarded live; the
+// default branch buffers everything else, so a content-bearing event added to
+// the protocol later cannot stream un-reviewed just because this code wasn't
+// updated. The inner terminal event is consumed and returned as the handler
+// outcome (the outer session's RunHandler emits the single terminal event).
 func (a *AgentExecutor) relayOutbound(
 	ctx context.Context, outer, inner *AgentSession, tracker *turnTracker,
 ) error {
+	// pendingContent holds the current turn's answer-bearing events until its
+	// reply clears the post-check; pendingBytes tracks its cumulative Data
+	// size for the byte cap. Both reset at every reply (the turn boundary).
+	var pendingContent []AgentEventPayload
+	var pendingBytes int
 	for ev := range inner.SendCh() {
 		switch ev.EventType {
 		case EventTypeAgentToken:
-			// Suppressed — the full reply is delivered post-check as
-			// agent.message; streaming raw tokens would leak it un-reviewed.
+			// Dropped — the full reply arrives post-checked as agent.message;
+			// forwarding raw tokens would leak it un-reviewed and duplicate the
+			// delivered message.
 			continue
 		case EventTypeSessionCompleted:
 			return nil
 		case EventTypeSessionFailed:
 			return errorFromFailedEvent(ev)
 		case EventTypeAgentMessage:
-			a.handleReply(ctx, outer, tracker, ev)
+			a.handleReply(ctx, outer, tracker, ev, pendingContent)
+			pendingContent, pendingBytes = nil, 0 // turn boundary: released or dropped in handleReply
+		case EventTypeAgentStatus, EventTypeAgentRequestInput,
+			EventTypeAgentError, EventTypeAgentPaymentRequired:
+			// Progress, interaction, error and payment signals carry no answer
+			// content, so they are forwarded live — the caller still sees the
+			// agent working and can answer mid-turn input requests.
+			a.forwardToCaller(outer, ev)
 		default:
-			// thinking / tool_call / tool_result / status / request_input
-			// / attachment — forwarded unchanged.
-			if err := outer.Send(ev); err != nil {
-				a.logger.Warn("[AGENT-POLICY] failed to forward event to caller",
-					"slug", a.slug, "type", ev.EventType, "error", err)
-			}
+			// Everything else — agent.thinking, agent.tool_call,
+			// agent.tool_result, agent-emitted attachments, AND any future
+			// content-bearing event — is gated behind the turn's post-check.
+			// Failing closed here is deliberate: mis-buffering a benign signal
+			// only delays it by a turn, whereas mis-forwarding a content event
+			// is a policy bypass.
+			pendingContent, pendingBytes = a.bufferTurnContent(pendingContent, pendingBytes, ev)
 		}
 	}
 	return nil
 }
 
-// handleReply post-checks one agent reply and delivers the (possibly
-// substituted) result, or a denial.
+// forwardToCaller sends one event to the outer (caller-facing) session, logging
+// a delivery failure rather than dropping it silently. Shared by the live
+// forward path and the buffered-content flush.
+func (a *AgentExecutor) forwardToCaller(outer *AgentSession, ev AgentEventPayload) {
+	if err := outer.Send(ev); err != nil {
+		a.logger.Warn("[AGENT-POLICY] failed to send event to caller",
+			"slug", a.slug, "type", ev.EventType, "error", err)
+	}
+}
+
+// bufferTurnContent appends an answer-bearing event to the per-turn buffer,
+// enforcing maxBufferedTurnEvents and maxBufferedTurnBytes (bufBytes is the
+// buffer's running Data size; the updated value is returned alongside the
+// buffer). Dropping past either cap is safe (a dropped event cannot leak) and
+// only sacrifices completeness on an eventually-allowed turn.
+func (a *AgentExecutor) bufferTurnContent(
+	buf []AgentEventPayload, bufBytes int, ev AgentEventPayload,
+) ([]AgentEventPayload, int) {
+	if len(buf) >= maxBufferedTurnEvents || bufBytes+len(ev.Data) > maxBufferedTurnBytes {
+		a.logger.Warn("[AGENT-POLICY] per-turn content buffer cap reached; dropping event",
+			"slug", a.slug, "type", ev.EventType,
+			"events", len(buf), "bytes", bufBytes)
+		return buf, bufBytes
+	}
+	return append(buf, ev), bufBytes + len(ev.Data)
+}
+
+// flushTurnContent releases buffered answer-bearing events to the caller in the
+// order the agent produced them. Called only after a reply clears the
+// post-execution check, so the caller sees the agent's reasoning and tool
+// activity together with the approved reply.
+func (a *AgentExecutor) flushTurnContent(outer *AgentSession, buf []AgentEventPayload) {
+	for _, ev := range buf {
+		a.forwardToCaller(outer, ev)
+	}
+}
+
+// handleReply post-checks one agent reply and either delivers it (releasing the
+// turn's buffered reasoning/tool events first) or withholds it as a block or
+// pending notice (dropping the buffered events so they cannot leak).
+//
+// pendingContent is the turn's buffered answer-bearing events; it is flushed to
+// the caller ONLY on the allowed-and-unchanged path. Every withhold path
+// returns without flushing, so relayOutbound's reset drops the buffer — the
+// reasoning and tool output that produced a held/blocked reply must never reach
+// the user, exactly as the reply itself must not.
 func (a *AgentExecutor) handleReply(
-	ctx context.Context, outer *AgentSession, tracker *turnTracker, ev AgentEventPayload,
+	ctx context.Context, outer *AgentSession, tracker *turnTracker,
+	ev AgentEventPayload, pendingContent []AgentEventPayload,
 ) {
 	reply := contentOfMessage(ev)
 	a.logger.Info("[AGENT-POLICY] agent reply received — post-checking",
-		"slug", a.slug, "reply_len", len(reply))
+		"slug", a.slug, "reply_len", len(reply), "buffered_events", len(pendingContent))
 
 	out, err := a.checkPost(ctx, outer, tracker.user(), reply)
 	if err != nil {
 		// Fail closed: a failed or verdict-less policy check must not deliver
-		// an un-reviewed reply.
+		// an un-reviewed reply — nor the reasoning/tool events behind it.
 		a.logger.Error("[AGENT-POLICY] post-check failed", "slug", a.slug, "error", err)
 		a.sendPolicyNotice(outer, policyNotice{
 			Status: policyStatusBlocked,
@@ -395,14 +481,17 @@ func (a *AgentExecutor) handleReply(
 
 	// A policy can allow the turn yet replace the agent's answer — e.g.
 	// manual_review swaps in a "submitted for review" placeholder. Detect that
-	// two ways: the explicit Pending flag, and — as a fallback, since not every
-	// such policy sets the flag — the delivered body no longer matching the
-	// agent's actual reply. Either way the user is not seeing the agent's own
-	// answer, so surface it as a pending notice rather than a plain reply.
-	if out.PolicyResult.Pending || delivered != reply {
+	// three ways, most authoritative first: the explicit Substituted flag (now
+	// carried on the wire), the Pending flag, and — as a fallback for older
+	// runners that send neither — the delivered body no longer matching the
+	// agent's actual reply. Any of them means the user is not seeing the
+	// agent's own answer, so withhold it (and the buffered reasoning/tool
+	// events that produced it) and surface a pending notice instead.
+	if out.PolicyResult.Substituted || out.PolicyResult.Pending || delivered != reply {
 		a.logger.Info("[AGENT-POLICY] reply withheld pending policy resolution",
 			"slug", a.slug, "policy", out.PolicyResult.PolicyName,
-			"pending_flag", out.PolicyResult.Pending)
+			"substituted", out.PolicyResult.Substituted, "pending_flag", out.PolicyResult.Pending,
+			"dropped_events", len(pendingContent))
 		reviewID := metadataString(out.PolicyResult.Metadata, metadataReviewIDKey)
 		a.captureManualReviewRouting(outer, reviewID)
 		a.sendPolicyNotice(outer, policyNotice{
@@ -415,13 +504,16 @@ func (a *AgentExecutor) handleReply(
 		return
 	}
 
+	// Allowed and unchanged: release the buffered reasoning/tool events that
+	// led to this reply (in order), then the reply itself.
+	a.flushTurnContent(outer, pendingContent)
 	if err := outer.Send(agentMessageEvent(delivered)); err != nil {
 		a.logger.Error("[AGENT-POLICY] failed to forward reply to caller",
 			"slug", a.slug, "error", err)
 		return
 	}
 	a.logger.Info("[AGENT-POLICY] reply forwarded to caller",
-		"slug", a.slug, "delivered_len", len(delivered))
+		"slug", a.slug, "delivered_len", len(delivered), "released_events", len(pendingContent))
 }
 
 // ── policy invocations ───────────────────────────────────────

@@ -48,6 +48,14 @@ type PolicyResultOutput struct {
 	// Pending indicates whether the request is pending async resolution.
 	Pending bool `json:"pending"`
 
+	// Substituted indicates a policy replaced the response body with its own
+	// (e.g. manual_review's placeholder). The request still succeeded
+	// (Allowed is true), but the delivered body is the policy's, not the
+	// handler's. Mirrors policy_manager PolicyResult.substituted. Lets the
+	// agent post-check detect a held reply explicitly rather than inferring it
+	// from a body/reply mismatch.
+	Substituted bool `json:"substituted"`
+
 	// Metadata contains additional policy-specific metadata.
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
