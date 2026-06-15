@@ -698,6 +698,42 @@ export namespace main {
 	}
 
 
+	export class MCPImportResult {
+	    imported: number;
+	    skipped: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new MCPImportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.imported = source["imported"];
+	        this.skipped = source["skipped"];
+	    }
+	}
+	export class MCPServerInfo {
+	    name: string;
+	    transport: string;
+	    enabled: boolean;
+	    source: string;
+	    authMode: string;
+	    authStatus: string;
+
+	    static createFrom(source: any = {}) {
+	        return new MCPServerInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.transport = source["transport"];
+	        this.enabled = source["enabled"];
+	        this.source = source["source"];
+	        this.authMode = source["authMode"];
+	        this.authStatus = source["authStatus"];
+	    }
+	}
 	export class ManualReviewEntry {
 	    reviewId: string;
 	    policyName: string;
@@ -747,6 +783,24 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class MountEntry {
+	    source: string;
+	    target: string;
+	    readOnly: boolean;
+	    isDir: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new MountEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.target = source["target"];
+	        this.readOnly = source["readOnly"];
+	        this.isDir = source["isDir"];
+	    }
 	}
 	export class NetworkAgentInfo {
 	    slug: string;
@@ -1001,6 +1055,34 @@ export namespace main {
 	    }
 	}
 
+	export class SandboxSettings {
+	    exposeEnv: string[];
+	    exposeResources: string[];
+	    exposeMcp: string[];
+	    workspaceScope: string;
+	    workspacePath: string;
+	    cpuCores: number;
+	    memoryMb: number;
+	    timeoutSeconds: number;
+	    tmpfsMb: number;
+
+	    static createFrom(source: any = {}) {
+	        return new SandboxSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.exposeEnv = source["exposeEnv"];
+	        this.exposeResources = source["exposeResources"];
+	        this.exposeMcp = source["exposeMcp"];
+	        this.workspaceScope = source["workspaceScope"];
+	        this.workspacePath = source["workspacePath"];
+	        this.cpuCores = source["cpuCores"];
+	        this.memoryMb = source["memoryMb"];
+	        this.timeoutSeconds = source["timeoutSeconds"];
+	        this.tmpfsMb = source["tmpfsMb"];
+	    }
+	}
 	export class SentReviewEntry {
 	    reviewId: string;
 	    identity: string;

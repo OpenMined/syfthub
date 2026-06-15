@@ -6,6 +6,8 @@ import {updater} from '../models';
 
 export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function AddEndpointMounts(arg1:string,arg2:Array<string>):Promise<void>;
+
 export function ApplyHostResolution(arg1:string,arg2:manualreview.ResolvedEnvelope,arg3:manualreview.ResolvedPayload,arg4:number):Promise<boolean>;
 
 export function ApplyHostResolutionDetailed(arg1:string,arg2:manualreview.ResolvedEnvelope,arg3:manualreview.ResolvedPayload,arg4:number):Promise<main.HostResolutionOutcome>;
@@ -30,6 +32,10 @@ export function CheckEndpointExists(arg1:string):Promise<string|boolean>;
 
 export function CheckForUpdatesNow():Promise<void>;
 
+export function ClearEndpointEgressKey(arg1:string):Promise<void>;
+
+export function ConnectMCPServer(arg1:string):Promise<void>;
+
 export function CreateEndpoint(arg1:main.CreateEndpointRequest):Promise<string>;
 
 export function CreatePolicyFile(arg1:string,arg2:main.NewPolicyRequest):Promise<void>;
@@ -38,6 +44,8 @@ export function DeleteDependency(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteEndpoint(arg1:string):Promise<void>;
 
+export function DeleteEndpointMount(arg1:string,arg2:string):Promise<void>;
+
 export function DeleteEnvironment(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteLogs(arg1:string):Promise<void>;
@@ -45,6 +53,8 @@ export function DeleteLogs(arg1:string):Promise<void>;
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteSentReview(arg1:string):Promise<void>;
+
+export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DownloadUpdate():Promise<void>;
 
@@ -61,6 +71,12 @@ export function GetDependencies(arg1:string):Promise<Array<main.Dependency>>;
 export function GetDownloadState():Promise<updater.DownloadState>;
 
 export function GetEndpointDetail(arg1:string):Promise<main.EndpointDetail>;
+
+export function GetEndpointEgressKeyStatus(arg1:string):Promise<boolean>;
+
+export function GetEndpointMounts(arg1:string):Promise<Array<main.MountEntry>>;
+
+export function GetEndpointSandbox(arg1:string):Promise<main.SandboxSettings>;
 
 export function GetEndpoints():Promise<Array<main.EndpointInfo>>;
 
@@ -106,11 +122,15 @@ export function GetVersion():Promise<string>;
 
 export function HasSettings():Promise<boolean>;
 
+export function ImportMCPServersFromClaudeConfig():Promise<main.MCPImportResult>;
+
 export function InstallLibraryPackage(arg1:string,arg2:string,arg3:Record<string, string>):Promise<void>;
 
 export function InstallSkillFromPaths(arg1:string,arg2:Array<string>):Promise<void>;
 
 export function InstallUpdate():Promise<void>;
+
+export function ListMCPServers():Promise<Array<main.MCPServerInfo>>;
 
 export function ListNetworkAgents():Promise<Array<main.NetworkAgentInfo>>;
 
@@ -176,7 +196,15 @@ export function SetAutoCheckEnabled(arg1:boolean):Promise<void>;
 
 export function SetContainerEnabled(arg1:boolean):Promise<void>;
 
+export function SetEndpointEgressKey(arg1:string,arg2:string):Promise<void>;
+
+export function SetEndpointMount(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
+export function SetEndpointSandbox(arg1:string,arg2:main.SandboxSettings):Promise<void>;
+
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetMCPServerEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetPaymentCap(arg1:main.PaymentCap):Promise<void>;
 

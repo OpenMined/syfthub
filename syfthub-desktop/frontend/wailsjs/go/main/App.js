@@ -6,6 +6,10 @@ export function AddDependency(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDependency'](arg1, arg2, arg3);
 }
 
+export function AddEndpointMounts(arg1, arg2) {
+  return window['go']['main']['App']['AddEndpointMounts'](arg1, arg2);
+}
+
 export function ApplyHostResolution(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ApplyHostResolution'](arg1, arg2, arg3, arg4);
 }
@@ -54,6 +58,14 @@ export function CheckForUpdatesNow() {
   return window['go']['main']['App']['CheckForUpdatesNow']();
 }
 
+export function ClearEndpointEgressKey(arg1) {
+  return window['go']['main']['App']['ClearEndpointEgressKey'](arg1);
+}
+
+export function ConnectMCPServer(arg1) {
+  return window['go']['main']['App']['ConnectMCPServer'](arg1);
+}
+
 export function CreateEndpoint(arg1) {
   return window['go']['main']['App']['CreateEndpoint'](arg1);
 }
@@ -70,6 +82,10 @@ export function DeleteEndpoint(arg1) {
   return window['go']['main']['App']['DeleteEndpoint'](arg1);
 }
 
+export function DeleteEndpointMount(arg1, arg2) {
+  return window['go']['main']['App']['DeleteEndpointMount'](arg1, arg2);
+}
+
 export function DeleteEnvironment(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvironment'](arg1, arg2);
 }
@@ -84,6 +100,10 @@ export function DeletePolicyFile(arg1, arg2) {
 
 export function DeleteSentReview(arg1) {
   return window['go']['main']['App']['DeleteSentReview'](arg1);
+}
+
+export function DisconnectMCPServer(arg1) {
+  return window['go']['main']['App']['DisconnectMCPServer'](arg1);
 }
 
 export function DownloadUpdate() {
@@ -116,6 +136,18 @@ export function GetDownloadState() {
 
 export function GetEndpointDetail(arg1) {
   return window['go']['main']['App']['GetEndpointDetail'](arg1);
+}
+
+export function GetEndpointEgressKeyStatus(arg1) {
+  return window['go']['main']['App']['GetEndpointEgressKeyStatus'](arg1);
+}
+
+export function GetEndpointMounts(arg1) {
+  return window['go']['main']['App']['GetEndpointMounts'](arg1);
+}
+
+export function GetEndpointSandbox(arg1) {
+  return window['go']['main']['App']['GetEndpointSandbox'](arg1);
 }
 
 export function GetEndpoints() {
@@ -206,6 +238,10 @@ export function HasSettings() {
   return window['go']['main']['App']['HasSettings']();
 }
 
+export function ImportMCPServersFromClaudeConfig() {
+  return window['go']['main']['App']['ImportMCPServersFromClaudeConfig']();
+}
+
 export function InstallLibraryPackage(arg1, arg2, arg3) {
   return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2, arg3);
 }
@@ -216,6 +252,10 @@ export function InstallSkillFromPaths(arg1, arg2) {
 
 export function InstallUpdate() {
   return window['go']['main']['App']['InstallUpdate']();
+}
+
+export function ListMCPServers() {
+  return window['go']['main']['App']['ListMCPServers']();
 }
 
 export function ListNetworkAgents() {
@@ -346,8 +386,24 @@ export function SetContainerEnabled(arg1) {
   return window['go']['main']['App']['SetContainerEnabled'](arg1);
 }
 
+export function SetEndpointEgressKey(arg1, arg2) {
+  return window['go']['main']['App']['SetEndpointEgressKey'](arg1, arg2);
+}
+
+export function SetEndpointMount(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetEndpointMount'](arg1, arg2, arg3, arg4);
+}
+
+export function SetEndpointSandbox(arg1, arg2) {
+  return window['go']['main']['App']['SetEndpointSandbox'](arg1, arg2);
+}
+
 export function SetEnvironment(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvironment'](arg1, arg2, arg3);
+}
+
+export function SetMCPServerEnabled(arg1, arg2) {
+  return window['go']['main']['App']['SetMCPServerEnabled'](arg1, arg2);
 }
 
 export function SetPaymentCap(arg1) {

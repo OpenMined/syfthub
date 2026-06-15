@@ -40,7 +40,7 @@ export function TabsList({ children, className }: TabsListProps) {
   return (
     <div
       className={cn(
-        'inline-flex h-9 items-center justify-start gap-1 rounded-lg bg-card/50 p-1',
+        'inline-flex h-9 items-center justify-start gap-1 rounded-lg bg-muted p-1',
         className
       )}
       role="tablist"
@@ -72,8 +72,8 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         'disabled:pointer-events-none disabled:opacity-50',
         isSelected
-          ? 'bg-secondary text-foreground shadow-sm'
-          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50',
+          ? 'bg-background text-foreground shadow-sm'
+          : 'text-muted-foreground hover:text-foreground',
         className
       )}
     >

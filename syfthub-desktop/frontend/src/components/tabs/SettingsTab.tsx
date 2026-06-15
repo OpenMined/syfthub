@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MoreVertical, OctagonAlert, TriangleAlert } from 'lucide-react';
+import { MoreVertical, OctagonAlert, Shield, TriangleAlert } from 'lucide-react';
 import { useAppStore, MULTILINE_ENV_KEYS, type EnvVar } from '../../stores/appStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +38,8 @@ import { GetDependencies, AddDependency, DeleteDependency, OpenEndpointFolder, L
 import { main } from '../../../wailsjs/go/models';
 import Editor from '@monaco-editor/react';
 import { SkillsSection } from './SkillsSection';
+import { MountsSection } from './MountsSection';
+import { SandboxModal } from './SandboxModal';
 import { X402PolicyForm } from './X402PolicyForm';
 import { X402ReceiptsPanel } from './X402ReceiptsPanel';
 
@@ -109,6 +111,7 @@ export function OverviewSection() {
   const [version, setVersion] = useState('');
   const [isDirty, setIsDirty] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sandboxOpen, setSandboxOpen] = useState(false);
 
   useEffect(() => {
     if (selectedEndpointDetail) {
@@ -166,6 +169,14 @@ export function OverviewSection() {
                 {isSaving ? 'Saving...' : 'Save'}
               </Button>
             )}
+            <button
+              type="button"
+              onClick={() => setSandboxOpen(true)}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium border border-input text-muted-foreground hover:bg-secondary/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring/50"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Sandbox
+            </button>
             <Popover open={menuOpen} onOpenChange={setMenuOpen}>
               <PopoverTrigger asChild>
                 <button
@@ -244,6 +255,11 @@ export function OverviewSection() {
           <SkillsSection embedded />
         </div>
 
+        {/* Mounts — host folders bind-mounted into the endpoint's container. */}
+        <div className="pt-4 border-t border-border/30">
+          <MountsSection />
+        </div>
+
         {/* TODO(AGENT_ONLY): Type selector hidden — only agent endpoints supported.
             To restore, uncomment the <Field label="Type"> block below and remove the read-only display. */}
         {/* <Field label="Type">
@@ -263,6 +279,7 @@ export function OverviewSection() {
         </Field> */}
       </div>
 
+      <SandboxModal open={sandboxOpen} onOpenChange={setSandboxOpen} />
     </div>
   );
 }

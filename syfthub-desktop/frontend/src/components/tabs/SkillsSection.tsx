@@ -1,13 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type DragEvent,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
-import { Eye, OctagonAlert, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Eye, OctagonAlert, Sparkles, Trash2, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -38,9 +30,14 @@ import {
   ReadSkill,
   RemoveSkill,
 } from '../../../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
 import { main } from '../../../wailsjs/go/models';
 import { useAppStore } from '../../stores/appStore';
+import {
+  DropzoneOverlays,
+  basename,
+  dropzoneBorderClass,
+  useWailsDropzone,
+} from '../../hooks/use-wails-dropzone';
 
 type SkillInfo = main.SkillInfo;
 
@@ -56,12 +53,6 @@ function formatBytes(n: number): string {
 // is an intentional improvement: a day-resolution bucket gets misleading fast
 // while an absolute date stays meaningful.
 
-type DropzoneState =
-  | { phase: 'idle' }
-  | { phase: 'dragover' }
-  | { phase: 'uploading'; label: string }
-  | { phase: 'error'; message: string };
-
 export function SkillsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const selectedEndpointSlug = useAppStore((s) => s.selectedEndpointSlug);
   const selectedEndpointDetail = useAppStore((s) => s.selectedEndpointDetail);
@@ -70,11 +61,6 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dropState, setDropState] = useState<DropzoneState>({ phase: 'idle' });
-  // dragDepth tracks nested dragenter/leave so the visual state only resets
-  // when the cursor truly leaves the dropzone — bubbled events from inner
-  // children otherwise cause flicker.
-  const dragDepth = useRef(0);
 
   // Preview Sheet state
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -106,82 +92,23 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
     }
   }, [fetchSkills, isAgent]);
 
-  const installFromPaths = useCallback(
-    async (paths: string[]) => {
-      if (!selectedEndpointSlug || paths.length === 0) return;
-      const label = paths[0].split(/[/\\]/).pop() ?? 'item';
-      setDropState({ phase: 'uploading', label: `Installing ${label}…` });
-      try {
-        await InstallSkillFromPaths(selectedEndpointSlug, paths);
-        setDropState({ phase: 'idle' });
-        await fetchSkills();
-      } catch (err) {
-        setDropState({ phase: 'error', message: String(err) });
-      }
+  // The listener is only registered for agent endpoints, so drops on other
+  // endpoint types aren't routed here.
+  const { dropState, setDropState, runPaths, zoneProps } = useWailsDropzone({
+    onPaths: async (paths) => {
+      if (!selectedEndpointSlug) return;
+      await InstallSkillFromPaths(selectedEndpointSlug, paths);
+      await fetchSkills();
     },
-    [selectedEndpointSlug, fetchSkills],
-  );
-
-  // Listen for Wails native file drop. We only register this while
-  // SkillsSection is mounted, so drops on other settings sections aren't
-  // routed here.
-  useEffect(() => {
-    if (!isAgent) return;
-    const handler = (...args: unknown[]) => {
-      // Wails emits (x, y, paths). We don't care about coordinates because
-      // the dropzone is the only drop target on this section.
-      const paths = args[2];
-      if (Array.isArray(paths) && paths.every((p) => typeof p === 'string')) {
-        dragDepth.current = 0;
-        void installFromPaths(paths as string[]);
-      }
-    };
-    EventsOn('wails:file-drop', handler);
-    return () => EventsOff('wails:file-drop');
-  }, [isAgent, installFromPaths]);
-
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepth.current += 1;
-    if (dropState.phase === 'idle' || dropState.phase === 'error') {
-      setDropState({ phase: 'dragover' });
-    }
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepth.current = Math.max(0, dragDepth.current - 1);
-    if (dragDepth.current === 0 && dropState.phase === 'dragover') {
-      setDropState({ phase: 'idle' });
-    }
-  };
-
-  // The HTML drop event is purely cosmetic now — Wails handles the actual
-  // file delivery via wails:file-drop. We just stage the "uploading" state
-  // so the user gets immediate feedback; the install completes when the
-  // wails:file-drop handler fires.
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragDepth.current = 0;
-    if (dropState.phase === 'dragover') {
-      setDropState({ phase: 'uploading', label: 'Reading dropped items…' });
-    }
-  };
+    uploadingLabel: (paths) => `Installing ${basename(paths[0]) || 'item'}…`,
+    enabled: isAgent,
+  });
 
   const handleBrowse = async () => {
     try {
       const path = await BrowseForFolder('Choose skill folder');
       if (path) {
-        await installFromPaths([path]);
+        await runPaths([path]);
       }
     } catch (err) {
       setDropState({ phase: 'error', message: String(err) });
@@ -252,18 +179,8 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
       <div
         role="region"
         aria-label="Installed skills. Drop a folder or SKILL.md file here to install."
-        className={`relative flex flex-col min-h-0 h-[360px] rounded-lg border-2 px-4 py-3 transition-colors duration-150 ease-out ${
-          dropState.phase === 'dragover'
-            ? 'border-solid border-primary bg-primary/5 ring-2 ring-primary/20'
-            : dropState.phase === 'error'
-              ? 'border-solid border-destructive/40 bg-destructive/5'
-              : 'border-dashed border-border/60 bg-card/30'
-        }`}
-        style={dropTargetStyle}
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        className={`relative flex flex-col min-h-0 h-[200px] rounded-lg border-2 px-4 py-3 transition-colors duration-150 ease-out ${dropzoneBorderClass(dropState)}`}
+        {...zoneProps}
       >
         <p className="text-xs text-muted-foreground mb-3 flex-shrink-0">
           Installed {!loading && skills.length > 0 ? `(${skills.length})` : ''}
@@ -334,33 +251,11 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
           </ul>
         )}
 
-        {dropState.phase === 'dragover' && (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-primary/5">
-            <Upload className="w-8 h-8 mb-2 text-primary" />
-            <p className="text-sm text-primary font-medium">Release to install skill</p>
-          </div>
-        )}
-
-        {dropState.phase === 'uploading' && (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-card/80 backdrop-blur-sm">
-            <Spinner className="w-8 h-8 mb-2 text-primary" />
-            <p className="text-sm text-foreground">{dropState.label}</p>
-          </div>
-        )}
-
-        {dropState.phase === 'error' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-destructive/5 p-4">
-            <OctagonAlert className="w-8 h-8 mb-2 text-destructive" />
-            <p className="text-sm text-destructive max-w-sm text-center">{dropState.message}</p>
-            <button
-              onClick={() => setDropState({ phase: 'idle' })}
-              className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-              aria-label="Dismiss error"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        <DropzoneOverlays
+          state={dropState}
+          dragMessage="Release to install skill"
+          onDismissError={() => setDropState({ phase: 'idle' })}
+        />
       </div>
 
       {/* Preview Sheet */}
@@ -468,11 +363,3 @@ function SkillsHeader({
     </div>
   );
 }
-
-// dropTargetStyle marks this element as a Wails native file-drop target.
-// The CSS property name and value match the DragAndDrop options configured
-// in main.go ("--wails-drop-target": "drop"); Wails uses this marker to
-// decide which DOM element to deliver OS file drops to.
-const dropTargetStyle: CSSProperties = {
-  ['--wails-drop-target' as unknown as keyof CSSProperties]: 'drop',
-} as CSSProperties;
