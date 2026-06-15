@@ -7,12 +7,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// TestBuildContainerEndpointFailsClosedWithoutBroker guards the fail-closed
+// rule: when RequireEgressBroker is set but no EgressProvisioner is available,
+// building a container endpoint must error (before any slow IO) rather than
+// fall back to the legacy path that places the real credential in the container
+// env.
+func TestBuildContainerEndpointFailsClosedWithoutBroker(t *testing.T) {
+	provider, err := NewProvider(&ProviderConfig{
+		BasePath:            t.TempDir(),
+		PythonPath:          "python3",
+		RequireEgressBroker: true,
+		// No EgressProvisioner → must fail closed.
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	loaded := &LoadedEndpoint{
+		Config: &EndpointConfig{
+			Slug:    "agent-ep",
+			Name:    "Agent",
+			Type:    "agent",
+			Runtime: RuntimeConfig{Timeout: 30},
+		},
+		Dir: t.TempDir(),
+	}
+	_, err = provider.buildContainerEndpoint(context.Background(), loaded)
+	if err == nil || !strings.Contains(err.Error(), "egress broker required") {
+		t.Fatalf("expected fail-closed error, got %v", err)
+	}
+}
 
 func TestNewProvider(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "provider_test")

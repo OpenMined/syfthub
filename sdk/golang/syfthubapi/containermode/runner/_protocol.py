@@ -11,10 +11,16 @@ from typing import Final
 
 # Host-set env vars read by server.py.
 SYFT_HANDLER_ENV: Final[str]      = "_SYFT_HANDLER_ENV"
-SYFT_ALLOW_SUBPROC: Final[str]    = "SYFT_ALLOW_SUBPROC"
 SYFT_WORKSPACE_SCOPE: Final[str]  = "SYFT_WORKSPACE_SCOPE"
 SYFT_SANDBOX_NET: Final[str]      = "SYFT_SANDBOX_NET"
-SYFT_SUBPROC_ENV: Final[str]      = "SYFT_SUBPROC_ENV"
+SYFT_EGRESS_PORT: Final[str]      = "SYFT_EGRESS_PORT"
+SYFT_EGRESS_SOCK: Final[str]      = "SYFT_EGRESS_SOCK"
+
+# Handler-visible MCP discovery vars (read by the runner, not server.py): where
+# brokered MCP tool servers live and which are exposed. No credential involved —
+# the broker injects the server's host-held credential.
+SYFT_MCP_BASE_URL: Final[str]     = "SYFT_MCP_BASE_URL"
+SYFT_MCP_SERVERS: Final[str]      = "SYFT_MCP_SERVERS"
 
 # server.py-set env vars read by the handler / _syft_audit.py inside bwrap.
 SYFT_ALLOW_SUBPROCESS: Final[str] = "SYFT_ALLOW_SUBPROCESS"

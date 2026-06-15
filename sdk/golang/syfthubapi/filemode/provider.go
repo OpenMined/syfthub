@@ -77,6 +77,17 @@ type Provider struct {
 	// (desktop) which holds the wallet / secret store. nil disables x402.
 	mppxGate syfthubapi.MppxGate
 
+	// egressProvisioner, when non-nil, brokers LLM egress for every container
+	// endpoint (mandatory; docker --network none + relay → host broker socket).
+	egressProvisioner EgressProvisioner
+
+	// requireEgressBroker makes a non-nil egressProvisioner mandatory: when set,
+	// a container endpoint that cannot be brokered fails to build rather than
+	// falling back to the legacy un-brokered path (real credentials in the
+	// container env). Fail-closed for hosts whose security model depends on the
+	// broker always being present.
+	requireEgressBroker bool
+
 	mu sync.RWMutex
 
 	onReload   func([]*syfthubapi.Endpoint)
@@ -115,6 +126,20 @@ type ProviderConfig struct {
 	// can materialise x402_challenge_spec metadata into a real mppx
 	// challenge. Set by the embedder (desktop). nil disables x402.
 	MppxGate syfthubapi.MppxGate
+
+	// EgressProvisioner, when non-nil, makes LLM egress mandatory and brokered
+	// for every container endpoint: the container runs with no direct internet
+	// and reaches its model API only through the host broker. Set by the
+	// embedder (desktop). nil leaves egress to the sandbox network config.
+	EgressProvisioner EgressProvisioner
+
+	// RequireEgressBroker, when true, refuses to build a container endpoint
+	// unless EgressProvisioner is set and provisioning succeeds — failing closed
+	// instead of silently falling back to the un-brokered path with the real
+	// credential in the container env. The desktop sets this so a transient
+	// failure to construct the broker (e.g. the data dir is briefly
+	// unresolvable) disables container endpoints rather than de-protecting them.
+	RequireEgressBroker bool
 }
 
 // SetMppxGate updates the gate used when building (or rebuilding) endpoint
@@ -192,6 +217,8 @@ func NewProvider(cfg *ProviderConfig) (*Provider, error) {
 		routingRecorderFactory: cfg.RoutingRecorderFactory,
 		routingRecorders:       make(map[string]manualreview.RoutingRecorder),
 		mppxGate:               cfg.MppxGate,
+		egressProvisioner:      cfg.EgressProvisioner,
+		requireEgressBroker:    cfg.RequireEgressBroker,
 		onReload:               cfg.OnReload,
 		onProgress:             cfg.OnProgress,
 		stopCh:                 make(chan struct{}),
@@ -837,6 +864,13 @@ func (p *Provider) removeEndpointLocked(slug string) {
 	delete(p.executors, slug+".policy")
 	// Keep p.noopHandlerPaths entry intact — see comment above.
 
+	// Tear down the endpoint's egress-broker binding. On reload the subsequent
+	// buildContainerEndpoint re-Provisions it; on removal this is the final
+	// cleanup (otherwise the host socket listener would live until shutdown).
+	if p.egressProvisioner != nil {
+		p.egressProvisioner.Deprovision(slug)
+	}
+
 	// Close the routing recorder for this endpoint. Unlike the noop handler
 	// file, the recorder is purely in-memory state — closing it here is safe
 	// because the AgentExecutor that holds a reference to it goes away when
@@ -957,6 +991,14 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 		"policy_count", len(loaded.PolicyConfigs),
 	)
 
+	// Fail closed BEFORE any slow IO (image pull, sandbox materialize): when the
+	// host mandates brokered egress but no broker is available, building the
+	// container via the legacy path would place the real credential in its env.
+	// Refuse instead of silently de-protecting the endpoint.
+	if p.egressProvisioner == nil && p.requireEgressBroker {
+		return nil, fmt.Errorf("egress broker required but unavailable for %s: refusing to build a container endpoint with un-brokered credentials", loaded.Config.Slug)
+	}
+
 	emit(LoadPhaseResolvingImage, "")
 	// Resolve per-endpoint image: frontmatter container.image > Dockerfile > global default.
 	image, err := containermode.ResolveEndpointImage(
@@ -1008,20 +1050,34 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 		return nil, fmt.Errorf("create workspace dir %q: %w", workspaceDir, err)
 	}
 
-	// Network mode at the DOCKER level: per-endpoint sandbox.network.mode
-	// > global config. server.py uses the SYFT_SANDBOX_NET env var below
-	// to decide bwrap's --unshare-net, independently of this.
+	// Egress posture. With a broker, the LLM credential never enters the
+	// container: the handler's base URLs point at the in-container relay, which
+	// forwards over a bind-mounted unix socket to the host broker (the credential
+	// is injected host-side). That credential-isolation guarantee (V1) holds on
+	// any docker network and does not use the container's network at all.
+	//
+	// The container therefore stays on the DEFAULT bridge network: docker
+	// `--network none` disables port publishing, but the host reaches server.py
+	// via a published port (8080) — so `none` makes the container undrivable
+	// ("no public port 8080 published"). Cutting the container off from the
+	// public internet entirely (V2) requires a unix-socket control plane or an
+	// `--internal` docker network and is a follow-up; it is intentionally NOT
+	// done by force-setting `none` here.
 	dockerNetwork := ""
-	if loaded.Config.Sandbox.Network.Mode == "none" {
+	sandboxNet := "open"
+	var egressProv *EgressProvision
+	if p.egressProvisioner != nil {
+		var err error
+		egressProv, err = p.egressProvisioner.Provision(EgressRequest{
+			Slug:       loaded.Config.Slug,
+			MCPServers: loaded.Config.Sandbox.ExposeMCP,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("egress provision for %s: %w", loaded.Config.Slug, err)
+		}
+	} else if loaded.Config.Sandbox.Network.Mode == "none" {
 		dockerNetwork = "none"
-	}
-
-	// Sandbox-level network mode forwarded to server.py via env var.
-	// Falls back to "open" when unset (container has full network; bwrap
-	// shares it).
-	sandboxNet := loaded.Config.Sandbox.Network.Mode
-	if sandboxNet == "" {
-		sandboxNet = "open"
+		sandboxNet = "none"
 	}
 
 	// Workspace scope — agent endpoints default to per-session so each
@@ -1035,8 +1091,22 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 		}
 	}
 
-	// Allowlist of env var names the handler may see.
-	handlerEnvKeys := collectKeys(loaded.HandlerEnv)
+	// Container env = the handler allowlist. When brokering, brokeredEnv
+	// rewrites it (strip real creds, point base URLs at the relay, append
+	// sentinel creds). Child processes the handler spawns (e.g. the claude
+	// CLI) inherit the handler's full env, so the brokered vars reach claude
+	// automatically; the injected creds are sentinels (the broker swaps in the
+	// real host credential), so this leaks nothing.
+	containerEnv := append([]string{}, loaded.HandlerEnv...)
+	var relayOnlyEnv []string
+	if egressProv != nil {
+		containerEnv, relayOnlyEnv = brokeredEnv(containerEnv, egressProv)
+	}
+
+	// Allowlist of env var names the handler may see — computed BEFORE the
+	// relay-only vars are appended so they never reach the bwrap child.
+	handlerEnvKeys := collectKeys(containerEnv)
+	containerEnv = append(containerEnv, relayOnlyEnv...)
 
 	spec := containermode.BuildEndpointSpec(containermode.EndpointSpecConfig{
 		Slug:             loaded.Config.Slug,
@@ -1053,29 +1123,47 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 		// procfs-mount rule for userns), so the handler could
 		// otherwise read /proc/<server_py_pid>/environ and recover
 		// secrets that were deliberately kept out of HandlerEnv.
-		EnvVars:     loaded.HandlerEnv,
+		EnvVars:     containerEnv,
 		InstanceID:  p.instanceID,
 		Image:       image,
 		NetworkMode: dockerNetwork,
 		Sandbox: containermode.SandboxRuntimeConfig{
-			AllowSubprocess:   loaded.Config.Sandbox.AllowSubprocess,
-			WorkspaceScope:    containermode.WorkspaceScope(workspaceScope),
-			NetMode:           containermode.SandboxNetMode(sandboxNet),
-			SubprocessEnvKeys: loaded.Config.Sandbox.SubprocessEnv,
+			WorkspaceScope: containermode.WorkspaceScope(workspaceScope),
+			NetMode:        containermode.SandboxNetMode(sandboxNet),
 		},
 	})
 
 	// Append per-endpoint host bind mounts declared in README.md frontmatter.
+	// When brokering, never mount a credential file into the container — the
+	// broker holds it host-side; mounting it would reintroduce the leak.
 	for _, m := range loaded.Config.Container.Mounts {
-		source, err := expandMountSource(m.Source)
+		source, err := ExpandMountSource(m.Source)
 		if err != nil {
 			return nil, fmt.Errorf("invalid mount for %s: %w", loaded.Config.Slug, err)
+		}
+		// Check the resolved host source AND the in-container target: a
+		// credential file must never enter a brokered container, whether it is
+		// named on the target (~/.aws/credentials → /home/runner/...) or smuggled
+		// in via a credential source mounted at an innocent target under volumes/.
+		if egressProv != nil && isCredentialMount(source, m.Target) {
+			p.logger.Info("egress: skipping credential mount (brokered host-side)",
+				"slug", loaded.Config.Slug, "source", source, "target", m.Target)
+			continue
 		}
 		spec.Mounts = append(spec.Mounts, containermode.Mount{
 			Type:     "bind",
 			Source:   source,
 			Target:   m.Target,
 			ReadOnly: m.ReadOnly,
+		})
+	}
+
+	// Bind the per-endpoint broker socket so the in-container relay can reach it.
+	if egressProv != nil {
+		spec.Mounts = append(spec.Mounts, containermode.Mount{
+			Type:   "bind",
+			Source: egressProv.HostSocketPath,
+			Target: containermode.EgressGuestSocket,
 		})
 	}
 
@@ -1230,9 +1318,11 @@ func collectKeys(env []string) []string {
 	return out
 }
 
-// expandMountSource expands ~ and $VAR references in a mount source path.
-// Returns an error if expansion produces an empty or relative path.
-func expandMountSource(source string) (string, error) {
+// ExpandMountSource expands ~ and $VAR references in a mount source path.
+// Returns an error if expansion produces an empty or relative path. Exported
+// so the host UI (desktop) can stat the exact path that will be mounted,
+// rather than re-implementing the expansion semantics.
+func ExpandMountSource(source string) (string, error) {
 	if strings.HasPrefix(source, "~/") || source == "~" {
 		home, err := os.UserHomeDir()
 		if err == nil {

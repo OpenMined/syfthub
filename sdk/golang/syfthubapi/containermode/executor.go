@@ -322,25 +322,11 @@ const (
 // SandboxRuntimeConfig groups the per-endpoint flags translated into
 // SYFT_* container env vars by BuildEndpointSpec.
 type SandboxRuntimeConfig struct {
-	// AllowSubprocess flips SYFT_ALLOW_SUBPROC, which in turn makes
-	// server.py pass SYFT_ALLOW_SUBPROCESS=1 to the bwrap child. The
-	// audit hook honors that env var to let the handler call
-	// subprocess.Popen / os.exec — required for endpoints that shell
-	// out (e.g. claude-code CLI). Default false.
-	AllowSubprocess bool
-
 	// WorkspaceScope is forwarded to server.py via SYFT_WORKSPACE_SCOPE.
 	WorkspaceScope WorkspaceScope
 
 	// NetMode is forwarded to server.py via SYFT_SANDBOX_NET.
 	NetMode SandboxNetMode
-
-	// SubprocessEnvKeys is the allowlist of env-var names that
-	// subprocesses spawned by the handler inherit. Vars not in this
-	// list (other than always-essentials like PATH/HOME) are stripped
-	// from subprocess.Popen's default env via a monkey-patch installed
-	// by _syft_audit.py. runner.py's own os.environ is unaffected.
-	SubprocessEnvKeys []string
 }
 
 // SyftHandlerEnvEnv is the container env var that carries the
@@ -351,20 +337,16 @@ const SyftHandlerEnvEnv = "_SYFT_HANDLER_ENV"
 // Container env vars that flip server.py sandbox behavior. Names match
 // what server.py looks up via os.environ.get().
 const (
-	SyftAllowSubprocEnv   = "SYFT_ALLOW_SUBPROC"
 	SyftWorkspaceScopeEnv = "SYFT_WORKSPACE_SCOPE"
 	SyftSandboxNetEnv     = "SYFT_SANDBOX_NET"
-	// SyftSubprocEnvEnv carries the comma-separated allowlist of
-	// env-var names that subprocesses spawned by the handler inherit.
-	// _syft_audit.py reads it and uses it as the env-pass-through
-	// list when monkey-patching subprocess.Popen.
-	SyftSubprocEnvEnv = "SYFT_SUBPROC_ENV"
 )
 
 // bwrap-child-set env vars (server.py sets them via --setenv when
 // spawning the handler subprocess; Go never writes them on the
 // container env). Listed here so the protocol drift test pins the
-// contract between Go and the Python audit hook.
+// contract between Go and the Python audit hook. SYFT_ALLOW_SUBPROCESS
+// is always "1": subprocesses are unconditionally permitted (agent
+// runners routinely shell out, e.g. the claude-code CLI).
 const (
 	SyftAllowSubprocessEnv = "SYFT_ALLOW_SUBPROCESS"
 	SyftCodeDirEnv         = "SYFT_CODE_DIR"
@@ -426,29 +408,19 @@ func BuildEndpointSpec(cfg EndpointSpecConfig) *ContainerSpec {
 	// Pass the handler env allowlist + sandbox control flags to server.py
 	// via the container env. server.py reads:
 	//   _SYFT_HANDLER_ENV      → allowlist of env-var NAMES to forward
-	//   SYFT_ALLOW_SUBPROC     → "1" makes server.py forward
-	//                            SYFT_ALLOW_SUBPROCESS=1 to the bwrap
-	//                            child, which the audit hook honors to
-	//                            permit subprocess.Popen / os.exec
 	//   SYFT_WORKSPACE_SCOPE   → "shared" | "per_user" | "per_session"
 	//   SYFT_SANDBOX_NET       → "open" | "allowlist" | "none"
 	sb := cfg.Sandbox
-	env := make([]string, 0, len(cfg.EnvVars)+4)
+	env := make([]string, 0, len(cfg.EnvVars)+3)
 	env = append(env, cfg.EnvVars...)
 	if len(cfg.HandlerEnvKeys) > 0 {
 		env = append(env, SyftHandlerEnvEnv+"="+strings.Join(cfg.HandlerEnvKeys, ","))
-	}
-	if sb.AllowSubprocess {
-		env = append(env, SyftAllowSubprocEnv+"=1")
 	}
 	if sb.WorkspaceScope != "" {
 		env = append(env, SyftWorkspaceScopeEnv+"="+string(sb.WorkspaceScope))
 	}
 	if sb.NetMode != "" {
 		env = append(env, SyftSandboxNetEnv+"="+string(sb.NetMode))
-	}
-	if len(sb.SubprocessEnvKeys) > 0 {
-		env = append(env, SyftSubprocEnvEnv+"="+strings.Join(sb.SubprocessEnvKeys, ","))
 	}
 
 	spec := &ContainerSpec{

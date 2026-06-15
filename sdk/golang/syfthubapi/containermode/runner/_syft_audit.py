@@ -273,93 +273,16 @@ if not getattr(sys, "_syft_audit_hook_installed", False):
     sys._syft_audit_hook_installed = True  # type: ignore[attr-defined]
 
 
-# ─── subprocess-env filter ────────────────────────────────────────────
+# ─── subprocess env inheritance ───────────────────────────────────────
 #
-# runner.py is allowed to read every var that came from the endpoint's
-# .env (server.py forwards them via --setenv when spawning bwrap). But
-# subprocesses that the handler spawns (claude-code, ffmpeg, git, …)
-# would by default inherit runner.py's full environ — and a user prompt
-# could trivially trick an LLM-driven agent inside such a subprocess
-# into running `env`, `cat /proc/self/environ`, or echo'ing a specific
-# var, exfiltrating every secret in .env.
+# Subprocesses the handler spawns (claude-code, ffmpeg, git, …) inherit
+# runner.py's FULL environment by default — standard Python behavior, no
+# filtering. This is safe because no real secret lives in the container
+# env: the egress broker keeps LLM credentials on the host and injects
+# only sentinels/redacted values into the container (see provider.go and
+# egressbroker/). There is therefore nothing to strip from a child's env.
 #
-# The fix: monkey-patch subprocess.Popen.__init__ so that when no
-# explicit `env=` kwarg is given, the child inherits a STRIPPED env
-# containing only:
-#   (a) shell essentials (PATH, HOME, LANG, …) — needed for any
-#       reasonable program to start, never secrets
-#   (b) names the developer explicitly opted into via the
-#       sandbox.subprocess_env frontmatter list (forwarded here via the
-#       SYFT_SUBPROC_ENV container env var)
-#
-# Explicit env= still works: a developer who knowingly wants to leak a
-# secret to a child writes `env={**os.environ, ...}` and bears the
-# consequences. The default — the case that LLM-agent endpoints almost
-# always hit — is safe.
-
-# Minimal shell-essentials list. These are vars that an arbitrary
-# subprocess needs to start cleanly (path resolution, locale, home
-# dir). Anything beyond this — including our own SYFT_* control vars
-# and Python runtime config (PYTHONPATH, PYTHONUNBUFFERED, …) — is
-# INTENTIONALLY omitted: those are state of the bwrap-child Python
-# runtime that has no business leaking into a user-spawned binary
-# like claude-code. If the handler needs to pass an internal var
-# through, it should add the name to sandbox.subprocess_env.
-_SUBPROC_ESSENTIALS = frozenset({
-    "PATH",
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TERM",
-    "TZ",
-    "USER",
-    "LOGNAME",
-    "TMPDIR",
-})
-
-
-def _build_subproc_allowlist() -> frozenset:
-    extra = {
-        name.strip()
-        for name in os.environ.get(P.SYFT_SUBPROC_ENV, "").split(",")
-        if name.strip()
-    }
-    return _SUBPROC_ESSENTIALS | extra
-
-
-def _install_subprocess_env_filter() -> None:
-    import subprocess
-    original_init = subprocess.Popen.__init__
-    # Allowlist + os.environ are stable for the bwrap-child lifetime;
-    # compute the stripped view once at hook install.
-    keep = _build_subproc_allowlist()
-    stripped_env = {k: v for k, v in os.environ.items() if k in keep}
-
-    def patched_init(self, *args, **kwargs):
-        # Only override when caller hasn't passed an explicit env. None
-        # is the documented sentinel meaning "inherit os.environ"; we
-        # replace that default with our stripped view. Any explicit
-        # dict (including {}) is honored verbatim. Hand out a copy so
-        # subprocess can't mutate the cached dict.
-        if "env" not in kwargs or kwargs["env"] is None:
-            kwargs["env"] = dict(stripped_env)
-        return original_init(self, *args, **kwargs)
-
-    # functools.update_wrapper would clobber Popen.__init__.__qualname__
-    # etc., which Python's pickling / introspection of the class
-    # relies on. A plain assignment is fine here.
-    subprocess.Popen.__init__ = patched_init  # type: ignore[method-assign]
-
-
-if not getattr(sys, "_syft_subproc_filter_installed", False):
-    try:
-        _install_subprocess_env_filter()
-    except Exception:
-        # Audit hook is the primary defense; subprocess-env filter is
-        # belt-and-suspenders. Failure to install is logged but not
-        # fatal — the audit hook still denies subprocess unless
-        # SYFT_ALLOW_SUBPROCESS=1, and even then the user explicitly
-        # opted into the risk.
-        pass
-    sys._syft_subproc_filter_installed = True  # type: ignore[attr-defined]
+# The read/write/subprocess audit hook above remains the security
+# boundary (filesystem isolation, .env/policy denial, ctypes/privilege
+# blocks); environment confidentiality is owned by the broker, not by a
+# Popen monkey-patch.

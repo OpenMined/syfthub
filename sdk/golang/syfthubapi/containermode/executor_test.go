@@ -539,8 +539,8 @@ func TestBuildEndpointSpec_NoRawEndpointDirMount(t *testing.T) {
 }
 
 func TestBuildEndpointSpec_SandboxControlEnv(t *testing.T) {
-	// AllowSubprocess + WorkspaceScope + SandboxNetMode must surface as
-	// container env vars so server.py picks them up at startup.
+	// WorkspaceScope + SandboxNetMode must surface as container env vars
+	// so server.py picks them up at startup.
 	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
@@ -550,14 +550,12 @@ func TestBuildEndpointSpec_SandboxControlEnv(t *testing.T) {
 		InstanceID:   "c1",
 		Image:        cfg.Image,
 		Sandbox: SandboxRuntimeConfig{
-			AllowSubprocess: true,
-			WorkspaceScope:  WorkspaceScopePerSession,
-			NetMode:         SandboxNetAllowlist,
+			WorkspaceScope: WorkspaceScopePerSession,
+			NetMode:        SandboxNetAllowlist,
 		},
 	})
 
 	want := map[string]string{
-		SyftAllowSubprocEnv:   "1",
 		SyftWorkspaceScopeEnv: "per_session",
 		SyftSandboxNetEnv:     "allowlist",
 	}
@@ -570,29 +568,6 @@ func TestBuildEndpointSpec_SandboxControlEnv(t *testing.T) {
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("env %s = %q, want %q", k, got[k], v)
-		}
-	}
-}
-
-func TestBuildEndpointSpec_AllowSubprocessDefaultsOff(t *testing.T) {
-	// When AllowSubprocess is false, SYFT_ALLOW_SUBPROC must NOT appear.
-	// server.py treats absent and "0" the same (no subprocess), so an
-	// accidental setting would still be safe; this test pins the
-	// fail-closed default.
-	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
-
-	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:         "subproc-off",
-		SynthCodeDir: "/tmp/synth",
-		Global:       cfg,
-		InstanceID:   "c1",
-		Image:        cfg.Image,
-		// Sandbox.AllowSubprocess not set → defaults to false
-	})
-	for _, kv := range spec.Env {
-		if strings.HasPrefix(kv, SyftAllowSubprocEnv+"=") {
-			t.Errorf("default spec should not set %s; got %q",
-				SyftAllowSubprocEnv, kv)
 		}
 	}
 }

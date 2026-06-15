@@ -34,10 +34,12 @@ func TestProtocolDrift(t *testing.T) {
 
 	want := map[string]string{
 		"SYFT_HANDLER_ENV":      SyftHandlerEnvEnv,
-		"SYFT_ALLOW_SUBPROC":    SyftAllowSubprocEnv,
 		"SYFT_WORKSPACE_SCOPE":  SyftWorkspaceScopeEnv,
 		"SYFT_SANDBOX_NET":      SyftSandboxNetEnv,
-		"SYFT_SUBPROC_ENV":      SyftSubprocEnvEnv,
+		"SYFT_EGRESS_PORT":      EnvEgressPort,
+		"SYFT_EGRESS_SOCK":      EnvEgressSock,
+		"SYFT_MCP_BASE_URL":     EnvMCPBaseURL,
+		"SYFT_MCP_SERVERS":      EnvMCPServers,
 		"SYFT_ALLOW_SUBPROCESS": SyftAllowSubprocessEnv,
 		"SYFT_CODE_DIR":         SyftCodeDirEnv,
 		"SYFT_WORKSPACE_DIR":    SyftWorkspaceDirEnv,

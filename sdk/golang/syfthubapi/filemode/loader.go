@@ -48,31 +48,19 @@ type SandboxConfig struct {
 	// existing endpoints keep working without a frontmatter change.
 	ExposeEnv []string `yaml:"expose_env"`
 
-	// SubprocessEnv is the allowlist of env-var names that pass through
-	// to subprocesses the handler spawns. Vars NOT in this list are
-	// stripped from the subprocess's environment regardless of whether
-	// runner.py can see them. Essentials (PATH, HOME, LANG, …) are
-	// always preserved. Default empty → subprocesses inherit only
-	// essentials; .env secrets stay inside runner.py.
-	//
-	// Use this for vars that need to reach a child binary (e.g.
-	// CLAUDE_SKIP_PERMISSIONS for the claude-code CLI). API keys and
-	// other secrets should NOT be listed here — the LLM agent inside
-	// can otherwise be prompted to read them via /proc/self/environ
-	// or by running `env` through its shell tool.
-	SubprocessEnv []string `yaml:"subprocess_env"`
-
 	// ExposeResources lists endpoint-relative paths that are exposed
 	// read-only to the handler in addition to *.py files. Use this for
 	// prompt templates, static data, etc.
 	ExposeResources []string `yaml:"expose_resources"`
 
+	// ExposeMCP is the allowlist of host MCP server names this endpoint may
+	// reach through the egress broker. Each must be defined and enabled in the
+	// host's MCP registry; the broker injects the server's host-held
+	// credential, so the container never holds a PAT. Empty ⇒ no MCP access.
+	ExposeMCP []string `yaml:"expose_mcp"`
+
 	// Network controls outbound network access for the handler.
 	Network NetworkConfig `yaml:"network"`
-
-	// AllowSubprocess, when true, lets the handler spawn child processes.
-	// Default false — the audit hook blocks subprocess.Popen.
-	AllowSubprocess bool `yaml:"allow_subprocess"`
 
 	// Limits caps CPU, memory, wall-clock, and tmpfs usage.
 	Limits LimitsConfig `yaml:"limits"`

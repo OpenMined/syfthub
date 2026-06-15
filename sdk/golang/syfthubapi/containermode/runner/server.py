@@ -27,8 +27,9 @@ Environment input from the host (set in the container spec):
                         before invoking the bwrap child.
     SYFT_SANDBOX_NET    "open" (default), "allowlist", or "none"; sets
                         bwrap's --unshare-net flag.
-    SYFT_ALLOW_SUBPROC  "1" → audit hook permits subprocess.Popen.
     SYFT_WORKSPACE_SCOPE  "shared" | "per_user" | "per_session"
+    SYFT_EGRESS_PORT / SYFT_EGRESS_SOCK
+                        start the keyless egress relay (see below).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ import os
 import queue
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -127,14 +129,11 @@ def _handler_env() -> dict:
         "PYTHONPATH": GUEST_RUNTIME_DIR,
         P.SYFT_CODE_DIR: GUEST_CODE_DIR,
         P.SYFT_WORKSPACE_DIR: GUEST_WORKSPACE_DIR,
+        # Subprocesses are always permitted — agent runners routinely shell
+        # out (e.g. the claude-code CLI); isolation comes from bwrap, not
+        # from blocking exec.
+        P.SYFT_ALLOW_SUBPROCESS: "1",
     }
-    if os.environ.get(P.SYFT_ALLOW_SUBPROC) == "1":
-        base[P.SYFT_ALLOW_SUBPROCESS] = "1"
-    # Forward the subprocess-env allowlist so the audit hook's
-    # subprocess.Popen monkey-patch can filter accordingly.
-    subproc_env = os.environ.get(P.SYFT_SUBPROC_ENV, "")
-    if subproc_env:
-        base[P.SYFT_SUBPROC_ENV] = subproc_env
     for k in _HANDLER_ENV_KEYS:
         v = os.environ.get(k)
         if v is not None:
@@ -342,17 +341,28 @@ def _bwrap_argv(workspace_dir: str) -> list[str]:
         # The runtime (_syft_audit + syft_entry + session_loop) —
         # owned by root inside the image, chmod a-w.
         "--ro-bind", "/usr/local/lib/syft_runtime", GUEST_RUNTIME_DIR,
-        # Container user's home directory. Bind RW so apps that look in
-        # $HOME (claude-code → ~/.claude/credentials.json, gh → ~/.config/gh,
-        # etc.) can read the files the user mounted via frontmatter
-        # container.mounts AND write session state. Writability is
-        # ultimately gated by the underlying container layer — if the
-        # user's Dockerfile didn't make /home/<user> a writable volume,
-        # the bind is effectively RO regardless. Audit-hook-level
-        # writes still go through the deny-list (handler-Python must
-        # use SYFT_WORKSPACE_DIR for writes); subprocesses inherit
-        # the kernel's permission view directly.
-        "--bind-try", HOST_HOME_DIR, HOST_HOME_DIR,
+        # Container user's home directory — ALLOW-ONLY model.
+        #
+        # $HOME is a fresh, empty tmpfs; only the user's explicitly declared
+        # mounts (always under $HOME/volumes/<name>, per the mounts UI) are
+        # bound back in. Everything else the home volume might hold —
+        # ~/.claude and ~/.claude.json (claude-code session/project history,
+        # backups, any credentials), shell rc files, anything a prior session
+        # wrote — is INVISIBLE by construction, not by enumeration. This is the
+        # same posture as /app/code: build from nothing, bind in only what's
+        # allowed, so a prompt-injected agent's `cat ~/.claude/...` or
+        # `ls /home/runner` sees only the mounts it was given.
+        #
+        # claude still gets a writable ~/.claude for THIS session (it creates
+        # it on the tmpfs); the state is ephemeral and destroyed when the bwrap
+        # child exits. Writes into the bound mounts are gated by the underlying
+        # container layer — a read-only frontmatter mount stays RO regardless.
+        #
+        # NOTE: content a custom endpoint image bakes into its home dir, or a
+        # mount targeting a /home/<user> path OUTSIDE volumes/, will NOT be
+        # visible — mounts must live under $HOME/volumes (which the UI enforces).
+        "--tmpfs", HOST_HOME_DIR,
+        "--bind-try", os.path.join(HOST_HOME_DIR, "volumes"), os.path.join(HOST_HOME_DIR, "volumes"),
         # Writable workspace.
         "--bind", workspace_dir, GUEST_WORKSPACE_DIR,
         "--tmpfs", "/tmp",
@@ -1001,8 +1011,81 @@ def _verify_runtime_ready() -> None:
                     SYNTH_DIR_HOST_MOUNT)
 
 
+# ─── egress relay ─────────────────────────────────────────────────────────
+#
+# Keyless TCP→AF_UNIX relay. When SYFT_EGRESS_PORT / SYFT_EGRESS_SOCK are set
+# (see containermode/egress.go), every handler LLM call is pointed at
+# http://127.0.0.1:<port> (ANTHROPIC_BASE_URL / OPENAI_BASE_URL). This relay
+# forwards those bytes verbatim to the host egress broker over the bind-mounted
+# unix socket. It holds NO credential — the broker injects the real auth on the
+# host side, so a compromised handler cannot read a secret here. The bwrap child
+# shares the container netns, so it can reach this loopback listener regardless
+# of the container's docker network mode (which is decided by the host provider
+# — see filemode/provider.go).
+def _start_egress_relay() -> None:
+    port_s = os.environ.get(P.SYFT_EGRESS_PORT, "")
+    sock_path = os.environ.get(P.SYFT_EGRESS_SOCK, "")
+    if not port_s or not sock_path:
+        return
+    try:
+        port = int(port_s)
+    except ValueError:
+        log.warning("egress relay: invalid %s %r", P.SYFT_EGRESS_PORT, port_s)
+        return
+
+    def _pump(src: socket.socket, dst: socket.socket) -> None:
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except OSError:
+            pass
+        finally:
+            try:
+                dst.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+    def _handle(conn: socket.socket) -> None:
+        try:
+            up = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            up.connect(sock_path)
+        except OSError as e:
+            log.warning("egress relay: connect %s failed: %s", sock_path, e)
+            conn.close()
+            return
+        # One pump per direction so request and streamed (SSE) response flow
+        # concurrently without buffering.
+        threading.Thread(target=_pump, args=(conn, up), daemon=True).start()
+        _pump(up, conn)
+        conn.close()
+        up.close()
+
+    def _serve() -> None:
+        ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            ls.bind(("127.0.0.1", port))
+            ls.listen(128)
+        except OSError as e:
+            log.error("egress relay: bind 127.0.0.1:%d failed: %s", port, e)
+            return
+        log.info("egress relay: 127.0.0.1:%d → %s", port, sock_path)
+        while True:
+            try:
+                conn, _ = ls.accept()
+            except OSError:
+                break
+            threading.Thread(target=_handle, args=(conn,), daemon=True).start()
+
+    threading.Thread(target=_serve, daemon=True).start()
+
+
 def main() -> int:
     _verify_runtime_ready()
+    _start_egress_relay()
 
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
