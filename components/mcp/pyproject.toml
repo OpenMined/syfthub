@@ -22,7 +22,7 @@ dependencies = [
     "pydantic>=2.11.7",
     # Authentication and crypto
     "cryptography>=41.0.0",
-    "pyjwt>=2.12.0",  # CVE-2026-32597: accepts unknown crit header extensions
+    "pyjwt>=2.13.0",  # CVE-2026-32597: accepts unknown crit header extensions
     # Utilities
     "python-dotenv>=1.2.2",  # CVE-2025-67006: symlink following allows arbitrary file overwrite
     "python-multipart>=0.0.27",
