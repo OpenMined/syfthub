@@ -512,10 +512,10 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 			continue
 		}
 
-		// Compat shim: existing on-disk YAMLs may use PascalCase type names
-		// from older desktop builds (e.g. "AccessGroupPolicy"). Map them to
-		// the snake_case identifiers the runner now expects. New writes from
-		// the desktop already emit snake_case; this only protects legacy data.
+		// Normalize policy type names to the canonical identifiers the runner
+		// expects: the desktop writes PascalCase class names (e.g.
+		// "AccessGroupPolicy" -> "access_group"), and older builds wrote some
+		// superseded wire strings (e.g. "x402_pay_per_request" -> "mpp").
 		if normalized, didNormalize := normalizeLegacyPolicyType(policy.Type); didNormalize {
 			l.logger.Info("[POLICY-LOAD] Normalized legacy PascalCase policy type",
 				"path", policyPath,
@@ -565,16 +565,18 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 	return policies, storeConfig, nil
 }
 
-// normalizeLegacyPolicyType maps legacy PascalCase policy type names emitted
-// by older desktop builds into the snake_case identifiers the policy_manager
-// runner expects. Returns the snake_case form and true when a mapping fired;
-// returns the input unchanged and false otherwise (already snake_case,
-// composite, or unknown — validatePolicies handles the unknown case).
+// normalizeLegacyPolicyType maps legacy policy type names into the canonical
+// identifiers the policy_manager runner expects. Two kinds of input are
+// remapped: the PascalCase class names the desktop emits (e.g.
+// "RateLimitPolicy" -> "rate_limit") and superseded wire strings from older
+// builds (e.g. "x402_pay_per_request" -> "mpp"). Returns the canonical form
+// and true when a mapping fired; returns the input unchanged and false
+// otherwise (already canonical, composite, or unknown — validatePolicies
+// handles the unknown case).
 //
-// This is a compatibility shim for endpoint YAML files written before the
-// desktop was switched to emit snake_case directly. New writes never need
-// normalization. The shim can be removed once all on-disk YAMLs are confirmed
-// to be snake_case.
+// The desktop currently writes PascalCase class names for every policy and
+// relies on this shim to translate them, so it is load-bearing, not merely a
+// migration aid for old files.
 func normalizeLegacyPolicyType(t string) (string, bool) {
 	legacy := map[string]string{
 		"AccessGroupPolicy":  syfthubapi.PolicyTypeAccessGroup,
@@ -587,6 +589,15 @@ func normalizeLegacyPolicyType(t string) (string, bool) {
 		"AllOfPolicy":        syfthubapi.PolicyTypeAllOf,
 		"AnyOfPolicy":        syfthubapi.PolicyTypeAnyOf,
 		"NotPolicy":          syfthubapi.PolicyTypeNot,
+		// X402PayPerRequestPolicy's canonical runner type is "mpp" (the
+		// pay-as-you-go billing type), so the class-name mapping is not a plain
+		// snake_case of the class. See policy_manager x402_pay_per_request.py.
+		"X402PayPerRequestPolicy": syfthubapi.PolicyTypeX402PayPerRequest,
+		// Back-compat: endpoints created before the canonical-"mpp" switch wrote
+		// the bare "x402_pay_per_request" wire string, which the runner no longer
+		// recognizes (it raises PolicyFactoryError: Unknown policy type). Map it
+		// forward so those on-disk YAMLs keep working without manual edits.
+		"x402_pay_per_request": syfthubapi.PolicyTypeX402PayPerRequest,
 	}
 	if normalized, ok := legacy[t]; ok {
 		return normalized, true

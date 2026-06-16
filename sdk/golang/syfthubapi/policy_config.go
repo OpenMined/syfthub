@@ -62,13 +62,18 @@ type PolicyResultOutput struct {
 
 // Known policy types for validation.
 const (
-	PolicyTypeAccessGroup       = "access_group"
-	PolicyTypeRateLimit         = "rate_limit"
-	PolicyTypeTokenLimit        = "token_limit"
-	PolicyTypePromptFilter      = "prompt_filter"
-	PolicyTypeAttribution       = "attribution"
-	PolicyTypeManualReview      = "manual_review"
-	PolicyTypeX402PayPerRequest = "x402_pay_per_request"
+	PolicyTypeAccessGroup  = "access_group"
+	PolicyTypeRateLimit    = "rate_limit"
+	PolicyTypeTokenLimit   = "token_limit"
+	PolicyTypePromptFilter = "prompt_filter"
+	PolicyTypeAttribution  = "attribution"
+	PolicyTypeManualReview = "manual_review"
+	// PolicyTypeX402PayPerRequest is the canonical runner type for the
+	// pay-as-you-go X402PayPerRequestPolicy. The wire string is "mpp" (the
+	// ecosystem-wide pay-as-you-go billing type), NOT "x402_pay_per_request":
+	// policy_manager registers the class under "mpp" (see
+	// policy_manager/policies/x402_pay_per_request.py, _policy_type = "mpp").
+	PolicyTypeX402PayPerRequest = "mpp"
 	PolicyTypeCustom            = "custom"
 	PolicyTypeAllOf             = "all_of"
 	PolicyTypeAnyOf             = "any_of"

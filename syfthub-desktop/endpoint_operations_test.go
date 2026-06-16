@@ -186,7 +186,7 @@ func TestGeneratePolicyYAMLX402Defaults(t *testing.T) {
 	result := generatePolicyYAML(policyGenContext{slug: "demo"}, req)
 
 	wantContains := []string{
-		"type: x402_pay_per_request",
+		"type: X402PayPerRequestPolicy",
 		"name: pay-gate",
 		"pay_to:",
 		"price: \"0.01\"",

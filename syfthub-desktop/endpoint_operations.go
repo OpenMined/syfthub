@@ -1622,7 +1622,7 @@ func generatePolicyYAML(ctx policyGenContext, req NewPolicyRequest) string {
 		}
 		return marshalPolicyYAML(
 			"# X402 Pay-Per-Request Policy\n# Gates access behind on-chain Tempo (pathUSD) payment\n",
-			policyDef{Type: "x402_pay_per_request", Name: req.Name, Config: cfg},
+			policyDef{Type: "X402PayPerRequestPolicy", Name: req.Name, Config: cfg},
 		)
 
 	case "AllOfPolicy":

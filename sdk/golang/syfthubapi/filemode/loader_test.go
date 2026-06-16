@@ -926,3 +926,37 @@ func TestToEndpointType(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeLegacyPolicyType(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantFired bool
+	}{
+		// PascalCase class names emitted by the desktop generator.
+		{"rate limit class name", "RateLimitPolicy", syfthubapi.PolicyTypeRateLimit, true},
+		{"access group class name", "AccessGroupPolicy", syfthubapi.PolicyTypeAccessGroup, true},
+		// X402PayPerRequestPolicy's canonical runner type is "mpp", not a plain
+		// snake_case of the class name.
+		{"x402 class name -> mpp", "X402PayPerRequestPolicy", syfthubapi.PolicyTypeX402PayPerRequest, true},
+		{"x402 class name is mpp literal", "X402PayPerRequestPolicy", "mpp", true},
+		// Back-compat: the superseded bare wire string from older builds must
+		// map forward to "mpp" so existing on-disk endpoint YAMLs keep working.
+		{"legacy x402 wire string -> mpp", "x402_pay_per_request", syfthubapi.PolicyTypeX402PayPerRequest, true},
+		// Already-canonical and unknown inputs pass through untouched.
+		{"already canonical mpp", "mpp", "mpp", false},
+		{"already canonical rate_limit", "rate_limit", "rate_limit", false},
+		{"unknown passes through", "totally_unknown", "totally_unknown", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, fired := normalizeLegacyPolicyType(tt.input)
+			if got != tt.want || fired != tt.wantFired {
+				t.Errorf("normalizeLegacyPolicyType(%q) = (%q, %v), want (%q, %v)",
+					tt.input, got, fired, tt.want, tt.wantFired)
+			}
+		})
+	}
+}
