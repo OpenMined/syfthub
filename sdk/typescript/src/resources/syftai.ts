@@ -24,6 +24,7 @@
  */
 
 import type { Document, QueryDataSourceOptions, QueryModelOptions } from '../models/chat.js';
+import type { HTTPClient } from '../http.js';
 import { SyftHubError } from '../errors.js';
 import { readSSEEvents } from '../utils.js';
 
@@ -67,30 +68,130 @@ export class GenerationError extends SyftHubError {
  * For most use cases, prefer the higher-level `client.chat` API instead.
  */
 export class SyftAIResource {
-  // No dependencies - uses direct fetch to SyftAI-Space endpoints
+  /**
+   * @param http - Hub HTTP client, used to mint satellite tokens and settle
+   *   MPP payments. Endpoint queries themselves use direct `fetch`, since the
+   *   SyftAI-Space URL is arbitrary and not the Hub base URL.
+   */
+  constructor(private readonly http: HTTPClient) {}
+
+  /**
+   * Mint a satellite token for `audience` (the endpoint owner's username).
+   *
+   * Mirrors the aggregator's token coordination layer: try an authenticated
+   * token first, then fall back to a guest token. Returns `undefined` if both
+   * fail, so the caller can still attempt an unauthenticated request.
+   */
+  private async mintSatelliteToken(audience: string): Promise<string | undefined> {
+    if (this.http.hasTokens()) {
+      try {
+        const res = await this.http.get<{ targetToken?: string }>('/api/v1/token', {
+          aud: audience,
+        });
+        if (res.targetToken) return res.targetToken;
+      } catch {
+        // fall through to guest
+      }
+    }
+    try {
+      const res = await this.http.get<{ targetToken?: string }>(
+        '/api/v1/token/guest',
+        { aud: audience },
+        { includeAuth: false }
+      );
+      return res.targetToken;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Pay an MPP `402` challenge via the Hub wallet, returning an X-Payment credential.
+   *
+   * Mirrors the aggregator's `handleMppPayment`: the `WWW-Authenticate`
+   * challenge is forwarded verbatim to the Hub's `/api/v1/wallet/pay`, which
+   * parses it and returns an `x_payment` string to attach to a retry.
+   */
+  private async payMpp(wwwAuthenticate: string, slug: string): Promise<string | undefined> {
+    if (!wwwAuthenticate) return undefined;
+    const res = await this.http.post<{ xPayment?: string }>('/api/v1/wallet/pay', {
+      wwwAuthenticate,
+      endpointSlug: slug,
+    });
+    return res.xPayment;
+  }
 
   /**
    * Build headers for SyftAI-Space request.
    */
-  private buildHeaders(tenantName?: string): Record<string, string> {
+  private buildHeaders(tenantName?: string, authorizationToken?: string): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
     if (tenantName) {
       headers['X-Tenant-Name'] = tenantName;
     }
+    if (authorizationToken) {
+      headers['Authorization'] = `Bearer ${authorizationToken}`;
+    }
     return headers;
   }
 
   /**
+   * Parse documents from a SyftAI-Space query response.
+   *
+   * Mirrors the aggregator's `DataSourceClient._parse_syftai_response`: the
+   * canonical shape nests documents under `references.documents` and names the
+   * score `similarity_score`. A legacy top-level `documents` list (with
+   * `score`) is still honoured for backward compatibility.
+   */
+  private parseDocuments(data: Record<string, unknown>): Document[] {
+    const references = data['references'] as Record<string, unknown> | undefined;
+    let rawDocs: Record<string, unknown>[] | undefined;
+    let scoreKey = 'score';
+    if (references && typeof references === 'object') {
+      rawDocs = references['documents'] as Record<string, unknown>[] | undefined;
+      scoreKey = 'similarity_score';
+    } else {
+      rawDocs = data['documents'] as Record<string, unknown>[] | undefined;
+    }
+
+    const documents: Document[] = [];
+    if (Array.isArray(rawDocs)) {
+      for (const doc of rawDocs) {
+        documents.push({
+          content: String(doc['content'] ?? ''),
+          score: Number(doc[scoreKey] ?? doc['score'] ?? 0),
+          metadata: (doc['metadata'] as Record<string, unknown>) ?? {},
+        });
+      }
+    }
+    return documents;
+  }
+
+  /**
    * Query a data source endpoint directly.
+   *
+   * Authentication mirrors the aggregator: SyftAI-Space endpoints expect a
+   * satellite bearer token whose audience is the endpoint owner's username. If
+   * `authorizationToken` is not supplied, one is minted automatically when an
+   * owner is known (`ownerUsername` option or `endpoint.ownerUsername`).
    *
    * @param options - Query options
    * @returns Array of Document objects
    * @throws {RetrievalError} If the query fails
    */
   async queryDataSource(options: QueryDataSourceOptions): Promise<Document[]> {
-    const { endpoint, query, userEmail, topK = 5, similarityThreshold = 0.5 } = options;
+    const {
+      endpoint,
+      query,
+      userEmail,
+      topK = 5,
+      similarityThreshold = 0.5,
+      authorizationToken,
+      ownerUsername,
+      pay = false,
+    } = options;
 
     const url = `${endpoint.url.replace(/\/$/, '')}/api/v1/endpoints/${endpoint.slug}/query`;
 
@@ -101,19 +202,49 @@ export class SyftAIResource {
       similarity_threshold: similarityThreshold,
     };
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: this.buildHeaders(endpoint.tenantName),
-        body: JSON.stringify(requestBody),
-      });
-    } catch (error) {
-      throw new RetrievalError(
-        `Failed to connect to data source '${endpoint.slug}': ${error instanceof Error ? error.message : String(error)}`,
-        endpoint.slug,
-        error
-      );
+    // Resolve a satellite token: caller-supplied, else mint from the owner.
+    let token = authorizationToken;
+    if (!token) {
+      const audience = ownerUsername ?? endpoint.ownerUsername;
+      if (audience) {
+        token = await this.mintSatelliteToken(audience);
+      }
+    }
+    const headers = this.buildHeaders(endpoint.tenantName, token);
+
+    const postQuery = async (extraHeaders?: Record<string, string>): Promise<Response> => {
+      try {
+        return await fetch(url, {
+          method: 'POST',
+          headers: { ...headers, ...extraHeaders },
+          body: JSON.stringify(requestBody),
+        });
+      } catch (error) {
+        throw new RetrievalError(
+          `Failed to connect to data source '${endpoint.slug}': ${error instanceof Error ? error.message : String(error)}`,
+          endpoint.slug,
+          error
+        );
+      }
+    };
+
+    let response = await postQuery();
+
+    // MPP 402 payment flow: pay via the Hub wallet, then retry with X-Payment.
+    if (response.status === 402 && pay) {
+      let xPayment: string | undefined;
+      try {
+        xPayment = await this.payMpp(response.headers.get('www-authenticate') ?? '', endpoint.slug);
+      } catch (error) {
+        throw new RetrievalError(
+          `Payment failed for data source '${endpoint.slug}': ${error instanceof Error ? error.message : String(error)}`,
+          endpoint.slug,
+          error
+        );
+      }
+      if (xPayment) {
+        response = await postQuery({ 'X-Payment': xPayment });
+      }
     }
 
     if (!response.ok) {
@@ -128,18 +259,7 @@ export class SyftAIResource {
     }
 
     const data = (await response.json()) as Record<string, unknown>;
-    const documents: Document[] = [];
-
-    const docsData = data['documents'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(docsData)) {
-      for (const doc of docsData) {
-        documents.push({
-          content: String(doc['content'] ?? ''),
-          score: Number(doc['score'] ?? 0),
-          metadata: (doc['metadata'] as Record<string, unknown>) ?? {},
-        });
-      }
-    }
+    const documents = this.parseDocuments(data);
 
     return documents;
   }

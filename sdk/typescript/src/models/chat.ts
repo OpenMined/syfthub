@@ -171,6 +171,22 @@ export interface QueryDataSourceOptions {
   topK?: number;
   /** Minimum similarity score (default: 0.5) */
   similarityThreshold?: number;
+  /**
+   * Pre-minted satellite token to send as `Authorization: Bearer`. If omitted,
+   * one is minted automatically when an owner is known (see `ownerUsername` /
+   * `endpoint.ownerUsername`).
+   */
+  authorizationToken?: string;
+  /**
+   * Endpoint owner username used as the satellite-token audience. Falls back to
+   * `endpoint.ownerUsername`.
+   */
+  ownerUsername?: string;
+  /**
+   * If true, settle an MPP `402 Payment Required` challenge via the Hub wallet
+   * and retry. If false (default), a `402` throws a `RetrievalError`.
+   */
+  pay?: boolean;
 }
 
 /**
