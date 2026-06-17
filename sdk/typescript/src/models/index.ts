@@ -69,6 +69,9 @@ export type {
   ChatResponse,
   Message,
   ChatOptions,
+  SearchDocument,
+  SearchQueryOptions,
+  SearchResponse,
   QueryDataSourceOptions,
   QueryModelOptions,
   // Streaming events

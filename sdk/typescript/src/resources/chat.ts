@@ -32,6 +32,9 @@ import type {
   DocumentSource,
   EndpointRef,
   Message,
+  SearchDocument,
+  SearchQueryOptions,
+  SearchResponse,
   SourceInfo,
   SourceStatus,
   TokenUsage,
@@ -338,7 +341,8 @@ export class ChatResource {
    */
   private async prepareRequest(
     options: ChatOptions,
-    stream: boolean
+    stream: boolean,
+    retrievalOnly = false
   ): Promise<{ requestBody: Record<string, unknown>; effectiveAggregatorUrl: string }> {
     const modelRef = await this.resolveEndpointRef(options.model, 'model');
 
@@ -383,6 +387,7 @@ export class ChatResource {
         messages: options.messages,
         peerToken,
         peerChannel,
+        retrievalOnly,
       }
     );
 
@@ -429,6 +434,7 @@ export class ChatResource {
       messages?: Message[];
       peerToken?: string;
       peerChannel?: string;
+      retrievalOnly?: boolean;
     }
   ): Record<string, unknown> {
     const body: Record<string, unknown> = {
@@ -470,6 +476,11 @@ export class ChatResource {
     }
     if (options.peerChannel) {
       body['peer_channel'] = options.peerChannel;
+    }
+
+    // Retrieval-only: aggregator skips reranking + generation.
+    if (options.retrievalOnly) {
+      body['retrieval_only'] = true;
     }
 
     return body;
@@ -603,6 +614,79 @@ export class ChatResource {
       usage,
       profitShare,
     };
+  }
+
+  /**
+   * Placeholder model for retrieval-only requests. The aggregator requires a
+   * `model` field on every request, but short-circuits before dereferencing it
+   * when `retrieval_only` is set, so an empty ref is never contacted.
+   */
+  private static readonly RETRIEVAL_ONLY_MODEL: EndpointRef = {
+    url: '',
+    slug: '',
+    name: 'retrieval-only',
+  };
+
+  /**
+   * Retrieve documents from data sources without model generation.
+   *
+   * Drives the aggregator's retrieval-only path: data sources are queried in
+   * parallel (with satellite-token auth and MPP payment handled server-side,
+   * exactly like {@link complete}), but no model is invoked.
+   *
+   * Prefer the symmetric `client.search.query(...)` facade; this is the
+   * underlying primitive.
+   *
+   * @param options - Search options
+   * @returns SearchResponse with retrieved documents and per-source metadata
+   * @throws {EndpointResolutionError} If a data source cannot be resolved
+   * @throws {AggregatorError} If the aggregator service fails
+   */
+  async retrieve(options: SearchQueryOptions): Promise<SearchResponse> {
+    const chatOptions: ChatOptions = {
+      prompt: options.prompt,
+      model: ChatResource.RETRIEVAL_ONLY_MODEL,
+      dataSources: options.dataSources,
+      topK: options.topK,
+      similarityThreshold: options.similarityThreshold,
+      aggregatorUrl: options.aggregatorUrl,
+      guestMode: options.guestMode,
+    };
+
+    const { requestBody, effectiveAggregatorUrl } = await this.prepareRequest(
+      chatOptions,
+      false,
+      true
+    );
+
+    const response = await fetch(`${effectiveAggregatorUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: options.signal,
+    });
+
+    if (!response.ok) {
+      return this.handleAggregatorErrorResponse(response);
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+
+    const sources = this.parseDocumentSources(
+      data['sources'] as Record<string, unknown> | undefined
+    );
+    const documents: SearchDocument[] = Object.entries(sources).map(([title, source]) => ({
+      title,
+      slug: source.slug,
+      content: source.content,
+    }));
+
+    const retrievalInfo = this.parseRetrievalInfo(
+      data['retrieval_info'] as Record<string, unknown>[] | undefined
+    );
+    const metadata = this.parseMetadata((data['metadata'] as Record<string, unknown>) ?? {});
+
+    return { documents, retrievalInfo, metadata };
   }
 
   /**

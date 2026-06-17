@@ -125,6 +125,9 @@ export type {
   ChatResponse,
   Message,
   ChatOptions,
+  SearchDocument,
+  SearchQueryOptions,
+  SearchResponse,
   QueryDataSourceOptions,
   QueryModelOptions,
   // Chat streaming events
@@ -168,6 +171,9 @@ export type {
 
 // Chat Resource (for type hints)
 export { ChatResource } from './resources/chat.js';
+
+// Search Resource (retrieval-only via the Aggregator)
+export { SearchResource } from './resources/search.js';
 
 // SyftAI Resource (for type hints)
 export { SyftAIResource } from './resources/syftai.js';

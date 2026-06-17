@@ -55,6 +55,16 @@ class AuthResource:
         """
         self._http = http
 
+    def get_access_token(self) -> str | None:
+        """Return the current Hub bearer token (API token or JWT access token).
+
+        Used to authorize MPP wallet payments: the aggregator forwards this
+        token to the Hub's ``/wallet/pay`` endpoint when a data source or model
+        responds with ``402 Payment Required``. Returns ``None`` when the client
+        is unauthenticated (e.g. guest mode).
+        """
+        return self._http._get_bearer_token()
+
     def register(
         self,
         *,

@@ -86,6 +86,8 @@ from syfthub_sdk.models import (
     PeerTokenResponse,
     Policy,
     SatelliteTokenResponse,
+    SearchDocument,
+    SearchResponse,
     SourceInfo,
     SourceStatus,
     SyncEndpointsResponse,
@@ -98,9 +100,10 @@ from syfthub_sdk.models import (
     UserRole,
     Visibility,
 )
+from syfthub_sdk.search import SearchResource
 from syfthub_sdk.syftai import SyftAIResource
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     # Main client
@@ -134,6 +137,8 @@ __all__ = [
     "SourceStatus",
     "ChatMetadata",
     "ChatResponse",
+    "SearchDocument",
+    "SearchResponse",
     "TokenUsage",
     "Message",
     # Chat streaming events
@@ -148,6 +153,7 @@ __all__ = [
     # Resources (for type hints)
     "APITokensResource",
     "ChatResource",
+    "SearchResource",
     "SyftAIResource",
     # NATS models
     "NatsCredentials",

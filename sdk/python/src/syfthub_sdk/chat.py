@@ -51,6 +51,8 @@ from syfthub_sdk.models import (
     EndpointPublic,
     EndpointRef,
     EndpointType,
+    SearchDocument,
+    SearchResponse,
     SourceInfo,
     SourceStatus,
     TokenUsage,
@@ -510,12 +512,16 @@ class ChatResource:
         messages: list[dict[str, str]] | None = None,
         peer_token: str | None = None,
         peer_channel: str | None = None,
+        user_token: str | None = None,
+        retrieval_only: bool = False,
     ) -> dict[str, Any]:
         """Build the request body for the aggregator.
 
         Includes endpoint_tokens mapping for satellite token authentication
-        and transaction_tokens for billing authorization.
-        User identity is derived from satellite tokens, not passed in request body.
+        and transaction_tokens for billing authorization. The user_token (the
+        caller's Hub bearer token) authorizes MPP wallet payments on 402
+        responses. User identity is derived from satellite tokens, not passed
+        in request body.
         """
         body: dict[str, Any] = {
             "prompt": prompt,
@@ -552,6 +558,14 @@ class ChatResource:
             body["peer_token"] = peer_token
         if peer_channel:
             body["peer_channel"] = peer_channel
+
+        # User token authorizes MPP wallet payments on 402 responses.
+        if user_token:
+            body["user_token"] = user_token
+
+        # Retrieval-only: aggregator skips reranking + generation.
+        if retrieval_only:
+            body["retrieval_only"] = True
 
         return body
 
@@ -640,11 +654,12 @@ class ChatResource:
         messages: list[dict[str, str]] | None,
         aggregator_url: str | None,
         guest_mode: bool = False,
+        retrieval_only: bool = False,
     ) -> tuple[dict[str, Any], str]:
         """Resolve endpoints, fetch tokens, and build the aggregator request body.
 
-        Returns (request_body, effective_aggregator_url). Called by both
-        complete() and stream() to avoid duplicating ~35 lines of setup.
+        Returns (request_body, effective_aggregator_url). Called by complete(),
+        stream() and retrieve() to avoid duplicating ~35 lines of setup.
         """
         effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
 
@@ -661,9 +676,12 @@ class ChatResource:
         if guest_mode:
             endpoint_tokens = self._auth.get_guest_satellite_tokens(unique_owners)
             transaction_tokens: dict[str, str] = {}
+            user_token: str | None = None
         else:
             endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
             transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
+            # Authorizes MPP wallet payments when a metered endpoint returns 402.
+            user_token = self._auth.get_access_token()
 
         peer_token = None
         peer_channel = None
@@ -690,6 +708,8 @@ class ChatResource:
             messages=messages,
             peer_token=peer_token,
             peer_channel=peer_channel,
+            user_token=user_token,
+            retrieval_only=retrieval_only,
         )
         return request_body, effective_aggregator_url
 
@@ -839,6 +859,95 @@ class ChatResource:
             retrieval_info=self._parse_retrieval_info(data),
             metadata=metadata,
             usage=self._parse_usage(data),
+        )
+
+    # Placeholder model for retrieval-only requests. The aggregator requires a
+    # ``model`` field on every request, but short-circuits before dereferencing
+    # it when ``retrieval_only`` is set, so an empty ref is never contacted.
+    _RETRIEVAL_ONLY_MODEL = EndpointRef(url="", slug="", name="retrieval-only")
+
+    def retrieve(
+        self,
+        prompt: str,
+        data_sources: list[str | EndpointRef | EndpointPublic] | None = None,
+        *,
+        top_k: int = 5,
+        similarity_threshold: float = 0.5,
+        aggregator_url: str | None = None,
+        guest_mode: bool = False,
+    ) -> SearchResponse:
+        """Retrieve documents from data sources without model generation.
+
+        This drives the aggregator's retrieval-only path: data sources are
+        queried in parallel (with satellite-token auth and MPP payment handled
+        server-side, exactly like :meth:`complete`), but no model is invoked.
+
+        Prefer the symmetric ``client.search.query(...)`` facade; this is the
+        underlying primitive.
+
+        Args:
+            prompt: The search query.
+            data_sources: Data source endpoints (paths, EndpointRefs, or
+                EndpointPublic; ``collective/<slug>`` paths are expanded).
+            top_k: Number of documents to retrieve per source (default: 5).
+            similarity_threshold: Minimum similarity for retrieved docs
+                (default: 0.5).
+            aggregator_url: Custom aggregator URL (optional).
+            guest_mode: Use guest (unauthenticated) tokens (default: False).
+
+        Returns:
+            SearchResponse with retrieved documents and per-source metadata.
+
+        Raises:
+            EndpointResolutionError: If a data source cannot be resolved.
+            AggregatorError: If the aggregator service fails.
+        """
+        request_body, effective_aggregator_url = self._prepare_request(
+            prompt=prompt,
+            model=self._RETRIEVAL_ONLY_MODEL,
+            data_sources=data_sources,
+            top_k=top_k,
+            max_tokens=1,
+            temperature=0.0,
+            similarity_threshold=similarity_threshold,
+            stream=False,
+            messages=None,
+            aggregator_url=aggregator_url,
+            guest_mode=guest_mode,
+            retrieval_only=True,
+        )
+
+        try:
+            response = self._agg_client.post(
+                f"{effective_aggregator_url}/chat",
+                json=request_body,
+                headers={"Content-Type": "application/json"},
+            )
+        except httpx.RequestError as e:
+            raise AggregatorError(
+                f"Failed to connect to aggregator: {e}",
+                detail=str(e),
+            ) from e
+
+        if response.status_code >= 400:
+            self._handle_aggregator_error(response)
+
+        data = response.json()
+
+        metadata = self._parse_metadata(data) or ChatMetadata(
+            retrieval_time_ms=0,
+            generation_time_ms=0,
+            total_time_ms=0,
+        )
+        documents = [
+            SearchDocument(title=title, slug=source.slug, content=source.content)
+            for title, source in self._parse_sources(data).items()
+        ]
+
+        return SearchResponse(
+            documents=documents,
+            retrieval_info=self._parse_retrieval_info(data),
+            metadata=metadata,
         )
 
     def stream(
