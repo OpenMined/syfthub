@@ -8,6 +8,7 @@ import { HubResource } from './resources/hub.js';
 import { AccountingResource } from './resources/accounting.js';
 import { AgentResource } from './resources/agent.js';
 import { ChatResource } from './resources/chat.js';
+import { SearchResource } from './resources/search.js';
 import { SyftAIResource } from './resources/syftai.js';
 
 /**
@@ -119,6 +120,7 @@ export class SyftHubClient {
   private _accounting?: AccountingResource;
   private _agent?: AgentResource;
   private _chat?: ChatResource;
+  private _search?: SearchResource;
   private _syftai?: SyftAIResource;
   private _apiTokens?: APITokensResource;
 
@@ -333,6 +335,29 @@ export class SyftHubClient {
       this._chat = new ChatResource(this.hub, this.auth, this.aggregatorUrl);
     }
     return this._chat;
+  }
+
+  /**
+   * Retrieval-only search via the Aggregator (no model generation).
+   *
+   * Symmetric counterpart to {@link chat}: queries data sources for relevant
+   * documents without invoking a model. Satellite-token auth and MPP payment
+   * are handled by the aggregator exactly as for chat.
+   *
+   * @example
+   * const result = await client.search.query({
+   *   prompt: 'Hello, world!',
+   *   dataSources: ['epfl-news/epfl-news'],
+   * });
+   * for (const doc of result.documents) {
+   *   console.log(doc.title, doc.content.slice(0, 80));
+   * }
+   */
+  get search(): SearchResource {
+    if (!this._search) {
+      this._search = new SearchResource(this.chat);
+    }
+    return this._search;
   }
 
   /**

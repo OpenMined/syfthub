@@ -158,6 +158,61 @@ export interface ChatOptions {
 }
 
 /**
+ * A single document returned by a retrieval-only search.
+ *
+ * Unlike {@link Document} (the low-level direct-query shape), this carries the
+ * document title and the source endpoint path, matching the aggregated
+ * `sources` map returned by the aggregator's retrieval-only path.
+ */
+export interface SearchDocument {
+  /** Document title (key in the sources map) */
+  title: string;
+  /** Source endpoint path (owner/slug) the document came from */
+  slug: string;
+  /** The document content */
+  content: string;
+}
+
+/**
+ * Options for a retrieval-only search via the Aggregator.
+ *
+ * Symmetric to {@link ChatOptions} minus the model: data sources are queried
+ * for relevant documents, but no model is invoked.
+ */
+export interface SearchQueryOptions {
+  /** The search query */
+  prompt: string;
+  /** Data source endpoints (paths, EndpointRefs, or `collective/<slug>` paths) */
+  dataSources?: (string | EndpointRef)[];
+  /** Number of documents to retrieve per source (default: 5) */
+  topK?: number;
+  /** Minimum similarity for retrieved docs (default: 0.5) */
+  similarityThreshold?: number;
+  /** Custom aggregator URL to use instead of the default */
+  aggregatorUrl?: string;
+  /** Use guest mode for unauthenticated access to policy-free endpoints */
+  guestMode?: boolean;
+  /** AbortSignal for request cancellation */
+  signal?: AbortSignal;
+}
+
+/**
+ * Response from a retrieval-only search via the Aggregator.
+ *
+ * Mirrors {@link ChatResponse} minus the generated text: retrieval runs across
+ * the data sources (with satellite-token auth and MPP payment handled by the
+ * aggregator), but no model is invoked.
+ */
+export interface SearchResponse {
+  /** Retrieved documents across all data sources */
+  documents: SearchDocument[];
+  /** Metadata about each data source retrieval (status, count, errors) */
+  retrievalInfo: SourceInfo[];
+  /** Timing metadata */
+  metadata: ChatMetadata;
+}
+
+/**
  * Options for querying a data source directly.
  */
 export interface QueryDataSourceOptions {

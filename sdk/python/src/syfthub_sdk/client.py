@@ -20,6 +20,7 @@ from syfthub_sdk.exceptions import ConfigurationError
 from syfthub_sdk.hub import HubResource
 from syfthub_sdk.models import AuthTokens, RegisterResult, User
 from syfthub_sdk.my_endpoints import MyEndpointsResource
+from syfthub_sdk.search import SearchResource
 from syfthub_sdk.syftai import SyftAIResource
 from syfthub_sdk.users import UsersResource
 
@@ -143,6 +144,7 @@ class SyftHubClient:
 
         # Lazy-initialized resources
         self._chat: ChatResource | None = None
+        self._search: SearchResource | None = None
         self._syftai: SyftAIResource | None = None
         self._accounting: AccountingResource | None = None
         self._api_tokens: APITokensResource | None = None
@@ -253,6 +255,26 @@ class SyftHubClient:
                 aggregator_url=self._aggregator_url,
             )
         return self._chat
+
+    @property
+    def search(self) -> SearchResource:
+        """Retrieval-only search via the Aggregator (no model generation).
+
+        Symmetric counterpart to :attr:`chat`: queries data sources for
+        relevant documents without invoking a model. Satellite-token auth and
+        MPP payment are handled by the aggregator exactly as for chat.
+
+        Example:
+            response = client.search.query(
+                prompt="Hello, world!",
+                data_sources=["epfl-news/epfl-news"],
+            )
+            for doc in response.documents:
+                print(doc.title, doc.content[:80])
+        """
+        if self._search is None:
+            self._search = SearchResource(self.chat)
+        return self._search
 
     @property
     def syftai(self) -> SyftAIResource:

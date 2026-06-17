@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-17
+
+### Added
+
+- `client.search.query(...)` — retrieval-only search via the Aggregator,
+  symmetric to `client.chat.complete(...)`. Queries data sources for relevant
+  documents without invoking a model. Satellite-token auth and MPP payment are
+  handled server-side by the aggregator exactly as for chat. Returns a
+  `SearchResponse` with a `documents` list (`SearchDocument`) plus per-source
+  `retrieval_info` and timing `metadata`. The underlying primitive is
+  `client.chat.retrieve(...)`.
+
+### Fixed
+
+- The chat path now forwards the caller's Hub token as `user_token` to the
+  aggregator, so metered model/data-source endpoints that return
+  `402 Payment Required` are settled via the Hub wallet (previously only the
+  TypeScript SDK did this).
+
 ## [0.2.1] - 2026-06-17
 
 ### Added

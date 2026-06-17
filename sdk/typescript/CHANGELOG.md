@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-17
+
+### Added
+
+- `client.search.query(...)` — retrieval-only search via the Aggregator,
+  symmetric to `client.chat.complete(...)`. Queries data sources for relevant
+  documents without invoking a model. Satellite-token auth and MPP payment are
+  handled server-side by the aggregator exactly as for chat. Resolves to a
+  `SearchResponse` with a `documents` array (`SearchDocument`) plus per-source
+  `retrievalInfo` and timing `metadata`. The underlying primitive is
+  `client.chat.retrieve(...)`. New types: `SearchQueryOptions`, `SearchResponse`,
+  `SearchDocument`.
+
 ## [0.2.1] - 2026-06-17
 
 ### Added

@@ -487,6 +487,44 @@ class ChatResponse(BaseModel):
     model_config = {"frozen": True}
 
 
+class SearchDocument(BaseModel):
+    """A single document returned by a retrieval-only search.
+
+    Unlike :class:`Document` (the low-level direct-query shape), this carries
+    the document title and the source endpoint path, matching the aggregated
+    ``sources`` map returned by the aggregator's retrieval-only path.
+    """
+
+    title: str = Field(..., description="Document title (key in the sources map)")
+    slug: str = Field(
+        ..., description="Source endpoint path (owner/slug) the document came from"
+    )
+    content: str = Field(..., description="The document content")
+
+    model_config = {"frozen": True}
+
+
+class SearchResponse(BaseModel):
+    """Response from a retrieval-only search via the Aggregator.
+
+    Mirrors :class:`ChatResponse` minus the generated text: retrieval runs
+    across the data sources (with satellite-token auth and MPP payment handled
+    by the aggregator), but no model is invoked.
+    """
+
+    documents: list[SearchDocument] = Field(
+        default_factory=list,
+        description="Retrieved documents across all data sources",
+    )
+    retrieval_info: list[SourceInfo] = Field(
+        default_factory=list,
+        description="Metadata about each data source retrieval (status, count, errors)",
+    )
+    metadata: ChatMetadata = Field(..., description="Timing metadata")
+
+    model_config = {"frozen": True}
+
+
 class Message(BaseModel):
     """A chat message for model queries.
 
