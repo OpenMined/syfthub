@@ -73,11 +73,13 @@ export class APITokensResource {
    * // Include revoked tokens
    * const all = await client.apiTokens.list({ includeInactive: true });
    */
-  async list(options: {
-    includeInactive?: boolean;
-    skip?: number;
-    limit?: number;
-  } = {}): Promise<APITokenListResponse> {
+  async list(
+    options: {
+      includeInactive?: boolean;
+      skip?: number;
+      limit?: number;
+    } = {}
+  ): Promise<APITokenListResponse> {
     const params: Record<string, unknown> = {};
     if (options.includeInactive !== undefined) {
       params.include_inactive = options.includeInactive;

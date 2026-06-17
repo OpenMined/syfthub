@@ -22,11 +22,7 @@
  */
 
 import { SyftHubError } from '../errors.js';
-import type {
-  AgentEvent,
-  AgentSessionOptions,
-  AgentSessionState,
-} from '../models/agent.js';
+import type { AgentEvent, AgentSessionOptions, AgentSessionState } from '../models/agent.js';
 import type { AuthResource } from './auth.js';
 
 /**
@@ -82,8 +78,7 @@ export class AgentResource {
     const peerResponse = await this.auth.getPeerToken([owner]);
 
     // Build WebSocket URL
-    const wsUrl =
-      this.aggregatorUrl.replace(/^http/, 'ws') + '/agent/session';
+    const wsUrl = this.aggregatorUrl.replace(/^http/, 'ws') + '/agent/session';
 
     // Create WebSocket
     const ws = new WebSocket(wsUrl);
@@ -103,10 +98,14 @@ export class AgentResource {
 
       // Handle abort signal
       if (options.signal) {
-        options.signal.addEventListener('abort', () => {
-          ws.close();
-          reject(new AgentSessionError('Session start aborted'));
-        }, { once: true });
+        options.signal.addEventListener(
+          'abort',
+          () => {
+            ws.close();
+            reject(new AgentSessionError('Session start aborted'));
+          },
+          { once: true }
+        );
       }
     });
 
@@ -125,10 +124,12 @@ export class AgentResource {
       startPayload.messages = options.messages;
     }
 
-    ws.send(JSON.stringify({
-      type: 'session.start',
-      payload: startPayload,
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'session.start',
+        payload: startPayload,
+      })
+    );
 
     // Wait for session.created response
     const response = await new Promise<{ session_id: string }>((resolve, reject) => {
@@ -142,10 +143,12 @@ export class AgentResource {
             });
           } else if (data.type === 'agent.error') {
             ws.removeEventListener('message', onMessage);
-            reject(new AgentSessionError(
-              data.payload?.message || 'Session start failed',
-              data.payload?.code
-            ));
+            reject(
+              new AgentSessionError(
+                data.payload?.message || 'Session start failed',
+                data.payload?.code
+              )
+            );
           }
         } catch {
           reject(new AgentSessionError('Failed to parse session response'));

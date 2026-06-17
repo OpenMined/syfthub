@@ -243,11 +243,9 @@ export class AuthResource {
    * @throws {APIError} If the code is invalid or max attempts exceeded
    */
   async verifyOtp(input: VerifyOTPInput): Promise<User> {
-    const response = await this.http.post<AuthResponse>(
-      '/api/v1/auth/register/verify-otp',
-      input,
-      { includeAuth: false }
-    );
+    const response = await this.http.post<AuthResponse>('/api/v1/auth/register/verify-otp', input, {
+      includeAuth: false,
+    });
 
     this.http.setTokens(response.accessToken, response.refreshToken);
     return response.user;
@@ -261,9 +259,13 @@ export class AuthResource {
    * @param email - Email address to resend the OTP to
    */
   async resendOtp(email: string): Promise<void> {
-    await this.http.post<void>('/api/v1/auth/register/resend-otp', { email }, {
-      includeAuth: false,
-    });
+    await this.http.post<void>(
+      '/api/v1/auth/register/resend-otp',
+      { email },
+      {
+        includeAuth: false,
+      }
+    );
   }
 
   /**

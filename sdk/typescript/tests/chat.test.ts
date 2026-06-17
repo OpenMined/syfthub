@@ -336,8 +336,8 @@ describe('ChatResource', () => {
       expect(response.response).toContain('Machine learning');
 
       // Verify peer-token endpoint was called
-      const peerTokenCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      const peerTokenCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/peer-token')
       );
       expect(peerTokenCall).toBeDefined();
     });
@@ -370,8 +370,8 @@ describe('ChatResource', () => {
       });
 
       // Verify peer-token endpoint was NOT called
-      const peerTokenCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      const peerTokenCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/peer-token')
       );
       expect(peerTokenCall).toBeUndefined();
     });
@@ -409,8 +409,8 @@ describe('ChatResource', () => {
       });
 
       // Verify peer-token endpoint was NOT called (since token was provided)
-      const peerTokenCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      const peerTokenCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/peer-token')
       );
       expect(peerTokenCall).toBeUndefined();
     });
@@ -458,10 +458,7 @@ describe('ChatResource', () => {
         retrieval_info: [],
         metadata: { retrieval_time_ms: 0, generation_time_ms: 0, total_time_ms: 0 },
       };
-      const allEvents = [
-        ...events,
-        { event: 'done', data: donePayload },
-      ];
+      const allEvents = [...events, { event: 'done', data: donePayload }];
       const sseText = allEvents
         .map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`)
         .join('');
@@ -476,9 +473,7 @@ describe('ChatResource', () => {
     /**
      * Mock fetch to return a SSE stream and collect all yielded events.
      */
-    async function collectParseEvents(
-      events: { event: string; data: Record<string, unknown> }[]
-    ) {
+    async function collectParseEvents(events: { event: string; data: Record<string, unknown> }[]) {
       mockFetch.mockImplementation(async (url: string) => {
         if (url.includes('/chat/stream')) {
           return new Response(makeSseStream(events), {
@@ -852,18 +847,15 @@ describe('ChatResource', () => {
       expect(sharedCall).toBeDefined();
 
       // The non-shared endpoint-paths route must NOT have been called.
-      const defaultCall = mockFetch.mock.calls.find(
-        (call: unknown[]) =>
-          (call[0] as string).endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
+      const defaultCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
       );
       expect(defaultCall).toBeUndefined();
     });
 
     it('should treat collective/<slug>/all as an alias for the no-subset form', async () => {
       mockFetch.mockImplementation(async (url: string) => {
-        if (
-          url.endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')
-        ) {
+        if (url.endsWith('/api/v1/collectives/by-slug/my-coll/endpoint-paths')) {
           return new Response(JSON.stringify([]), {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -941,10 +933,7 @@ describe('typeMatches', () => {
     ['data_source', 'model_data_source', false],
   ];
 
-  it.each(testVectors)(
-    'typeMatches(%s, %s) should return %s',
-    (actualType, expectedType, want) => {
-      expect(typeMatches(actualType, expectedType)).toBe(want);
-    }
-  );
+  it.each(testVectors)('typeMatches(%s, %s) should return %s', (actualType, expectedType, want) => {
+    expect(typeMatches(actualType, expectedType)).toBe(want);
+  });
 });
