@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-17
+
+### Added
+
+- `syftai.queryDataSource` now authenticates and pays like the aggregator:
+  - Auto-mints a satellite token (audience = endpoint owner username) when an
+    owner is known via the new `ownerUsername` option or
+    `EndpointRef.ownerUsername`; falls back to a guest token.
+  - Accepts a pre-minted `authorizationToken` to send as `Authorization: Bearer`.
+  - New `pay` option settles an MPP `402 Payment Required` challenge via the Hub
+    wallet (`/api/v1/wallet/pay`) and retries with the `X-Payment` credential.
+
+### Fixed
+
+- `syftai.queryDataSource` now parses the canonical SyftAI-Space response shape
+  (`references.documents` with `similarity_score`), so documents are no longer
+  silently dropped. A legacy top-level `documents` list is still honoured.
+
 ## [0.2.0] - 2026-06-17
 
 ### Added

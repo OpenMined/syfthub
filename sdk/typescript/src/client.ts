@@ -361,7 +361,7 @@ export class SyftHubClient {
    */
   get syftai(): SyftAIResource {
     if (!this._syftai) {
-      this._syftai = new SyftAIResource();
+      this._syftai = new SyftAIResource(this.http);
     }
     return this._syftai;
   }
