@@ -26,12 +26,12 @@ dependencies = [
     "sse-starlette>=2.2.0",
     "structlog>=24.0.0",
     "nats-py>=2.7.0",
-    "cryptography>=42.0.0",  # X25519 ECDH + AES-256-GCM for NATS tunnel E2E encryption
+    "cryptography>=48.0.1",  # X25519 ECDH + AES-256-GCM for NATS tunnel E2E encryption
     # Federated reranking and LLM citation attribution (GitHub-hosted, not on PyPI)
     "federated-aggregation @ git+https://github.com/siddhant230/Aggregator_package.git",
     "attribution-lib @ git+https://github.com/siddhant230/Attribution_package.git",
     # Security pins for transitive dependencies
-    "starlette>=1.0.1",  # CVE-2025-62727: O(n^2) DoS via Range header
+    "starlette>=1.1.0",  # CVE-2025-62727: O(n^2) DoS via Range header
     "fastembed>=0.3.0",  # fastembed <0.3 pins tokenizers<0.16; 0.15.2 has broken pyproject.toml
     "tokenizers>=0.19",  # tokenizers 0.15.2 has broken pyproject.toml (missing project.version)
     # NOTE: pillow CVE-2026-25990 (OOB write in PSD) — pinned via [tool.uv] override-dependencies
