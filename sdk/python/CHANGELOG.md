@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-17
+
+### Added
+
+- `aggregators` resource for managing user aggregator configurations
+- `api_tokens` resource for creating and managing personal access tokens
+- Multi-turn message history support in the `chat` resource
+- Heartbeat integration tests
+
+### Changed
+
+- Migrated accounting to the Machine Payments Protocol (MPP) billing flow
+- Reworked authentication: satellite/transaction token handling and simplified
+  token management
+- Expanded chat streaming event handling and response models
+
+### Removed
+
+- **BREAKING:** Removed the Organization entity (organization accounts,
+  `OrganizationRole`, `organization_id`, and `owner_type`). Every endpoint is
+  now owned by a single user.
+
 ## [0.1.1] - 2026-01-27
 
 ### Added

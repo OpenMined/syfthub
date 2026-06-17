@@ -75,11 +75,7 @@ export { PageIterator } from './pagination.js';
 export type { PageFetcher } from './pagination.js';
 
 // Models - Enums and constants
-export {
-  Visibility,
-  EndpointType,
-  UserRole,
-} from './models/index.js';
+export { Visibility, EndpointType, UserRole } from './models/index.js';
 
 // Models - Types
 export type {
@@ -143,9 +139,7 @@ export type {
 } from './models/index.js';
 
 // Model helpers
-export {
-  getEndpointPublicPath,
-} from './models/index.js';
+export { getEndpointPublicPath } from './models/index.js';
 
 // Accounting Resource (MPP wallet operations)
 export { AccountingResource, createAccountingResource } from './resources/accounting.js';

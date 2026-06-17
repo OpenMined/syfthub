@@ -276,18 +276,12 @@ export class ChatResource {
         const sharedSlug = rawShared && rawShared !== 'all' ? rawShared : undefined;
 
         if (!collectiveSlug) {
-          throw new EndpointResolutionError(
-            `Malformed collective path: ${ds}`,
-            ds
-          );
+          throw new EndpointResolutionError(`Malformed collective path: ${ds}`, ds);
         }
 
         let memberPaths: string[];
         try {
-          memberPaths = await this.hub.getCollectiveEndpointPaths(
-            collectiveSlug,
-            sharedSlug
-          );
+          memberPaths = await this.hub.getCollectiveEndpointPaths(collectiveSlug, sharedSlug);
         } catch (error) {
           const target = sharedSlug ? `${collectiveSlug}/${sharedSlug}` : collectiveSlug;
           throw new EndpointResolutionError(
