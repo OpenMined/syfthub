@@ -1,8 +1,8 @@
 import * as React from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import X from 'lucide-react/dist/esm/icons/x';
-import { createPortal } from 'react-dom';
+import { Dialog, VisuallyHidden } from 'radix-ui';
 
 import { cn } from '@/lib/utils';
 
@@ -28,10 +28,18 @@ const sizeClasses = {
   '3xl': 'max-w-3xl'
 };
 
-// Selector for focusable elements
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
-
+/**
+ * Accessible modal dialog.
+ *
+ * Built on Radix `Dialog` so it composes correctly when opened from inside
+ * another Radix dialog (e.g. the Settings modal). A previous hand-rolled
+ * implementation portalled to `document.body` as a *sibling* of any parent
+ * Radix dialog, so it inherited the parent layer's `pointer-events: none`
+ * (clicks blocked) and lost focus to the parent's focus trap (typing
+ * blocked) — making nested modals such as "Create New API Token" unusable.
+ * Sharing Radix's layer/focus-scope stack fixes both: the nested layer
+ * re-enables pointer events and pauses the parent's focus trap.
+ */
 export function Modal({
   isOpen,
   onClose,
@@ -42,151 +50,76 @@ export function Modal({
   closeOnOverlayClick = true,
   showCloseButton = true
 }: Readonly<ModalProperties>) {
-  const modalReference = React.useRef<HTMLDivElement>(null);
-  const previousActiveElement = React.useRef<Element | null>(null);
-
-  // Handle focus management: store previous element, focus first element, restore on close
-  React.useEffect(() => {
-    if (isOpen) {
-      // Store the currently focused element
-      previousActiveElement.current = document.activeElement;
-
-      // Focus the first focusable element in modal after a short delay
-      // (allows animation to start)
-      const timeoutId = setTimeout(() => {
-        const focusableElements = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
-        if (focusableElements?.length) {
-          (focusableElements[0] as HTMLElement).focus();
-        }
-      }, 50);
-
-      return () => {
-        clearTimeout(timeoutId);
-      };
-    } else {
-      // Restore focus when modal closes
-      if (previousActiveElement.current instanceof HTMLElement) {
-        previousActiveElement.current.focus();
-      }
-    }
-  }, [isOpen]);
-
-  // Handle escape key and body scroll
-  React.useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      // Prevent body scroll when modal is open
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, onClose]);
-
-  // Handle Tab key for focus trapping
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== 'Tab') return;
-
-    const nodeList = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
-    if (!nodeList?.length) return;
-
-    const focusableElements = [...nodeList] as HTMLElement[];
-    const firstElement = focusableElements[0];
-    const lastElement = focusableElements.at(-1);
-    if (!firstElement || !lastElement) return;
-
-    // Shift + Tab: if on first element, wrap to last
-    if (event.shiftKey && document.activeElement === (firstElement as Element)) {
-      event.preventDefault();
-      lastElement.focus();
-    }
-    // Tab: if on last element, wrap to first
-    else if (!event.shiftKey && document.activeElement === (lastElement as Element)) {
-      event.preventDefault();
-      firstElement.focus();
-    }
-  };
-
-  const handleOverlayClick = (event: React.MouseEvent) => {
-    if (event.target === event.currentTarget && closeOnOverlayClick) {
-      onClose();
-    }
-  };
-
-  // Render through a portal to document.body so the overlay is always centred
-  // on the viewport, regardless of any ancestor's overflow / transform /
-  // stacking context (e.g. when a modal is opened from inside a scrollable
-  // list row).
-  if (typeof document === 'undefined') return null;
-
-  return createPortal(
-    <AnimatePresence>
-      {isOpen ? (
-        <div
-          className='fixed inset-0 z-50 flex items-center justify-center p-4'
-          onKeyDown={handleKeyDown}
-        >
-          {/* Backdrop */}
+  return (
+    <Dialog.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay asChild>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-            onClick={handleOverlayClick}
+            className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm'
           />
+        </Dialog.Overlay>
 
-          {/* Modal Content */}
+        <Dialog.Content
+          // When a description is provided, Radix wires `aria-describedby` to
+          // the <Dialog.Description> itself. When it isn't, explicitly passing
+          // `aria-describedby={undefined}` opts out of Radix's dev advisory.
+          {...(description ? {} : { 'aria-describedby': undefined })}
+          onInteractOutside={(event) => {
+            if (!closeOnOverlayClick) event.preventDefault();
+          }}
+          asChild
+        >
           <motion.div
-            ref={modalReference}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
             className={cn(
-              'border-border bg-card relative w-full rounded-xl border shadow-xl',
+              'border-border bg-card fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border shadow-xl',
               sizeClasses[size]
             )}
-            role='dialog'
-            aria-modal='true'
-            aria-labelledby={title ? 'modal-title' : undefined}
-            aria-describedby={description ? 'modal-description' : undefined}
           >
+            {/* A dialog must always have an accessible name. When no visible
+                title is supplied, provide a visually-hidden fallback so screen
+                readers (and Radix) still get a title. */}
+            {title ? null : (
+              <VisuallyHidden.Root>
+                <Dialog.Title>Dialog</Dialog.Title>
+              </VisuallyHidden.Root>
+            )}
+
             {/* Close Button */}
             {showCloseButton ? (
-              <Button
-                variant='ghost'
-                size='icon'
-                className='text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 h-8 w-8'
-                onClick={onClose}
-                aria-label='Close modal'
-              >
-                <X className='h-4 w-4' aria-hidden='true' />
-              </Button>
+              <Dialog.Close asChild>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 h-8 w-8'
+                  aria-label='Close modal'
+                >
+                  <X className='h-4 w-4' aria-hidden='true' />
+                </Button>
+              </Dialog.Close>
             ) : null}
 
             {/* Header */}
             {(title ?? description) ? (
               <div className='px-6 pt-6 pb-2'>
                 {title ? (
-                  <h2 id='modal-title' className='font-rubik text-foreground text-xl font-medium'>
+                  <Dialog.Title className='font-rubik text-foreground text-xl font-medium'>
                     {title}
-                  </h2>
+                  </Dialog.Title>
                 ) : null}
                 {description ? (
-                  <p
-                    id='modal-description'
-                    className='font-inter text-muted-foreground mt-1 text-sm'
-                  >
+                  <Dialog.Description className='font-inter text-muted-foreground mt-1 text-sm'>
                     {description}
-                  </p>
+                  </Dialog.Description>
                 ) : null}
               </div>
             ) : null}
@@ -196,10 +129,9 @@ export function Modal({
               {children}
             </div>
           </motion.div>
-        </div>
-      ) : null}
-    </AnimatePresence>,
-    document.body
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
