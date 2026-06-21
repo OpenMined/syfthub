@@ -29,6 +29,14 @@ Example usage:
 """
 
 from syfthub_sdk._pagination import PageIterator
+from syfthub_sdk.agent import (
+    AgentConfig,
+    AgentHistoryMessage,
+    AgentResource,
+    AgentSessionClient,
+    AgentSessionError,
+    AgentSessionOptions,
+)
 from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.api_tokens import APITokensResource
 from syfthub_sdk.chat import (
@@ -152,9 +160,16 @@ __all__ = [
     "ErrorEvent",
     # Resources (for type hints)
     "APITokensResource",
+    "AgentResource",
+    "AgentSessionClient",
     "ChatResource",
     "SearchResource",
     "SyftAIResource",
+    # Agent types
+    "AgentConfig",
+    "AgentHistoryMessage",
+    "AgentSessionError",
+    "AgentSessionOptions",
     # NATS models
     "NatsCredentials",
     # Accounting models

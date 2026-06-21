@@ -658,6 +658,142 @@ func (c *ChatResource) buildRequestBody(
 	return body
 }
 
+// Retrieve queries data sources without invoking a model (retrieval-only path).
+// It is the underlying primitive; prefer client.Search().Query() for the high-level API.
+func (c *ChatResource) Retrieve(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
+	aggregatorURL := c.aggregatorURL
+	if req.AggregatorURL != "" {
+		aggregatorURL = strings.TrimRight(req.AggregatorURL, "/")
+	}
+
+	topK := req.TopK
+	if topK == 0 {
+		topK = 5
+	}
+	simThreshold := req.SimilarityThreshold
+	if simThreshold == 0 {
+		simThreshold = 0.5
+	}
+
+	expandedDataSources, err := c.expandCollectivePaths(ctx, req.DataSources)
+	if err != nil {
+		return nil, err
+	}
+
+	var dsRefs []EndpointRef
+	for _, ds := range expandedDataSources {
+		ref, err := c.resolveEndpointRef(ctx, ds, "data_source")
+		if err != nil {
+			return nil, err
+		}
+		dsRefs = append(dsRefs, *ref)
+	}
+
+	seen := make(map[string]bool)
+	var uniqueOwners []string
+	for _, ds := range dsRefs {
+		if ds.OwnerUsername != nil && !seen[*ds.OwnerUsername] {
+			seen[*ds.OwnerUsername] = true
+			uniqueOwners = append(uniqueOwners, *ds.OwnerUsername)
+		}
+	}
+
+	var endpointTokens map[string]string
+	var transactionTokens *TransactionTokensResponse
+	if req.GuestMode {
+		if endpointTokens, err = c.auth.GetGuestSatelliteTokens(ctx, uniqueOwners); err != nil {
+			endpointTokens = make(map[string]string)
+		}
+		transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+	} else {
+		if endpointTokens, err = c.auth.GetSatelliteTokens(ctx, uniqueOwners); err != nil {
+			endpointTokens = make(map[string]string)
+		}
+		if transactionTokens, err = c.auth.GetTransactionTokens(ctx, uniqueOwners); err != nil {
+			transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+		}
+	}
+
+	tokens := chatTokens{
+		endpoint:    endpointTokens,
+		transaction: transactionTokens.Tokens,
+	}
+	emptyModel := &EndpointRef{}
+	if tunnelingUsernames := c.collectTunnelingUsernames(emptyModel, dsRefs); len(tunnelingUsernames) > 0 {
+		var peerResp *PeerTokenResponse
+		if req.GuestMode {
+			peerResp, _ = c.auth.GetGuestPeerToken(ctx, tunnelingUsernames)
+		} else {
+			peerResp, _ = c.auth.GetPeerToken(ctx, tunnelingUsernames)
+		}
+		if peerResp != nil {
+			tokens.peerToken = peerResp.PeerToken
+			tokens.peerChannel = peerResp.PeerChannel
+		}
+	}
+
+	syntheticReq := &ChatCompleteRequest{
+		Prompt:              req.Prompt,
+		TopK:                topK,
+		MaxTokens:           1,
+		SimilarityThreshold: simThreshold,
+	}
+	defaults := resolvedDefaults{
+		topK:                topK,
+		maxTokens:           1,
+		temperature:         0,
+		similarityThreshold: simThreshold,
+	}
+	requestBody := c.buildRequestBody(syntheticReq, emptyModel, dsRefs, defaults, tokens, false)
+	requestBody["retrieval_only"] = true
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", aggregatorURL+"/chat", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.aggClient.Do(httpReq)
+	if err != nil {
+		return nil, &AggregatorError{ChatError: newChatError(fmt.Sprintf("Failed to connect to aggregator: %v", err))}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, c.handleAggregatorError(resp.StatusCode, errBody)
+	}
+
+	var data struct {
+		Sources       map[string]DocumentSource `json:"sources"`
+		RetrievalInfo []SourceInfo              `json:"retrieval_info"`
+		Metadata      ChatMetadata              `json:"metadata"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	documents := make([]SearchDocument, 0, len(data.Sources))
+	for title, src := range data.Sources {
+		documents = append(documents, SearchDocument{
+			Title:   title,
+			Slug:    src.Slug,
+			Content: src.Content,
+		})
+	}
+
+	return &SearchResponse{
+		Documents:     documents,
+		RetrievalInfo: data.RetrievalInfo,
+		Metadata:      data.Metadata,
+	}, nil
+}
+
 // handleAggregatorError converts aggregator errors to SDK errors.
 func (c *ChatResource) handleAggregatorError(statusCode int, body []byte) error {
 	var data map[string]interface{}

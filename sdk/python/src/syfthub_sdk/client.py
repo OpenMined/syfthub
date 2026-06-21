@@ -13,6 +13,8 @@ else:
 
 from syfthub_sdk._http import HTTPClient
 from syfthub_sdk.accounting import AccountingResource
+from syfthub_sdk.agent import AgentResource, AgentSessionOptions
+from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.api_tokens import APITokensResource
 from syfthub_sdk.auth import AuthResource
 from syfthub_sdk.chat import ChatResource
@@ -148,6 +150,8 @@ class SyftHubClient:
         self._syftai: SyftAIResource | None = None
         self._accounting: AccountingResource | None = None
         self._api_tokens: APITokensResource | None = None
+        self._agent: AgentResource | None = None
+        self._aggregators: AggregatorsResource | None = None
 
     @property
     def auth(self) -> AuthResource:
@@ -275,6 +279,33 @@ class SyftHubClient:
         if self._search is None:
             self._search = SearchResource(self.chat)
         return self._search
+
+    @property
+    def aggregators(self) -> AggregatorsResource:
+        """Manage aggregator configurations (list, create, update, delete, set default)."""
+        if self._aggregators is None:
+            self._aggregators = AggregatorsResource(self._http)
+        return self._aggregators
+
+    @property
+    def agent(self) -> AgentResource:
+        """Bidirectional agent sessions via the Aggregator (WebSocket).
+
+        Example:
+            session = client.agent.start_session(
+                AgentSessionOptions(prompt="Hello", endpoint="alice/bot")
+            )
+            for event in session.events():
+                if event["type"] == "agent.message":
+                    print(event["payload"]["content"])
+            session.close()
+        """
+        if self._agent is None:
+            self._agent = AgentResource(
+                auth=self._auth,
+                aggregator_url=self._aggregator_url,
+            )
+        return self._agent
 
     @property
     def syftai(self) -> SyftAIResource:
