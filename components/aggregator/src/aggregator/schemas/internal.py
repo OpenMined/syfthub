@@ -49,6 +49,10 @@ class RetrievalResult(BaseModel):
     )
     error_message: str | None = Field(default=None, description="Error message if failed")
     latency_ms: int = Field(..., description="Query latency in milliseconds")
+    policy_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Raw policy_metadata object from the source body (success or 402/403 error body)",
+    )
 
 
 class AggregatedContext(BaseModel):
@@ -67,3 +71,7 @@ class GenerationResult(BaseModel):
     response: str = Field(..., description="Generated response text")
     latency_ms: int = Field(..., description="Generation time in milliseconds")
     usage: dict[str, Any] | None = Field(default=None, description="Token usage if available")
+    policy_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Raw policy_metadata object from the model response body (success or 402/403 error body)",
+    )

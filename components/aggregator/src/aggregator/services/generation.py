@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aggregator.clients.model import ModelClient, ModelClientError
 from aggregator.clients.nats_transport import (
@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 class GenerationError(Exception):
     """Error during generation."""
 
-    pass
+    def __init__(self, message: str, policy_metadata: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.policy_metadata = policy_metadata
 
 
 class GenerationService:
@@ -126,7 +128,10 @@ class GenerationService:
                 return result
             except NATSTransportError as e:
                 logger.error(f"NATS generation failed: {e}")
-                raise GenerationError(f"Model generation via NATS failed: {e}") from e
+                raise GenerationError(
+                    f"Model generation via NATS failed: {e}",
+                    policy_metadata=e.policy_metadata,
+                ) from e
 
         # Standard HTTP request
         try:
@@ -146,7 +151,10 @@ class GenerationService:
 
         except ModelClientError as e:
             logger.error(f"Generation failed: {e}")
-            raise GenerationError(f"Model generation failed: {e}") from e
+            raise GenerationError(
+                f"Model generation failed: {e}",
+                policy_metadata=e.policy_metadata,
+            ) from e
 
     async def generate_stream(
         self,

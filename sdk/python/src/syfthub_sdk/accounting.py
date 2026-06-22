@@ -45,7 +45,7 @@ from syfthub_sdk.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from syfthub_sdk.models import AccountingUser, Transaction
+from syfthub_sdk.models import AccountingTransaction, AccountingUser
 
 
 def _handle_response_error(response: httpx.Response) -> None:
@@ -273,7 +273,7 @@ class AccountingResource:
         self,
         *,
         page_size: int = 20,
-    ) -> PageIterator[Transaction]:
+    ) -> PageIterator[AccountingTransaction]:
         """List account transactions with pagination.
 
         Returns a lazy iterator that fetches pages on demand.
@@ -308,9 +308,9 @@ class AccountingResource:
             )
             return response if isinstance(response, list) else []
 
-        return PageIterator(fetch_fn, Transaction, page_size=page_size)
+        return PageIterator(fetch_fn, AccountingTransaction, page_size=page_size)
 
-    def get_transaction(self, transaction_id: str) -> Transaction:
+    def get_transaction(self, transaction_id: str) -> AccountingTransaction:
         """Get a specific transaction by ID.
 
         Args:
@@ -330,7 +330,7 @@ class AccountingResource:
         """
         response = self._request("GET", f"/transactions/{transaction_id}")
         data = response if isinstance(response, dict) else {}
-        return Transaction.model_validate(data)
+        return AccountingTransaction.model_validate(data)
 
     # =========================================================================
     # Direct Transaction Operations
@@ -342,7 +342,7 @@ class AccountingResource:
         amount: float,
         app_name: str | None = None,
         app_ep_path: str | None = None,
-    ) -> Transaction:
+    ) -> AccountingTransaction:
         """Create a new transaction (direct transfer).
 
         Creates a PENDING transaction that must be confirmed or cancelled.
@@ -388,9 +388,9 @@ class AccountingResource:
 
         response = self._request("POST", "/transactions", json=payload)
         data = response if isinstance(response, dict) else {}
-        return Transaction.model_validate(data)
+        return AccountingTransaction.model_validate(data)
 
-    def confirm_transaction(self, transaction_id: str) -> Transaction:
+    def confirm_transaction(self, transaction_id: str) -> AccountingTransaction:
         """Confirm a pending transaction.
 
         Confirms the transaction, transferring funds from sender to recipient.
@@ -414,9 +414,9 @@ class AccountingResource:
         """
         response = self._request("POST", f"/transactions/{transaction_id}/confirm")
         data = response if isinstance(response, dict) else {}
-        return Transaction.model_validate(data)
+        return AccountingTransaction.model_validate(data)
 
-    def cancel_transaction(self, transaction_id: str) -> Transaction:
+    def cancel_transaction(self, transaction_id: str) -> AccountingTransaction:
         """Cancel a pending transaction.
 
         Cancels the transaction without transferring funds.
@@ -440,7 +440,7 @@ class AccountingResource:
         """
         response = self._request("POST", f"/transactions/{transaction_id}/cancel")
         data = response if isinstance(response, dict) else {}
-        return Transaction.model_validate(data)
+        return AccountingTransaction.model_validate(data)
 
     # =========================================================================
     # Delegated Transaction Operations
@@ -486,7 +486,7 @@ class AccountingResource:
         sender_email: str,
         amount: float,
         token: str,
-    ) -> Transaction:
+    ) -> AccountingTransaction:
         """Create a delegated transaction using a pre-authorized token.
 
         Creates a transaction on behalf of the sender using their token.
@@ -531,7 +531,7 @@ class AccountingResource:
             token=token,
         )
         data = response if isinstance(response, dict) else {}
-        return Transaction.model_validate(data)
+        return AccountingTransaction.model_validate(data)
 
     # =========================================================================
     # Lifecycle

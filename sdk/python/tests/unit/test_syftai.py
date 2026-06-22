@@ -103,6 +103,99 @@ class TestQueryDataSource:
         assert docs[0].metadata["source"] == "ml-intro.txt"
 
     @respx.mock
+    def test_query_data_source_exposes_policy_metadata(
+        self,
+        base_url: str,
+        syftai_url: str,
+        data_source_endpoint: EndpointRef,
+    ) -> None:
+        """Direct path surfaces the raw policy_metadata from the syft-space body."""
+        mock_response = {
+            "references": {
+                "documents": [
+                    {"content": "doc", "similarity_score": 0.9, "metadata": {}}
+                ]
+            },
+            "policy_metadata": {
+                "outcome": "success",
+                "entries": [
+                    {
+                        "policy_type": "mpp_per_request",
+                        "kind": "payment",
+                        "status": "charged",
+                        "amount": 0.01,
+                        "currency": "USD",
+                        "recipient": {
+                            "username": "alice",
+                            "email": "alice@x.io",
+                            "wallet_address": "0xabc",
+                        },
+                        "transaction": {
+                            "rail": "mpp",
+                            "id": "0xtxhash",
+                            "reference": "ext-1",
+                        },
+                        "reason_code": None,
+                        "reason": None,
+                        "details": {"documents": 1},
+                    }
+                ],
+            },
+        }
+
+        respx.post(f"{syftai_url}/api/v1/endpoints/test-docs/query").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        client = SyftHubClient(base_url=base_url)
+
+        result = client.syftai.query_data_source(
+            endpoint=data_source_endpoint,
+            query="q",
+            user_email="test@example.com",
+        )
+
+        # Iterable / indexable over documents (back-compat shape).
+        assert len(result) == 1
+        assert result[0].content == "doc"
+        assert [d.content for d in result] == ["doc"]
+
+        # Raw policy metadata exposed (no aggregated billing on the direct path).
+        assert result.policy_metadata is not None
+        assert result.policy_metadata.outcome == "success"
+        entry = result.policy_metadata.entries[0]
+        assert entry.source is None
+        assert entry.policy_type == "mpp_per_request"
+        assert entry.amount == 0.01
+        assert entry.recipient is not None
+        assert entry.recipient.wallet_address == "0xabc"
+        assert entry.transaction is not None
+        assert entry.transaction.reference == "ext-1"
+        assert entry.details == {"documents": 1}
+
+    @respx.mock
+    def test_query_data_source_no_policy_metadata(
+        self,
+        base_url: str,
+        syftai_url: str,
+        data_source_endpoint: EndpointRef,
+    ) -> None:
+        """When the source omits policy_metadata, it is None."""
+        respx.post(f"{syftai_url}/api/v1/endpoints/test-docs/query").mock(
+            return_value=httpx.Response(200, json={"documents": []})
+        )
+
+        client = SyftHubClient(base_url=base_url)
+
+        result = client.syftai.query_data_source(
+            endpoint=data_source_endpoint,
+            query="q",
+            user_email="test@example.com",
+        )
+
+        assert result.policy_metadata is None
+
+    @respx.mock
     def test_query_data_source_with_tenant_header(
         self,
         base_url: str,
@@ -154,7 +247,8 @@ class TestQueryDataSource:
             user_email="test@example.com",
         )
 
-        assert docs == []
+        assert len(docs) == 0
+        assert list(docs) == []
 
     @respx.mock
     def test_query_data_source_http_error(

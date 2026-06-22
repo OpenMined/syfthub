@@ -61,17 +61,21 @@ from syfthub_sdk.exceptions import (
 )
 from syfthub_sdk.models import (
     AccountingCredentials,
+    AccountingTransaction,
     AccountingUser,
     APIToken,
     APITokenCreateResponse,
     APITokenListResponse,
     APITokenScope,
     AuthTokens,
+    Billing,
+    BillingEntry,
     ChatMetadata,
     ChatResponse,
     Connection,
     CreateAPITokenInput,
     CreatorType,
+    DataSourceQueryResult,
     Document,
     DocumentSource,
     Endpoint,
@@ -85,6 +89,8 @@ from syfthub_sdk.models import (
     NatsCredentials,
     PeerTokenResponse,
     Policy,
+    PolicyMetadata,
+    Recipient,
     SatelliteTokenResponse,
     SearchDocument,
     SearchResponse,
@@ -141,6 +147,13 @@ __all__ = [
     "SearchResponse",
     "TokenUsage",
     "Message",
+    # Billing / policy-metadata models
+    "Billing",
+    "BillingEntry",
+    "Transaction",
+    "Recipient",
+    "PolicyMetadata",
+    "DataSourceQueryResult",
     # Chat streaming events
     "ChatStreamEvent",
     "RetrievalStartEvent",
@@ -160,7 +173,7 @@ __all__ = [
     # Accounting models
     "AccountingCredentials",
     "AccountingUser",
-    "Transaction",
+    "AccountingTransaction",
     "TransactionStatus",
     "CreatorType",
     # Sync models

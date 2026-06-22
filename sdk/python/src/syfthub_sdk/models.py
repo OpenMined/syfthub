@@ -275,7 +275,7 @@ class AccountingUser(BaseModel):
     model_config = {"frozen": True}
 
 
-class Transaction(BaseModel):
+class AccountingTransaction(BaseModel):
     """Transaction record from accounting service.
 
     Transactions go through a lifecycle:
@@ -463,6 +463,159 @@ class TokenUsage(BaseModel):
     model_config = {"frozen": True}
 
 
+class Recipient(BaseModel):
+    """The "to whom" of a billing entry — the endpoint owner / publisher.
+
+    All fields are optional; ``wallet_address`` is a public MPP address only
+    and never a private key.
+    """
+
+    username: str | None = Field(
+        default=None, description="Endpoint owner / publisher username"
+    )
+    email: str | None = Field(default=None, description="Recipient email")
+    wallet_address: str | None = Field(
+        default=None, description="Public MPP wallet address (never a private key)"
+    )
+
+    model_config = {"frozen": True}
+
+
+class Transaction(BaseModel):
+    """A rail-native transaction reference for a billing entry.
+
+    ``id`` is the rail-native identifier (Tempo tx hash for ``mpp``; the ledger
+    transaction id for ``xendit`` / ``stripe``); ``rail`` is the discriminator.
+    """
+
+    rail: str = Field(
+        ..., description="Payment rail discriminator (mpp, xendit, stripe, ...)"
+    )
+    id: str = Field(..., description="Rail-native transaction id")
+    reference: str | None = Field(
+        default=None, description="Secondary reference (e.g. MPP external_id)"
+    )
+
+    model_config = {"frozen": True}
+
+
+class BillingEntry(BaseModel):
+    """A single policy-metadata entry from a queried source.
+
+    Emitted by both payment and non-payment policies. When surfaced via the
+    aggregated :class:`Billing` block, ``source`` carries the ``owner/slug`` of
+    the source that produced the entry; on the direct path it is ``None``.
+    """
+
+    source: str | None = Field(
+        default=None, description="Source endpoint path (owner/slug); None if direct"
+    )
+    policy_type: str = Field(
+        ..., description="Policy type (e.g. mpp_per_request, rate_limit, pii_filter)"
+    )
+    kind: str = Field(
+        ..., description="Policy kind (payment, access, transform, rate_limit)"
+    )
+    status: str = Field(
+        ...,
+        description="Outcome status (charged, refunded, free, rejected, applied, skipped)",
+    )
+    amount: float | None = Field(default=None, description="Charged amount, if any")
+    currency: str | None = Field(default=None, description="Currency code, if any")
+    recipient: Recipient | None = Field(
+        default=None, description="Who the payment is owed to, if any"
+    )
+    transaction: Transaction | None = Field(
+        default=None, description="Rail-native transaction reference, if any"
+    )
+    reason_code: str | None = Field(
+        default=None, description="Machine-readable reason code (e.g. PAYMENT_REQUIRED)"
+    )
+    reason: str | None = Field(
+        default=None, description="Human-readable reason message"
+    )
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra structured details (e.g. {'documents': 3})",
+    )
+
+    model_config = {"frozen": True}
+
+
+class PolicyMetadata(BaseModel):
+    """Raw policy-metadata block returned on the direct syft-space path.
+
+    Unlike the aggregated :class:`Billing` block, this is the per-source object
+    exactly as the syft-space ``/query`` response carries it: an ``outcome``
+    string plus the list of :class:`BillingEntry` items (whose ``source`` key is
+    absent / ``None`` on the direct path). No aggregation or total is applied.
+    """
+
+    outcome: str = Field(
+        ..., description="Query outcome (e.g. success, payment_required)"
+    )
+    entries: list[BillingEntry] = Field(
+        default_factory=list, description="Per-policy metadata entries"
+    )
+
+    model_config = {"frozen": True}
+
+
+class DataSourceQueryResult(BaseModel):
+    """Result of a direct data-source query (``client.syftai.query_data_source``).
+
+    Carries the retrieved documents plus the raw ``policy_metadata`` block from
+    the syft-space ``/query`` response (Boundary A), so direct-query callers get
+    the same authoritative payment/policy metadata the aggregator surfaces.
+
+    The object is iterable over (and indexable into) its documents, so existing
+    ``for doc in result`` / ``len(result)`` / ``result[0]`` usage keeps working.
+    """
+
+    documents: list[Document] = Field(
+        default_factory=list, description="Retrieved documents"
+    )
+    policy_metadata: PolicyMetadata | None = Field(
+        default=None,
+        description="Raw policy metadata from the syft-space response, if present",
+    )
+
+    model_config = {"frozen": True}
+
+    def __iter__(self) -> Any:
+        """Iterate over the retrieved documents."""
+        return iter(self.documents)
+
+    def __len__(self) -> int:
+        """Number of retrieved documents."""
+        return len(self.documents)
+
+    def __getitem__(self, index: int) -> Document:
+        """Index into the retrieved documents."""
+        return self.documents[index]
+
+
+class Billing(BaseModel):
+    """Aggregated billing block surfaced on chat and search responses.
+
+    ``total_cost`` is the sum of entries with ``status == "charged"`` (None if
+    none charged); ``currency`` is the common currency or None if mixed. No FX
+    conversion is performed — each entry keeps its own currency.
+    """
+
+    total_cost: float | None = Field(
+        default=None, description="Sum of charged entries; None if nothing charged"
+    )
+    currency: str | None = Field(
+        default=None, description="Common currency, or None if mixed"
+    )
+    entries: list[BillingEntry] = Field(
+        default_factory=list, description="Per-source policy-metadata entries"
+    )
+
+    model_config = {"frozen": True}
+
+
 class ChatResponse(BaseModel):
     """Response from a chat completion request.
 
@@ -482,6 +635,10 @@ class ChatResponse(BaseModel):
     metadata: ChatMetadata = Field(..., description="Timing metadata")
     usage: TokenUsage | None = Field(
         default=None, description="Token usage if available"
+    )
+    billing: Billing | None = Field(
+        default=None,
+        description="Aggregated payment-policy metadata across queried sources",
     )
 
     model_config = {"frozen": True}
@@ -521,6 +678,10 @@ class SearchResponse(BaseModel):
         description="Metadata about each data source retrieval (status, count, errors)",
     )
     metadata: ChatMetadata = Field(..., description="Timing metadata")
+    billing: Billing | None = Field(
+        default=None,
+        description="Aggregated payment-policy metadata across queried sources",
+    )
 
     model_config = {"frozen": True}
 

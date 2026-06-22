@@ -23,7 +23,7 @@ from aggregator.schemas import (
     TokenUsage,
 )
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
-from aggregator.schemas.responses import Document
+from aggregator.schemas.responses import Billing, Document
 from aggregator.services.generation import GenerationError, GenerationService
 from aggregator.services.prompt_builder import PromptBuilder
 from aggregator.services.retrieval import RetrievalService
@@ -32,9 +32,21 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorError(Exception):
-    """Error in orchestration."""
+    """Error in orchestration.
 
-    pass
+    Carries optional billing metadata so callers can surface charges that were
+    already incurred (e.g. paid data sources) even when generation is rejected.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        policy_metadata: dict[str, Any] | None = None,
+        billing: "Billing | None" = None,
+    ):
+        super().__init__(message)
+        self.policy_metadata = policy_metadata
+        self.billing = billing
 
 
 class Orchestrator:
@@ -260,6 +272,59 @@ class Orchestrator:
             logger.error("Attribution pipeline failed", exc_info=True)
             return None
 
+    @staticmethod
+    def _build_billing(
+        sources: list[tuple[str, dict[str, Any] | None]],
+    ) -> Billing | None:
+        """Aggregate per-source policy_metadata into a single billing block.
+
+        Args:
+            sources: list of (endpoint_path "owner/slug", raw policy_metadata dict or None).
+
+        Returns:
+            Billing with all per-source entries (each tagged with a ``source`` key),
+            a total_cost summing charged amounts, and a common currency (null if mixed),
+            or None if no source emitted any policy_metadata entries.
+        """
+        entries: list[dict[str, Any]] = []
+        for source_path, policy_metadata in sources:
+            if not isinstance(policy_metadata, dict):
+                continue
+            for entry in policy_metadata.get("entries", []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                entries.append({**entry, "source": source_path})
+
+        if not entries:
+            return None
+
+        charged = [e for e in entries if e.get("status") == "charged"]
+        total_cost: float | None = None
+        currency: str | None = None
+        if charged:
+            currencies = {e.get("currency") for e in charged if e.get("currency")}
+            # A numeric total only makes sense when every charged entry shares the
+            # same currency. Summing across currencies (USD + EUR) is meaningless,
+            # so leave total_cost null when currencies are mixed or absent.
+            currency = currencies.pop() if len(currencies) == 1 else None
+            if currency is not None:
+                running_total = 0.0
+                for e in charged:
+                    raw_amount = e.get("amount")
+                    try:
+                        running_total += float(raw_amount or 0.0)
+                    except (TypeError, ValueError):
+                        # An untrusted source may send a non-numeric amount; never
+                        # let that 500 the whole aggregated response — skip it.
+                        logger.debug(
+                            "Skipping non-numeric charged amount %r from source %r",
+                            raw_amount,
+                            e.get("source"),
+                        )
+                total_cost = running_total
+
+        return Billing(total_cost=total_cost, currency=currency, entries=entries)
+
     async def process_chat(
         self,
         request: ChatRequest,
@@ -342,6 +407,9 @@ class Orchestrator:
                 for r in context.retrieval_results
             ]
             document_sources = self._build_document_sources(context)
+            billing = self._build_billing(
+                [(r.endpoint_path, r.policy_metadata) for r in context.retrieval_results]
+            )
             return ChatResponse(
                 response="",
                 sources=document_sources,
@@ -353,6 +421,7 @@ class Orchestrator:
                 ),
                 usage=None,
                 profit_share=None,
+                billing=billing,
             )
 
         # 3b. Rerank documents using federated aggregation (CENTRAL_REEMBEDDING)
@@ -393,7 +462,18 @@ class Orchestrator:
                 syfthub_url=syfthub_url,
             )
         except GenerationError as e:
-            raise OrchestratorError(f"Generation failed: {e}") from e
+            # Generation was rejected, but data sources may already have been
+            # charged. Build billing from the collected retrieval results plus
+            # the failed model's policy_metadata so the caller can surface it.
+            billing = self._build_billing(
+                [(r.endpoint_path, r.policy_metadata) for r in context.retrieval_results]
+                + [(model_endpoint.path, e.policy_metadata)]
+            )
+            raise OrchestratorError(
+                f"Generation failed: {e}",
+                policy_metadata=e.policy_metadata,
+                billing=billing,
+            ) from e
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
 
         # 5b. Annotate, attribute, and enrich the response
@@ -432,6 +512,12 @@ class Orchestrator:
                 total_tokens=result.usage.get("total_tokens", 0),
             )
 
+        # Aggregate billing from each data source plus the model endpoint
+        billing = self._build_billing(
+            [(r.endpoint_path, r.policy_metadata) for r in context.retrieval_results]
+            + [(model_endpoint.path, result.policy_metadata)]
+        )
+
         return ChatResponse(
             response=display_response,
             sources=document_sources,
@@ -443,6 +529,7 @@ class Orchestrator:
             ),
             usage=usage,
             profit_share=profit_share,
+            billing=billing,
         )
 
     async def process_chat_stream(
@@ -602,6 +689,7 @@ class Orchestrator:
         generation_start = time.perf_counter()
         full_response = []
         usage_data: dict[str, Any] | None = None
+        model_policy_metadata: dict[str, Any] | None = None
 
         try:
             # TODO: When SyftAI-Space implements model streaming, set
@@ -655,9 +743,23 @@ class Orchestrator:
                         gen_task.cancel()
                 full_response.append(gen_result.response)
                 usage_data = gen_result.usage  # Capture usage from non-streaming response
+                model_policy_metadata = gen_result.policy_metadata
                 yield self._sse_event("token", {"content": gen_result.response})
         except GenerationError as e:
-            yield self._sse_event("error", {"message": str(e)})
+            # Generation was rejected, but data sources may already have been
+            # charged. Surface billing (collected retrieval results + the failed
+            # model's policy_metadata) alongside the error so the client can show it.
+            error_billing = self._build_billing(
+                [(r.endpoint_path, r.policy_metadata) for r in retrieval_results]
+                + [(model_endpoint.path, e.policy_metadata)]
+            )
+            yield self._sse_event(
+                "error",
+                {
+                    "message": str(e),
+                    "billing": error_billing.model_dump() if error_billing else None,
+                },
+            )
             return
 
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
@@ -710,6 +812,14 @@ class Orchestrator:
             done_data["profit_share"] = profit_share
         if annotated_response is not None:
             done_data["response"] = annotated_response
+
+        # Aggregate billing from each data source plus the model endpoint
+        billing = self._build_billing(
+            [(r.endpoint_path, r.policy_metadata) for r in retrieval_results]
+            + [(model_endpoint.path, model_policy_metadata)]
+        )
+        if billing is not None:
+            done_data["billing"] = billing.model_dump()
 
         yield self._sse_event("done", done_data)
 

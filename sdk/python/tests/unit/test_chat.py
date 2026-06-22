@@ -122,6 +122,33 @@ def mock_chat_response() -> dict[str, Any]:
             "generation_time_ms": 500,
             "total_time_ms": 650,
         },
+        "billing": {
+            "total_cost": 0.01,
+            "currency": "USD",
+            "entries": [
+                {
+                    "source": "alice/docs",
+                    "policy_type": "mpp_per_request",
+                    "kind": "payment",
+                    "status": "charged",
+                    "amount": 0.01,
+                    "currency": "USD",
+                    "recipient": {
+                        "username": "alice",
+                        "email": "alice@x.io",
+                        "wallet_address": "0xabc",
+                    },
+                    "transaction": {
+                        "rail": "mpp",
+                        "id": "0xtxhash",
+                        "reference": None,
+                    },
+                    "reason_code": None,
+                    "reason": None,
+                    "details": {},
+                }
+            ],
+        },
     }
 
 
@@ -185,6 +212,18 @@ class TestChatComplete:
         assert len(response.retrieval_info) == 1
         assert response.retrieval_info[0].path == "alice/docs"
         assert response.metadata.total_time_ms == 650
+        # Billing block is parsed from the aggregator response.
+        assert response.billing is not None
+        assert response.billing.total_cost == 0.01
+        assert response.billing.currency == "USD"
+        entry = response.billing.entries[0]
+        assert entry.source == "alice/docs"
+        assert entry.policy_type == "mpp_per_request"
+        assert entry.recipient is not None
+        assert entry.recipient.username == "alice"
+        assert entry.transaction is not None
+        assert entry.transaction.rail == "mpp"
+        assert entry.transaction.id == "0xtxhash"
 
     @respx.mock
     def test_complete_with_endpoint_ref(
@@ -251,6 +290,53 @@ class TestChatComplete:
             client.chat.complete(prompt="Hello", model=model_ref)
 
     @respx.mock
+    def test_complete_aggregator_error_surfaces_billing(
+        self,
+        base_url: str,
+        aggregator_url: str,
+        fake_tokens: AuthTokens,
+    ) -> None:
+        """A rejected paid query attaches the billing block to AggregatorError."""
+        respx.post(f"{aggregator_url}/chat").mock(
+            return_value=httpx.Response(
+                402,
+                json={
+                    "message": "Payment required",
+                    "billing": {
+                        "total_cost": None,
+                        "currency": None,
+                        "entries": [
+                            {
+                                "source": "alice/docs",
+                                "policy_type": "mpp_per_request",
+                                "kind": "payment",
+                                "status": "rejected",
+                                "amount": 0.05,
+                                "currency": "USD",
+                                "reason_code": "PAYMENT_REQUIRED",
+                                "transaction": None,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+
+        client = SyftHubClient(base_url=base_url)
+        client._http.set_tokens(fake_tokens)
+
+        model_ref = EndpointRef(url="http://syftai:8080", slug="model")
+
+        with pytest.raises(AggregatorError) as exc_info:
+            client.chat.complete(prompt="Hello", model=model_ref)
+
+        err = exc_info.value
+        assert err.billing is not None
+        assert err.billing.entries[0].source == "alice/docs"
+        assert err.billing.entries[0].status == "rejected"
+        assert err.billing.entries[0].reason_code == "PAYMENT_REQUIRED"
+
+    @respx.mock
     def test_complete_endpoint_resolution_error(
         self,
         base_url: str,
@@ -290,7 +376,7 @@ class TestChatStream:
             "event: generation_start\ndata: {}\n\n"
             'event: token\ndata: {"content": "Hello "}\n\n'
             'event: token\ndata: {"content": "world!"}\n\n'
-            'event: done\ndata: {"sources": [], "metadata": {"retrieval_time_ms": 150, "generation_time_ms": 200, "total_time_ms": 350}}\n\n'
+            'event: done\ndata: {"sources": [], "metadata": {"retrieval_time_ms": 150, "generation_time_ms": 200, "total_time_ms": 350}, "billing": {"total_cost": 0.02, "currency": "USD", "entries": [{"source": "alice/docs", "policy_type": "mpp_per_request", "kind": "payment", "status": "charged", "amount": 0.02, "currency": "USD", "recipient": {"username": "alice", "email": null, "wallet_address": null}, "transaction": {"rail": "mpp", "id": "0xdone", "reference": null}, "reason_code": null, "reason": null, "details": {}}]}}\n\n'
         )
 
         respx.post(f"{aggregator_url}/chat/stream").mock(
@@ -321,6 +407,13 @@ class TestChatStream:
         assert any(isinstance(e, GenerationStartEvent) for e in events)
         assert any(isinstance(e, TokenEvent) for e in events)
         assert any(isinstance(e, DoneEvent) for e in events)
+
+        # The done event carries the aggregated billing block.
+        done = next(e for e in events if isinstance(e, DoneEvent))
+        assert done.billing is not None
+        assert done.billing.total_cost == 0.02
+        assert done.billing.entries[0].transaction is not None
+        assert done.billing.entries[0].transaction.id == "0xdone"
 
         # Check token content
         tokens = [e for e in events if isinstance(e, TokenEvent)]
@@ -356,6 +449,46 @@ class TestChatStream:
         assert len(events) == 1
         assert isinstance(events[0], ErrorEvent)
         assert events[0].message == "Model unavailable"
+        # No billing block on this error -> billing stays None.
+        assert events[0].billing is None
+
+    @respx.mock
+    def test_stream_error_event_surfaces_billing(
+        self,
+        base_url: str,
+        aggregator_url: str,
+        fake_tokens: AuthTokens,
+    ) -> None:
+        """A rejected paid stream surfaces billing on the ErrorEvent."""
+        sse_content = (
+            'event: error\ndata: {"message": "Payment required", "billing": '
+            '{"total_cost": null, "currency": null, "entries": [{"source": '
+            '"alice/docs", "policy_type": "mpp_per_request", "kind": "payment", '
+            '"status": "rejected", "amount": 0.05, "currency": "USD", '
+            '"reason_code": "PAYMENT_REQUIRED", "transaction": null}]}}\n\n'
+        )
+
+        respx.post(f"{aggregator_url}/chat/stream").mock(
+            return_value=httpx.Response(
+                200,
+                content=sse_content.encode(),
+                headers={"content-type": "text/event-stream"},
+            )
+        )
+
+        client = SyftHubClient(base_url=base_url)
+        client._http.set_tokens(fake_tokens)
+
+        model_ref = EndpointRef(url="http://syftai:8080", slug="model")
+
+        events = list(client.chat.stream(prompt="Hello", model=model_ref))
+
+        assert len(events) == 1
+        assert isinstance(events[0], ErrorEvent)
+        assert events[0].billing is not None
+        assert events[0].billing.entries[0].source == "alice/docs"
+        assert events[0].billing.entries[0].status == "rejected"
+        assert events[0].billing.entries[0].reason_code == "PAYMENT_REQUIRED"
 
 
 class TestEndpointResolution:

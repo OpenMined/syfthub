@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from aggregator.clients._policy_meta import extract_policy_metadata
 from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
@@ -156,6 +157,7 @@ class DataSourceClient:
                         status="payment_failed",
                         error_message=error_msg,
                         latency_ms=latency_ms,
+                        policy_metadata=extract_policy_metadata(response),
                     )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -184,6 +186,7 @@ class DataSourceClient:
                     status="access_denied",
                     error_message=f"Access denied: {error_detail}",
                     latency_ms=latency_ms,
+                    policy_metadata=extract_policy_metadata(response),
                 )
 
             if response.status_code != 200:
@@ -215,6 +218,7 @@ class DataSourceClient:
                     status="error",
                     error_message=user_message,
                     latency_ms=latency_ms,
+                    policy_metadata=extract_policy_metadata(response),
                 )
 
             data = response.json()
@@ -232,6 +236,7 @@ class DataSourceClient:
                 documents=documents,
                 status="success",
                 latency_ms=latency_ms,
+                policy_metadata=data.get("policy_metadata"),
             )
 
         except httpx.TimeoutException:

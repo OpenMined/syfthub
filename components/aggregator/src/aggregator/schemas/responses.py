@@ -56,6 +56,27 @@ class TokenUsage(BaseModel):
     total_tokens: int = Field(default=0, description="Total tokens used")
 
 
+class Billing(BaseModel):
+    """Aggregated policy/billing metadata collected from all queried sources.
+
+    Each entry is a source's PolicyMetadataEntry (raw dict from the syft-space
+    response) annotated with a ``source`` key set to the endpoint path "owner/slug".
+    """
+
+    total_cost: float | None = Field(
+        default=None,
+        description="Sum of entry.amount where status == 'charged'; null if none charged",
+    )
+    currency: str | None = Field(
+        default=None,
+        description="Common currency across charged entries; null if mixed or none",
+    )
+    entries: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Per-source PolicyMetadataEntry dicts, each tagged with a 'source' key",
+    )
+
+
 class ChatResponse(BaseModel):
     """Response from the aggregator chat endpoint."""
 
@@ -73,6 +94,10 @@ class ChatResponse(BaseModel):
     profit_share: dict[str, float] | None = Field(
         default=None,
         description="Normalized contribution scores per source (owner/slug to fraction 0-1)",
+    )
+    billing: Billing | None = Field(
+        default=None,
+        description="Aggregated policy/billing metadata collected from all queried sources",
     )
 
 
