@@ -58,9 +58,11 @@ const (
 type SourceStatus string
 
 const (
-	SourceStatusSuccess SourceStatus = "success"
-	SourceStatusError   SourceStatus = "error"
-	SourceStatusTimeout SourceStatus = "timeout"
+	SourceStatusSuccess       SourceStatus = "success"
+	SourceStatusError         SourceStatus = "error"
+	SourceStatusTimeout       SourceStatus = "timeout"
+	SourceStatusPaymentFailed SourceStatus = "payment_failed"
+	SourceStatusAccessDenied  SourceStatus = "access_denied"
 )
 
 // APITokenScope represents API token permission scopes.

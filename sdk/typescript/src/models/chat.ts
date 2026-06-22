@@ -46,7 +46,7 @@ export interface Document {
 /**
  * Status of a data source query.
  */
-export type SourceStatus = 'success' | 'error' | 'timeout';
+export type SourceStatus = 'success' | 'error' | 'timeout' | 'payment_failed' | 'access_denied';
 
 /**
  * Information about a data source retrieval (metadata).
