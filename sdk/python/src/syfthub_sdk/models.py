@@ -345,6 +345,8 @@ class SourceStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     TIMEOUT = "timeout"
+    PAYMENT_FAILED = "payment_failed"
+    ACCESS_DENIED = "access_denied"
 
 
 class EndpointRef(BaseModel):
