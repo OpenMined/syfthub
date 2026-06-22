@@ -355,6 +355,148 @@ func TestChatResourceCompleteAggregatorError(t *testing.T) {
 	}
 }
 
+// billingHubServer returns a hub test server that resolves alice/model and
+// hands out empty satellite/transaction tokens — the standard setup the chat
+// tests reuse.
+func billingHubServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/endpoints/public" {
+			json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"id":             1,
+					"name":           "Model",
+					"slug":           "model",
+					"type":           "model",
+					"owner_username": "alice",
+					"connect": []map[string]interface{}{
+						{"type": "syftai_space", "enabled": true, "config": map[string]interface{}{"url": "https://syftai.example.com"}},
+					},
+				},
+			})
+			return
+		}
+		if r.URL.Path == "/api/v1/auth/satellite-tokens" {
+			json.NewEncoder(w).Encode(map[string]string{})
+			return
+		}
+		if r.URL.Path == "/api/v1/auth/transaction-tokens" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"tokens": map[string]string{}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+}
+
+func TestChatResourceCompleteBilling(t *testing.T) {
+	hubServer := billingHubServer()
+	defer hubServer.Close()
+
+	aggServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response": "ok",
+			"billing": map[string]interface{}{
+				"total_cost": 0.03,
+				"currency":   "USD",
+				"entries": []map[string]interface{}{
+					{
+						"source":      "alice/medical-rag",
+						"policy_type": "mpp_per_request",
+						"kind":        "payment",
+						"status":      "charged",
+						"amount":      0.03,
+						"currency":    "USD",
+						"transaction": map[string]interface{}{"rail": "mpp", "id": "0xabc"},
+					},
+				},
+			},
+		})
+	}))
+	defer aggServer.Close()
+
+	httpClient := newHTTPClient(hubServer.URL, DefaultTimeout)
+	httpClient.SetTokens(&AuthTokens{AccessToken: "test", RefreshToken: "test"})
+	hub := newHubResource(httpClient)
+	auth := newAuthResource(httpClient)
+	chat := newChatResource(hub, auth, aggServer.URL, 30*time.Second)
+
+	resp, err := chat.Complete(context.Background(), &ChatCompleteRequest{Prompt: "Test", Model: "alice/model"})
+	if err != nil {
+		t.Fatalf("Complete error: %v", err)
+	}
+	if resp.Billing == nil {
+		t.Fatal("ChatResponse.Billing should not be nil")
+	}
+	if resp.Billing.TotalCost == nil || *resp.Billing.TotalCost != 0.03 {
+		t.Errorf("Billing.TotalCost = %v", resp.Billing.TotalCost)
+	}
+	if resp.Billing.Currency == nil || *resp.Billing.Currency != "USD" {
+		t.Errorf("Billing.Currency = %v", resp.Billing.Currency)
+	}
+	if len(resp.Billing.Entries) != 1 {
+		t.Fatalf("len(Billing.Entries) = %d", len(resp.Billing.Entries))
+	}
+	entry := resp.Billing.Entries[0]
+	if entry.Source == nil || *entry.Source != "alice/medical-rag" {
+		t.Errorf("entry.Source = %v", entry.Source)
+	}
+	if entry.Transaction == nil || entry.Transaction.Rail != "mpp" || entry.Transaction.ID != "0xabc" {
+		t.Errorf("entry.Transaction = %+v", entry.Transaction)
+	}
+}
+
+func TestChatResourceCompleteErrorBilling(t *testing.T) {
+	hubServer := billingHubServer()
+	defer hubServer.Close()
+
+	aggServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"detail": "Payment required",
+			"billing": map[string]interface{}{
+				"total_cost": nil,
+				"currency":   nil,
+				"entries": []map[string]interface{}{
+					{
+						"policy_type": "mpp_per_request",
+						"kind":        "payment",
+						"status":      "rejected",
+						"reason_code": "PAYMENT_REQUIRED",
+					},
+				},
+			},
+		})
+	}))
+	defer aggServer.Close()
+
+	httpClient := newHTTPClient(hubServer.URL, DefaultTimeout)
+	httpClient.SetTokens(&AuthTokens{AccessToken: "test", RefreshToken: "test"})
+	hub := newHubResource(httpClient)
+	auth := newAuthResource(httpClient)
+	chat := newChatResource(hub, auth, aggServer.URL, 30*time.Second)
+
+	_, err := chat.Complete(context.Background(), &ChatCompleteRequest{Prompt: "Test", Model: "alice/model"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	aggErr, ok := err.(*AggregatorError)
+	if !ok {
+		t.Fatalf("expected AggregatorError, got %T", err)
+	}
+	if aggErr.Billing == nil {
+		t.Fatal("AggregatorError.Billing should not be nil")
+	}
+	if len(aggErr.Billing.Entries) != 1 {
+		t.Fatalf("len(Billing.Entries) = %d", len(aggErr.Billing.Entries))
+	}
+	entry := aggErr.Billing.Entries[0]
+	if entry.Status != "rejected" {
+		t.Errorf("entry.Status = %q", entry.Status)
+	}
+	if entry.ReasonCode == nil || *entry.ReasonCode != "PAYMENT_REQUIRED" {
+		t.Errorf("entry.ReasonCode = %v", entry.ReasonCode)
+	}
+}
+
 func TestChatResourceStream(t *testing.T) {
 	// Setup hub server
 	hubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,7 +543,7 @@ func TestChatResourceStream(t *testing.T) {
 			"event: generation_start\ndata: {\"model\": \"gpt-4\"}\n\n",
 			"event: token\ndata: {\"content\": \"Hello\"}\n\n",
 			"event: token\ndata: {\"content\": \" world\"}\n\n",
-			"event: done\ndata: {\"response\": \"Hello world\", \"metadata\": {\"total_time_ms\": 100}}\n\n",
+			"event: done\ndata: {\"response\": \"Hello world\", \"metadata\": {\"total_time_ms\": 100}, \"billing\": {\"total_cost\": 0.01, \"currency\": \"USD\", \"entries\": [{\"policy_type\": \"mpp_per_request\", \"kind\": \"payment\", \"status\": \"charged\", \"amount\": 0.01}]}}\n\n",
 		}
 
 		for _, event := range events {
@@ -465,8 +607,20 @@ func TestChatResourceStream(t *testing.T) {
 	}
 	if done, ok := receivedEvents[6].(*DoneEvent); !ok {
 		t.Errorf("event 6 should be DoneEvent, got %T", receivedEvents[6])
-	} else if done.Response != "Hello world" {
-		t.Errorf("DoneEvent.Response = %q", done.Response)
+	} else {
+		if done.Response != "Hello world" {
+			t.Errorf("DoneEvent.Response = %q", done.Response)
+		}
+		if done.Billing == nil {
+			t.Error("DoneEvent.Billing should not be nil")
+		} else {
+			if done.Billing.TotalCost == nil || *done.Billing.TotalCost != 0.01 {
+				t.Errorf("DoneEvent.Billing.TotalCost = %v", done.Billing.TotalCost)
+			}
+			if len(done.Billing.Entries) != 1 || done.Billing.Entries[0].Status != "charged" {
+				t.Errorf("DoneEvent.Billing.Entries = %+v", done.Billing.Entries)
+			}
+		}
 	}
 }
 

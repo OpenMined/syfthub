@@ -26,7 +26,7 @@ import (
 //
 //	// Build a custom RAG pipeline
 //	// 1. Query data sources
-//	docs, err := client.SyftAI().QueryDataSource(ctx, &QueryDataSourceRequest{
+//	result, err := client.SyftAI().QueryDataSource(ctx, &QueryDataSourceRequest{
 //	    Endpoint:   dataSourceRef,
 //	    Query:      "What is Python?",
 //	    UserEmail:  "alice@example.com",
@@ -35,7 +35,7 @@ import (
 //
 //	// 2. Build custom prompt
 //	var context strings.Builder
-//	for _, doc := range docs {
+//	for _, doc := range result.Documents {
 //	    context.WriteString(doc.Content + "\n")
 //	}
 //	messages := []Message{
@@ -94,14 +94,26 @@ type QueryDataSourceRequest struct {
 	SimilarityThreshold float64
 }
 
+// QueryDataSourceResult is the result of a direct data-source query.
+//
+// It carries the retrieved documents plus the raw PolicyMetadata block from the
+// syft-space /query response (Boundary A), so direct-query callers get the same
+// authoritative payment/policy metadata the aggregator surfaces. PolicyMetadata
+// is nil if the response carried no policy_metadata block.
+type QueryDataSourceResult struct {
+	Documents      []Document
+	PolicyMetadata *PolicyMetadata
+}
+
 // QueryDataSource queries a data source endpoint directly.
 //
-// Sends a query to a SyftAI-Space data source endpoint and returns
-// the retrieved documents.
+// Sends a query to a SyftAI-Space data source endpoint and returns the
+// retrieved documents alongside the raw policy_metadata block (price, recipient,
+// transaction, status) from the syft-space response.
 //
 // Errors:
 //   - RetrievalError: If the query fails
-func (s *SyftAIResource) QueryDataSource(ctx context.Context, req *QueryDataSourceRequest) ([]Document, error) {
+func (s *SyftAIResource) QueryDataSource(ctx context.Context, req *QueryDataSourceRequest) (*QueryDataSourceResult, error) {
 	// Set defaults
 	topK := req.TopK
 	if topK == 0 {
@@ -189,6 +201,7 @@ func (s *SyftAIResource) QueryDataSource(ctx context.Context, req *QueryDataSour
 			Score    float64                `json:"score"`
 			Metadata map[string]interface{} `json:"metadata"`
 		} `json:"documents"`
+		PolicyMetadata *PolicyMetadata `json:"policy_metadata,omitempty"`
 	}
 	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, err
@@ -203,7 +216,10 @@ func (s *SyftAIResource) QueryDataSource(ctx context.Context, req *QueryDataSour
 		})
 	}
 
-	return documents, nil
+	return &QueryDataSourceResult{
+		Documents:      documents,
+		PolicyMetadata: data.PolicyMetadata,
+	}, nil
 }
 
 // QueryModelRequest contains parameters for querying a model.

@@ -93,6 +93,29 @@ func TestSyftAIResourceQueryDataSource(t *testing.T) {
 						"metadata": map[string]interface{}{"source": "docs"},
 					},
 				},
+				"policy_metadata": map[string]interface{}{
+					"outcome": "success",
+					"entries": []map[string]interface{}{
+						{
+							"policy_type": "mpp_per_request",
+							"kind":        "payment",
+							"status":      "charged",
+							"amount":      0.01,
+							"currency":    "USD",
+							"recipient": map[string]interface{}{
+								"username":       "alice",
+								"email":          "alice@x.io",
+								"wallet_address": "0xabc",
+							},
+							"transaction": map[string]interface{}{
+								"rail":      "mpp",
+								"id":        "0xdeadbeef",
+								"reference": "ext-123",
+							},
+							"details": map[string]interface{}{"documents": 2},
+						},
+					},
+				},
 			})
 		}))
 		defer server.Close()
@@ -100,7 +123,7 @@ func TestSyftAIResourceQueryDataSource(t *testing.T) {
 		httpClient := newHTTPClient(server.URL, DefaultTimeout)
 		syftai := newSyftAIResource(httpClient)
 
-		docs, err := syftai.QueryDataSource(context.Background(), &QueryDataSourceRequest{
+		result, err := syftai.QueryDataSource(context.Background(), &QueryDataSourceRequest{
 			Endpoint:            EndpointRef{URL: server.URL, Slug: "my-data"},
 			Query:               "What is Python?",
 			UserEmail:           "test@example.com",
@@ -111,6 +134,7 @@ func TestSyftAIResourceQueryDataSource(t *testing.T) {
 		if err != nil {
 			t.Fatalf("QueryDataSource error: %v", err)
 		}
+		docs := result.Documents
 		if len(docs) != 2 {
 			t.Errorf("len(docs) = %d", len(docs))
 		}
@@ -122,6 +146,43 @@ func TestSyftAIResourceQueryDataSource(t *testing.T) {
 		}
 		if docs[0].Metadata["source"] != "wiki" {
 			t.Errorf("docs[0].Metadata[source] = %v", docs[0].Metadata["source"])
+		}
+
+		// policy_metadata is surfaced on the result.
+		pm := result.PolicyMetadata
+		if pm == nil {
+			t.Fatal("PolicyMetadata should not be nil")
+		}
+		if pm.Outcome != "success" {
+			t.Errorf("PolicyMetadata.Outcome = %q", pm.Outcome)
+		}
+		if len(pm.Entries) != 1 {
+			t.Fatalf("len(PolicyMetadata.Entries) = %d", len(pm.Entries))
+		}
+		entry := pm.Entries[0]
+		if entry.PolicyType != "mpp_per_request" {
+			t.Errorf("entry.PolicyType = %q", entry.PolicyType)
+		}
+		if entry.Status != "charged" {
+			t.Errorf("entry.Status = %q", entry.Status)
+		}
+		if entry.Amount == nil || *entry.Amount != 0.01 {
+			t.Errorf("entry.Amount = %v", entry.Amount)
+		}
+		if entry.Currency == nil || *entry.Currency != "USD" {
+			t.Errorf("entry.Currency = %v", entry.Currency)
+		}
+		if entry.Source != nil {
+			t.Errorf("entry.Source should be nil on the direct path, got %v", *entry.Source)
+		}
+		if entry.Recipient == nil || entry.Recipient.Username == nil || *entry.Recipient.Username != "alice" {
+			t.Errorf("entry.Recipient = %+v", entry.Recipient)
+		}
+		if entry.Transaction == nil || entry.Transaction.Rail != "mpp" || entry.Transaction.ID != "0xdeadbeef" {
+			t.Errorf("entry.Transaction = %+v", entry.Transaction)
+		}
+		if entry.Transaction.Reference == nil || *entry.Transaction.Reference != "ext-123" {
+			t.Errorf("entry.Transaction.Reference = %v", entry.Transaction.Reference)
 		}
 	})
 

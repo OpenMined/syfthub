@@ -25,6 +25,8 @@
 
 import type { EndpointPublic } from '../models/index.js';
 import type {
+  Billing,
+  BillingEntry,
   ChatMetadata,
   ChatOptions,
   ChatResponse,
@@ -32,12 +34,14 @@ import type {
   DocumentSource,
   EndpointRef,
   Message,
+  Recipient,
   SearchDocument,
   SearchQueryOptions,
   SearchResponse,
   SourceInfo,
   SourceStatus,
   TokenUsage,
+  Transaction,
 } from '../models/chat.js';
 import { SyftHubError } from '../errors.js';
 import { readSSEEvents } from '../utils.js';
@@ -52,7 +56,13 @@ export class AggregatorError extends SyftHubError {
   constructor(
     message: string,
     public readonly status?: number,
-    public readonly detail?: unknown
+    public readonly detail?: unknown,
+    /**
+     * Billing/policy metadata the aggregator may attach even on an error
+     * response — a paid query can be REJECTED yet still carry a charge that
+     * must be surfaced (and possibly refunded).
+     */
+    public readonly billing?: Billing
   ) {
     super(message);
     this.name = 'AggregatorError';
@@ -404,13 +414,16 @@ export class ChatResource {
    */
   private async handleAggregatorErrorResponse(response: Response): Promise<never> {
     let message = `HTTP ${response.status}`;
+    let billing: Billing | undefined;
     try {
       const data = (await response.json()) as Record<string, unknown>;
-      message = String(data['message'] ?? data['error'] ?? message);
+      message = String(data['message'] ?? data['error'] ?? data['detail'] ?? message);
+      // A paid query can be REJECTED yet still carry a billing block.
+      billing = this.parseBilling(data);
     } catch {
       // Use default message
     }
-    throw new AggregatorError(`Aggregator error: ${message}`, response.status);
+    throw new AggregatorError(`Aggregator error: ${message}`, response.status, undefined, billing);
   }
 
   /**
@@ -521,6 +534,70 @@ export class ChatResource {
   }
 
   /**
+   * Parse a single billing/policy-metadata entry from a raw (snake_case) dict.
+   *
+   * Shared by {@link parseBilling} (aggregated, carries `source`) and the
+   * direct-path `policy_metadata` parsing in {@link SyftAIResource}.
+   */
+  static parseBillingEntry(raw: Record<string, unknown>): BillingEntry {
+    const recipientRaw = raw['recipient'] as Record<string, unknown> | null | undefined;
+    const recipient: Recipient | undefined =
+      recipientRaw && typeof recipientRaw === 'object'
+        ? {
+            username: recipientRaw['username'] as string | undefined,
+            email: recipientRaw['email'] as string | undefined,
+            walletAddress: recipientRaw['wallet_address'] as string | undefined,
+          }
+        : undefined;
+
+    const transactionRaw = raw['transaction'] as Record<string, unknown> | null | undefined;
+    const transaction: Transaction | undefined =
+      transactionRaw && typeof transactionRaw === 'object'
+        ? {
+            rail: String(transactionRaw['rail'] ?? ''),
+            id: String(transactionRaw['id'] ?? ''),
+            reference: transactionRaw['reference'] as string | undefined,
+          }
+        : undefined;
+
+    return {
+      source: raw['source'] as string | undefined,
+      policyType: String(raw['policy_type'] ?? ''),
+      kind: String(raw['kind'] ?? ''),
+      status: String(raw['status'] ?? ''),
+      amount: raw['amount'] == null ? undefined : Number(raw['amount']),
+      currency: raw['currency'] as string | undefined,
+      recipient,
+      transaction,
+      reasonCode: raw['reason_code'] as string | undefined,
+      reason: raw['reason'] as string | undefined,
+      details: (raw['details'] as Record<string, unknown>) ?? {},
+    };
+  }
+
+  /**
+   * Parse the aggregated `billing` block from a raw aggregator response.
+   *
+   * Returns undefined when no `billing` object is present (e.g. an error body
+   * with no policy metadata). The wire keys are snake_case.
+   */
+  private parseBilling(data: Record<string, unknown>): Billing | undefined {
+    const b = data['billing'];
+    if (!b || typeof b !== 'object') {
+      return undefined;
+    }
+    const billing = b as Record<string, unknown>;
+    const entriesRaw = Array.isArray(billing['entries']) ? billing['entries'] : [];
+    return {
+      totalCost: billing['total_cost'] == null ? null : Number(billing['total_cost']),
+      currency: (billing['currency'] as string | null) ?? null,
+      entries: (entriesRaw as Record<string, unknown>[]).map((e) =>
+        ChatResource.parseBillingEntry(e)
+      ),
+    };
+  }
+
+  /**
    * Parse document sources from raw data.
    * The new format is a dict mapping document title to {slug, content}.
    */
@@ -606,6 +683,9 @@ export class ChatResource {
     // Parse profit share if available
     const profitShare = data['profit_share'] as Record<string, number> | undefined;
 
+    // Parse aggregated billing/policy metadata if available
+    const billing = this.parseBilling(data);
+
     return {
       response: String(data['response'] ?? ''),
       sources,
@@ -613,6 +693,7 @@ export class ChatResource {
       metadata,
       usage,
       profitShare,
+      billing,
     };
   }
 
@@ -686,7 +767,9 @@ export class ChatResource {
     );
     const metadata = this.parseMetadata((data['metadata'] as Record<string, unknown>) ?? {});
 
-    return { documents, retrievalInfo, metadata };
+    const billing = this.parseBilling(data);
+
+    return { documents, retrievalInfo, metadata, billing };
   }
 
   /**
@@ -809,16 +892,29 @@ export class ChatResource {
         // Parse profit share if available
         const profitShare = data['profit_share'] as Record<string, number> | undefined;
 
+        // Parse aggregated billing/policy metadata if available
+        const billing = this.parseBilling(data);
+
         // Parse clean response (cite-tag-stripped) if attribution ran
         const response = data['response'] as string | undefined;
 
-        return { type: 'done', sources, retrievalInfo, metadata, usage, profitShare, response };
+        return {
+          type: 'done',
+          sources,
+          retrievalInfo,
+          metadata,
+          usage,
+          profitShare,
+          billing,
+          response,
+        };
       }
 
       case 'error':
         return {
           type: 'error',
           message: String(data['message'] ?? 'Unknown error'),
+          billing: this.parseBilling(data),
         };
 
       default:

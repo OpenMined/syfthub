@@ -128,8 +128,15 @@ export type {
   SearchDocument,
   SearchQueryOptions,
   SearchResponse,
+  DataSourceQueryResult,
   QueryDataSourceOptions,
   QueryModelOptions,
+  // Billing / policy metadata
+  Recipient,
+  Transaction,
+  BillingEntry,
+  Billing,
+  PolicyMetadata,
   // Chat streaming events
   ChatStreamEvent,
   RetrievalStartEvent,

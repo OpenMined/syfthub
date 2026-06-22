@@ -23,10 +23,17 @@
  * });
  */
 
-import type { Document, QueryDataSourceOptions, QueryModelOptions } from '../models/chat.js';
+import type {
+  DataSourceQueryResult,
+  Document,
+  PolicyMetadata,
+  QueryDataSourceOptions,
+  QueryModelOptions,
+} from '../models/chat.js';
 import type { HTTPClient } from '../http.js';
 import { SyftHubError } from '../errors.js';
 import { readSSEEvents } from '../utils.js';
+import { ChatResource } from './chat.js';
 
 /**
  * Error thrown when data source retrieval fails.
@@ -170,6 +177,29 @@ export class SyftAIResource {
   }
 
   /**
+   * Parse the raw `policy_metadata` block from a syft-space response.
+   *
+   * The direct path (Boundary A) carries a top-level `policy_metadata` object
+   * shaped `{ outcome, entries: [...] }`. Entries reuse the {@link BillingEntry}
+   * shape (with `source` absent), so this delegates entry parsing to
+   * {@link ChatResource.parseBillingEntry}. The wire keys are snake_case.
+   */
+  private parsePolicyMetadata(data: Record<string, unknown>): PolicyMetadata | undefined {
+    const pm = data['policy_metadata'];
+    if (!pm || typeof pm !== 'object') {
+      return undefined;
+    }
+    const meta = pm as Record<string, unknown>;
+    const entriesRaw = Array.isArray(meta['entries']) ? meta['entries'] : [];
+    return {
+      outcome: String(meta['outcome'] ?? ''),
+      entries: (entriesRaw as Record<string, unknown>[]).map((e) =>
+        ChatResource.parseBillingEntry(e)
+      ),
+    };
+  }
+
+  /**
    * Query a data source endpoint directly.
    *
    * Authentication mirrors the aggregator: SyftAI-Space endpoints expect a
@@ -178,10 +208,12 @@ export class SyftAIResource {
    * owner is known (`ownerUsername` option or `endpoint.ownerUsername`).
    *
    * @param options - Query options
-   * @returns Array of Document objects
+   * @returns DataSourceQueryResult — the retrieved documents plus the raw
+   *   `policyMetadata` block from the syft-space response (price, recipient,
+   *   transaction, status).
    * @throws {RetrievalError} If the query fails
    */
-  async queryDataSource(options: QueryDataSourceOptions): Promise<Document[]> {
+  async queryDataSource(options: QueryDataSourceOptions): Promise<DataSourceQueryResult> {
     const {
       endpoint,
       query,
@@ -259,9 +291,11 @@ export class SyftAIResource {
     }
 
     const data = (await response.json()) as Record<string, unknown>;
-    const documents = this.parseDocuments(data);
 
-    return documents;
+    return {
+      documents: this.parseDocuments(data),
+      policyMetadata: this.parsePolicyMetadata(data),
+    };
   }
 
   /**

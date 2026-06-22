@@ -98,6 +98,99 @@ export interface TokenUsage {
 }
 
 /**
+ * The "to whom" of a billing entry — the endpoint owner / publisher.
+ *
+ * All fields are optional; `walletAddress` is a public MPP address only and
+ * never a private key.
+ */
+export interface Recipient {
+  /** Endpoint owner / publisher username */
+  username?: string;
+  /** Recipient email */
+  email?: string;
+  /** Public MPP wallet address (never a private key) */
+  walletAddress?: string;
+}
+
+/**
+ * A rail-native transaction reference for a billing entry.
+ *
+ * `id` is the rail-native identifier (Tempo tx hash for `mpp`; the ledger
+ * transaction id for `xendit` / `stripe`); `rail` is the discriminator.
+ */
+export interface Transaction {
+  /** Payment rail discriminator (mpp, xendit, stripe, ...) */
+  rail: string;
+  /** Rail-native transaction id */
+  id: string;
+  /** Secondary reference (e.g. MPP external_id) */
+  reference?: string;
+}
+
+/**
+ * A single policy-metadata entry from a queried source.
+ *
+ * Emitted by both payment and non-payment policies. When surfaced via the
+ * aggregated {@link Billing} block, `source` carries the `owner/slug` of the
+ * source that produced the entry; on the direct path it is absent.
+ */
+export interface BillingEntry {
+  /** Source endpoint path (owner/slug); absent if direct */
+  source?: string;
+  /** Policy type (e.g. mpp_per_request, rate_limit, pii_filter) */
+  policyType: string;
+  /** Policy kind (payment, access, transform, rate_limit) */
+  kind: string;
+  /** Outcome status (charged, refunded, free, rejected, applied, skipped) */
+  status: string;
+  /** Charged amount, if any */
+  amount?: number;
+  /** Currency code, if any */
+  currency?: string;
+  /** Who the payment is owed to, if any */
+  recipient?: Recipient;
+  /** Rail-native transaction reference, if any */
+  transaction?: Transaction;
+  /** Machine-readable reason code (e.g. PAYMENT_REQUIRED) */
+  reasonCode?: string;
+  /** Human-readable reason message */
+  reason?: string;
+  /** Extra structured details (e.g. { documents: 3 }) */
+  details: Record<string, unknown>;
+}
+
+/**
+ * Aggregated billing block surfaced on chat and search responses.
+ *
+ * `totalCost` is the sum of entries with `status === "charged"` (null if none
+ * charged); `currency` is the common currency or null if mixed. No FX
+ * conversion is performed — each entry keeps its own currency.
+ */
+export interface Billing {
+  /** Sum of charged entries; null if nothing charged */
+  totalCost: number | null;
+  /** Common currency, or null if mixed */
+  currency: string | null;
+  /** Per-source policy-metadata entries */
+  entries: BillingEntry[];
+}
+
+/**
+ * Raw policy-metadata block returned on the direct syft-space path.
+ *
+ * Unlike the aggregated {@link Billing} block, this is the per-source object
+ * exactly as the syft-space `/query` response carries it: an `outcome` string
+ * plus the list of {@link BillingEntry} items (whose `source` key is absent on
+ * the direct path). No aggregation or total is applied.
+ */
+export interface PolicyMetadata {
+  /** Query outcome (e.g. success, payment_required) */
+  outcome: string;
+  /** Per-policy metadata entries */
+  entries: BillingEntry[];
+}
+
+/**
  * Response from a chat completion request.
  */
 export interface ChatResponse {
@@ -113,6 +206,8 @@ export interface ChatResponse {
   usage?: TokenUsage;
   /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
   profitShare?: Record<string, number>;
+  /** Aggregated payment-policy metadata across queried sources */
+  billing?: Billing;
 }
 
 /**
@@ -210,6 +305,22 @@ export interface SearchResponse {
   retrievalInfo: SourceInfo[];
   /** Timing metadata */
   metadata: ChatMetadata;
+  /** Aggregated payment-policy metadata across queried sources */
+  billing?: Billing;
+}
+
+/**
+ * Result of a direct data-source query (`client.syftai.queryDataSource`).
+ *
+ * Carries the retrieved documents plus the raw `policyMetadata` block from the
+ * syft-space `/query` response (Boundary A), so direct-query callers get the
+ * same authoritative payment/policy metadata the aggregator surfaces.
+ */
+export interface DataSourceQueryResult {
+  /** Retrieved documents */
+  documents: Document[];
+  /** Raw policy metadata from the syft-space response, if present */
+  policyMetadata?: PolicyMetadata;
 }
 
 /**
@@ -350,6 +461,8 @@ export interface DoneEvent {
   usage?: TokenUsage;
   /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
   profitShare?: Record<string, number>;
+  /** Aggregated payment-policy metadata across queried sources */
+  billing?: Billing;
   /**
    * Clean response text with attribution markers stripped.
    * Present when attribution ran (data sources were used). Frontends should
@@ -364,6 +477,11 @@ export interface DoneEvent {
 export interface ErrorEvent {
   type: 'error';
   message: string;
+  /**
+   * Billing surfaced on the error path: a paid query may be REJECTED yet still
+   * carry policy/billing metadata (e.g. a charge that must be refunded).
+   */
+  billing?: Billing;
 }
 
 /**
