@@ -58,11 +58,28 @@ const (
 type SourceStatus string
 
 const (
-	SourceStatusSuccess       SourceStatus = "success"
-	SourceStatusError         SourceStatus = "error"
-	SourceStatusTimeout       SourceStatus = "timeout"
-	SourceStatusPaymentFailed SourceStatus = "payment_failed"
-	SourceStatusAccessDenied  SourceStatus = "access_denied"
+	SourceStatusSuccess         SourceStatus = "success"
+	SourceStatusError           SourceStatus = "error"
+	SourceStatusTimeout         SourceStatus = "timeout"
+	SourceStatusPaymentFailed   SourceStatus = "payment_failed"
+	SourceStatusAccessDenied    SourceStatus = "access_denied"
+	SourceStatusPolicyViolation SourceStatus = "policy_violation"
+	SourceStatusRateLimited     SourceStatus = "rate_limited"
+)
+
+// ReasonCode is the machine-readable rejection reason on a BillingEntry.
+//
+// The known set the producer emits today. BillingEntry.ReasonCode is a
+// *ReasonCode, but any string decodes into it, so a future code never breaks
+// parsing — compare against these consts.
+type ReasonCode string
+
+const (
+	ReasonCodeNoPricingTier       ReasonCode = "NO_PRICING_TIER"
+	ReasonCodeInsufficientBalance ReasonCode = "INSUFFICIENT_BALANCE"
+	ReasonCodePaymentRequired     ReasonCode = "PAYMENT_REQUIRED"
+	ReasonCodeAccessDenied        ReasonCode = "ACCESS_DENIED"
+	ReasonCodeRateLimited         ReasonCode = "RATE_LIMITED"
 )
 
 // APITokenScope represents API token permission scopes.
@@ -363,7 +380,7 @@ type BillingEntry struct {
 	Currency    *string                `json:"currency,omitempty"`
 	Recipient   *Recipient             `json:"recipient,omitempty"`
 	Transaction *TransactionRef        `json:"transaction,omitempty"`
-	ReasonCode  *string                `json:"reason_code,omitempty"`
+	ReasonCode  *ReasonCode            `json:"reason_code,omitempty"`
 	Reason      *string                `json:"reason,omitempty"`
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
@@ -373,6 +390,12 @@ type BillingEntry struct {
 // TotalCost is the sum of entries with Status == "charged" (nil if none
 // charged); Currency is the common currency or nil if mixed. No FX conversion
 // is performed — each entry keeps its own currency.
+//
+// Note: TotalCost can be > 0 on a rejected query — an earlier policy may have
+// committed a charge before a later policy blocked the request, so the
+// rejection envelope carries both the "charged" and the "rejected" entry.
+// Inspect per-entry Status rather than assuming a positive TotalCost means the
+// query succeeded.
 type Billing struct {
 	TotalCost *float64       `json:"total_cost,omitempty"`
 	Currency  *string        `json:"currency,omitempty"`

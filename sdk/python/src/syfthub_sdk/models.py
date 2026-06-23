@@ -340,13 +340,36 @@ class AccountingCredentials(BaseModel):
 
 
 class SourceStatus(str, Enum):
-    """Status of a data source query."""
+    """Status of a data source query.
+
+    The payment/policy values mirror the aggregator's per-source outcome:
+    ``payment_failed`` (a metered 402 the aggregator could not settle) and the
+    403 rejection causes ``access_denied`` / ``policy_violation`` /
+    ``rate_limited`` (derived from the source's ``policy_metadata.outcome``).
+    """
 
     SUCCESS = "success"
     ERROR = "error"
     TIMEOUT = "timeout"
     PAYMENT_FAILED = "payment_failed"
     ACCESS_DENIED = "access_denied"
+    POLICY_VIOLATION = "policy_violation"
+    RATE_LIMITED = "rate_limited"
+
+
+class ReasonCode(str, Enum):
+    """Machine-readable rejection reason on a :class:`BillingEntry`.
+
+    The known set the producer emits today; ``BillingEntry.reason_code`` stays a
+    plain ``str`` so a future code never breaks parsing — compare against these
+    members (e.g. ``entry.reason_code == ReasonCode.INSUFFICIENT_BALANCE``).
+    """
+
+    NO_PRICING_TIER = "NO_PRICING_TIER"
+    INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE"
+    PAYMENT_REQUIRED = "PAYMENT_REQUIRED"
+    ACCESS_DENIED = "ACCESS_DENIED"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 class EndpointRef(BaseModel):
@@ -531,7 +554,8 @@ class BillingEntry(BaseModel):
         default=None, description="Rail-native transaction reference, if any"
     )
     reason_code: str | None = Field(
-        default=None, description="Machine-readable reason code (e.g. PAYMENT_REQUIRED)"
+        default=None,
+        description="Machine-readable rejection code; see ReasonCode for the known set",
     )
     reason: str | None = Field(
         default=None, description="Human-readable reason message"
@@ -603,6 +627,12 @@ class Billing(BaseModel):
     ``total_cost`` is the sum of entries with ``status == "charged"`` (None if
     none charged); ``currency`` is the common currency or None if mixed. No FX
     conversion is performed — each entry keeps its own currency.
+
+    Note: ``total_cost`` can be > 0 on a *rejected* query — an earlier policy may
+    have committed a charge before a later policy blocked the request, so the
+    rejection envelope carries both the ``charged`` entry and the ``rejected``
+    one. Inspect per-entry ``status`` (and the source's status) rather than
+    assuming a positive ``total_cost`` means the query succeeded.
     """
 
     total_cost: float | None = Field(

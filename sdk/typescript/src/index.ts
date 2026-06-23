@@ -120,6 +120,7 @@ export type {
   Document,
   DocumentSource,
   SourceStatus,
+  ReasonCode,
   SourceInfo,
   ChatMetadata,
   ChatResponse,

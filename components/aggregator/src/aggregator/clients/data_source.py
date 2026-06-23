@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from aggregator.clients._policy_meta import extract_policy_metadata
+from aggregator.clients._policy_meta import (
+    extract_policy_metadata,
+    source_status_from_policy_metadata,
+)
 from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
@@ -180,13 +183,16 @@ class DataSourceClient:
                     latency_ms=latency_ms,
                     request_data=request_data,
                 )
+                pm = extract_policy_metadata(response)
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
-                    status="access_denied",
+                    # Precise cause from the rejection envelope when present
+                    # (access_denied / rate_limited / policy_violation), else 403's default.
+                    status=source_status_from_policy_metadata(pm) or "access_denied",
                     error_message=f"Access denied: {error_detail}",
                     latency_ms=latency_ms,
-                    policy_metadata=extract_policy_metadata(response),
+                    policy_metadata=pm,
                 )
 
             if response.status_code != 200:

@@ -46,7 +46,28 @@ export interface Document {
 /**
  * Status of a data source query.
  */
-export type SourceStatus = 'success' | 'error' | 'timeout' | 'payment_failed' | 'access_denied';
+export type SourceStatus =
+  | 'success'
+  | 'error'
+  | 'timeout'
+  | 'payment_failed'
+  | 'access_denied'
+  | 'policy_violation'
+  | 'rate_limited';
+
+/**
+ * Machine-readable rejection reason on a {@link BillingEntry}.
+ *
+ * The known set the producer emits today. `BillingEntry.reasonCode` stays open
+ * (`ReasonCode | (string & {})`) so a future code never breaks typing, while
+ * still offering autocomplete on the known values.
+ */
+export type ReasonCode =
+  | 'NO_PRICING_TIER'
+  | 'INSUFFICIENT_BALANCE'
+  | 'PAYMENT_REQUIRED'
+  | 'ACCESS_DENIED'
+  | 'RATE_LIMITED';
 
 /**
  * Information about a data source retrieval (metadata).
@@ -151,8 +172,8 @@ export interface BillingEntry {
   recipient?: Recipient;
   /** Rail-native transaction reference, if any */
   transaction?: Transaction;
-  /** Machine-readable reason code (e.g. PAYMENT_REQUIRED) */
-  reasonCode?: string;
+  /** Machine-readable rejection code; see {@link ReasonCode} for the known set */
+  reasonCode?: ReasonCode | (string & {});
   /** Human-readable reason message */
   reason?: string;
   /** Extra structured details (e.g. { documents: 3 }) */
@@ -167,7 +188,14 @@ export interface BillingEntry {
  * conversion is performed — each entry keeps its own currency.
  */
 export interface Billing {
-  /** Sum of charged entries; null if nothing charged */
+  /**
+   * Sum of charged entries; null if nothing charged.
+   *
+   * Note: can be > 0 on a *rejected* query — an earlier policy may have
+   * committed a charge before a later policy blocked the request (the
+   * rejection carries both the `charged` and the `rejected` entry). Inspect
+   * per-entry `status` rather than assuming a positive `totalCost` means success.
+   */
   totalCost: number | null;
   /** Common currency, or null if mixed */
   currency: string | null;
