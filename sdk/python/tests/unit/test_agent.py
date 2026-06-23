@@ -23,7 +23,6 @@ from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.exceptions import AuthenticationError, SyftHubError
 from syfthub_sdk.models import AuthTokens, PeerTokenResponse, SatelliteTokenResponse
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -249,9 +248,10 @@ class TestAgentSessionClientControls:
 class TestAgentResourceStartSession:
     def test_invalid_endpoint_no_slash_raises(self) -> None:
         resource = _make_resource()
-        with patch("syfthub_sdk.agent._ws.create_connection"):
-            with pytest.raises(ValueError, match="owner/slug"):
-                resource.start_session(AgentSessionOptions(prompt="hi", endpoint="no-slash"))
+        with patch("syfthub_sdk.agent._ws.create_connection"), pytest.raises(
+            ValueError, match="owner/slug"
+        ):
+            resource.start_session(AgentSessionOptions(prompt="hi", endpoint="no-slash"))
 
     def test_returns_agent_session_client(self) -> None:
         resource = _make_resource()
@@ -281,9 +281,10 @@ class TestAgentResourceStartSession:
         ws.recv.return_value = json.dumps(
             {"type": "agent.error", "payload": {"message": "auth failed", "code": "E001"}}
         )
-        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws):
-            with pytest.raises(AgentSessionError, match="auth failed") as exc_info:
-                resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
+        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws), pytest.raises(
+            AgentSessionError, match="auth failed"
+        ) as exc_info:
+            resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
         assert exc_info.value.code == "E001"
         ws.close.assert_called_once()
 
@@ -291,9 +292,10 @@ class TestAgentResourceStartSession:
         resource = _make_resource()
         ws = MagicMock()
         ws.recv.return_value = json.dumps({"type": "agent.error", "payload": {}})
-        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws):
-            with pytest.raises(AgentSessionError):
-                resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
+        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws), pytest.raises(
+            AgentSessionError
+        ):
+            resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
         ws.close.assert_called_once()
 
     def test_ws_url_converts_http_to_ws(self) -> None:
@@ -392,9 +394,10 @@ class TestAgentResourceStartSession:
         resource = _make_resource()
         ws = MagicMock()
         ws.recv.return_value = "not-json"
-        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws):
-            with pytest.raises(AgentSessionError, match="parse"):
-                resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
+        with patch("syfthub_sdk.agent._ws.create_connection", return_value=ws), pytest.raises(
+            AgentSessionError, match="parse"
+        ):
+            resource.start_session(AgentSessionOptions(prompt="hi", endpoint="alice/bot"))
         ws.close.assert_called_once()
 
     def test_fetches_satellite_token_for_endpoint_owner(self) -> None:

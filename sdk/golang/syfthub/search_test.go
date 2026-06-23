@@ -250,7 +250,7 @@ func TestChatResourceRetrieveDefaults(t *testing.T) {
 	aggServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&capturedBody)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"sources": map[string]interface{}{},
+			"sources":        map[string]interface{}{},
 			"retrieval_info": []map[string]interface{}{},
 			"metadata":       map[string]interface{}{"retrieval_time_ms": 10},
 		})
@@ -315,8 +315,8 @@ func TestChatResourceRetrieveCustomAggregatorURL(t *testing.T) {
 	chat := newChatResource(newHubResource(httpClient), newAuthResource(httpClient), "http://default-agg/api/v1", 30*time.Second)
 
 	_, err := chat.Retrieve(context.Background(), &SearchRequest{
-		Prompt:       "query",
-		DataSources:  []string{"bob/ds"},
+		Prompt:        "query",
+		DataSources:   []string{"bob/ds"},
 		AggregatorURL: customAgg.URL,
 	})
 	if err != nil {
