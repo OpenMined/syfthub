@@ -19,9 +19,11 @@ Example usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generator, Literal
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 import websocket as _ws
 
@@ -173,14 +175,10 @@ class AgentSessionClient:
 
     def close(self) -> None:
         """Close the session and the WebSocket connection."""
-        try:
+        with contextlib.suppress(Exception):
             self._send({"type": "session.close"})
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self._ws.close()
-        except Exception:
-            pass
 
     def _send(self, msg: dict[str, Any]) -> None:
         self._ws.send(json.dumps(msg))
@@ -230,11 +228,12 @@ class AgentResource:
         peer_resp = self._auth.get_peer_token([owner])
 
         aggregator_url = (options.aggregator_url or self._aggregator_url).rstrip("/")
-        ws_url = aggregator_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_url = aggregator_url.replace("https://", "wss://").replace(
+            "http://", "ws://"
+        )
         ws_url += "/agent/session"
 
-        ws = _ws.WebSocket()
-        ws.connect(ws_url)
+        ws: _ws.WebSocket = _ws.create_connection(ws_url)
 
         start_payload: dict[str, Any] = {
             "prompt": options.prompt,
@@ -278,5 +277,7 @@ class AgentResource:
                 code=payload.get("code"),
             )
 
-        session_id = resp.get("session_id") or resp.get("payload", {}).get("session_id", "")
+        session_id = resp.get("session_id") or resp.get("payload", {}).get(
+            "session_id", ""
+        )
         return AgentSessionClient(ws, session_id)

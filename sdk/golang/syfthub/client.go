@@ -194,7 +194,10 @@ func (c *Client) Search() *SearchResource {
 	defer c.mu.Unlock()
 
 	if c.search == nil {
-		c.search = newSearchResource(c.Chat())
+		if c.chat == nil {
+			c.chat = newChatResource(c.Hub, c.Auth, c.aggregatorURL, c.timeout)
+		}
+		c.search = newSearchResource(c.chat)
 	}
 	return c.search
 }

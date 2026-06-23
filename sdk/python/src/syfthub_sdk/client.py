@@ -13,7 +13,7 @@ else:
 
 from syfthub_sdk._http import HTTPClient
 from syfthub_sdk.accounting import AccountingResource
-from syfthub_sdk.agent import AgentResource, AgentSessionOptions
+from syfthub_sdk.agent import AgentResource
 from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.api_tokens import APITokensResource
 from syfthub_sdk.auth import AuthResource
