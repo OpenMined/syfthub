@@ -21,7 +21,7 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.28.0",
     "pydantic[email]>=2.10.0",
-    "pydantic-settings>=2.6.0",
+    "pydantic-settings>=2.14.2",
     "pyjwt>=2.13.0",  # Replaced python-jose (unused, brought ecdsa vulnerability)
     "sse-starlette>=2.2.0",
     "structlog>=24.0.0",
@@ -31,7 +31,7 @@ dependencies = [
     "federated-aggregation @ git+https://github.com/siddhant230/Aggregator_package.git",
     "attribution-lib @ git+https://github.com/siddhant230/Attribution_package.git",
     # Security pins for transitive dependencies
-    "starlette>=1.1.0",  # CVE-2025-62727: O(n^2) DoS via Range header
+    "starlette>=1.3.1",  # CVE-2025-62727: O(n^2) DoS via Range header
     "fastembed>=0.3.0",  # fastembed <0.3 pins tokenizers<0.16; 0.15.2 has broken pyproject.toml
     "tokenizers>=0.19",  # tokenizers 0.15.2 has broken pyproject.toml (missing project.version)
     # NOTE: pillow CVE-2026-25990 (OOB write in PSD) — pinned via [tool.uv] override-dependencies

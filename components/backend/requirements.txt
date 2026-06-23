@@ -29,7 +29,7 @@ bcrypt==5.0.0
     # via passlib
 bitarray==3.8.1
     # via eth-account
-bleach==6.3.0
+bleach==6.4.0
     # via syfthub (pyproject.toml)
 camel-converter==5.1.0
     # via meilisearch
@@ -186,7 +186,7 @@ pydantic==2.12.4
     #   web3
 pydantic-core==2.41.5
     # via pydantic
-pydantic-settings==2.12.0
+pydantic-settings==2.14.2
     # via syfthub (pyproject.toml)
 pyjwt==2.13.0
     # via syfthub (pyproject.toml)
@@ -196,7 +196,7 @@ pytempo==0.5.0
     # via pympp
 python-dotenv==1.2.2
     # via pydantic-settings
-python-multipart==0.0.27
+python-multipart==0.0.31
     # via syfthub (pyproject.toml)
 pyunormalize==17.0.0
     # via web3
@@ -223,7 +223,7 @@ sqlalchemy==2.0.44
     # via
     #   syfthub (pyproject.toml)
     #   alembic
-starlette==1.1.0
+starlette==1.3.1
     # via fastapi
 structlog==25.5.0
     # via syfthub (pyproject.toml)
