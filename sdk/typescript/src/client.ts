@@ -1,6 +1,7 @@
 import { HTTPClient, type AuthTokens } from './http.js';
 import { AuthenticationError, SyftHubError } from './errors.js';
 import { APITokensResource } from './resources/api-tokens.js';
+import { AggregatorsResource } from './resources/aggregators.js';
 import { AuthResource } from './resources/auth.js';
 import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
@@ -118,6 +119,7 @@ export class SyftHubClient {
   private _myEndpoints?: MyEndpointsResource;
   private _hub?: HubResource;
   private _accounting?: AccountingResource;
+  private _aggregators?: AggregatorsResource;
   private _agent?: AgentResource;
   private _chat?: ChatResource;
   private _search?: SearchResource;
@@ -261,47 +263,23 @@ export class SyftHubClient {
    * const balance = await client.accounting.getBalance();
    */
   get accounting(): AccountingResource {
-    if (this._accounting) {
-      return this._accounting;
+    if (!this.isAuthenticated) {
+      throw new AuthenticationError(
+        'Must be logged in to use accounting. Call client.auth.login() first.'
+      );
     }
-
-    throw new AuthenticationError(
-      'Accounting not initialized. ' + 'Call `await client.initAccounting()` after login.'
-    );
+    if (!this._accounting) {
+      this._accounting = new AccountingResource(this.http);
+    }
+    return this._accounting;
   }
 
   /**
-   * Initialize the accounting (wallet) resource.
-   *
-   * The wallet API uses the same SyftHub authentication as other resources.
-   * This method simply verifies authentication and creates the resource.
-   *
-   * @returns The initialized AccountingResource
-   * @throws {AuthenticationError} If not authenticated
-   *
-   * @example
-   * // Login first, then initialize accounting
-   * await client.auth.login('alice', 'password');
-   * await client.initAccounting();
-   *
-   * // Now accounting is available
-   * const wallet = await client.accounting.getWallet();
-   * const balance = await client.accounting.getBalance();
+   * @deprecated Accounting is now initialized automatically on first access.
+   * This method is kept for backward compatibility and is a no-op.
    */
   async initAccounting(): Promise<AccountingResource> {
-    // Return cached instance
-    if (this._accounting) {
-      return this._accounting;
-    }
-
-    if (!this.isAuthenticated) {
-      throw new AuthenticationError(
-        'Must be logged in to use accounting. ' + 'Call client.auth.login() first.'
-      );
-    }
-
-    this._accounting = new AccountingResource(this.http);
-    return this._accounting;
+    return this.accounting;
   }
 
   /**
@@ -411,6 +389,13 @@ export class SyftHubClient {
    * // Revoke a token
    * await client.apiTokens.revoke(tokenId);
    */
+  get aggregators(): AggregatorsResource {
+    if (!this._aggregators) {
+      this._aggregators = new AggregatorsResource(this.http);
+    }
+    return this._aggregators;
+  }
+
   get apiTokens(): APITokensResource {
     if (!this._apiTokens) {
       this._apiTokens = new APITokensResource(this.http);

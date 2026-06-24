@@ -76,12 +76,14 @@ type Client struct {
 	Hub         *HubResource
 
 	// Lazy-initialized resources
-	mu         sync.Mutex
-	chat       *ChatResource
-	syftai     *SyftAIResource
-	accounting *AccountingResource
-	apiTokens  *APITokensResource
-	agent      *AgentResource
+	mu          sync.Mutex
+	chat        *ChatResource
+	search      *SearchResource
+	syftai      *SyftAIResource
+	accounting  *AccountingResource
+	apiTokens   *APITokensResource
+	agent       *AgentResource
+	aggregators *AggregatorsResource
 }
 
 // Option is a function that configures the Client.
@@ -185,6 +187,21 @@ func (c *Client) Chat() *ChatResource {
 	return c.chat
 }
 
+// Search returns the SearchResource for retrieval-only aggregator queries.
+// The resource is lazily initialized on first access.
+func (c *Client) Search() *SearchResource {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.search == nil {
+		if c.chat == nil {
+			c.chat = newChatResource(c.Hub, c.Auth, c.aggregatorURL, c.timeout)
+		}
+		c.search = newSearchResource(c.chat)
+	}
+	return c.search
+}
+
 // Agent returns the AgentResource for agent sessions.
 // The resource is lazily initialized on first access.
 func (c *Client) Agent() *AgentResource {
@@ -253,6 +270,18 @@ func (c *Client) initAccounting(ctx context.Context) (*AccountingResource, error
 	}
 
 	return newAccountingResource(*creds.URL, creds.Email, *creds.Password, c.timeout), nil
+}
+
+// Aggregators returns the AggregatorsResource for managing aggregator configurations.
+// The resource is lazily initialized on first access.
+func (c *Client) Aggregators() *AggregatorsResource {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.aggregators == nil {
+		c.aggregators = newAggregatorsResource(c.http)
+	}
+	return c.aggregators
 }
 
 // APITokens returns the APITokensResource for managing API tokens.

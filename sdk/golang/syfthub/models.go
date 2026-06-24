@@ -463,6 +463,34 @@ type APITokenListResponse struct {
 }
 
 // =============================================================================
+// Search Models
+// =============================================================================
+
+// SearchRequest contains parameters for a retrieval-only aggregator query.
+type SearchRequest struct {
+	Prompt              string
+	DataSources         []string
+	TopK                int
+	SimilarityThreshold float64
+	AggregatorURL       string
+	GuestMode           bool
+}
+
+// SearchDocument represents a single document returned by a retrieval query.
+type SearchDocument struct {
+	Title   string
+	Slug    string
+	Content string
+}
+
+// SearchResponse represents the response from a retrieval-only query.
+type SearchResponse struct {
+	Documents     []SearchDocument
+	RetrievalInfo []SourceInfo
+	Metadata      ChatMetadata
+}
+
+// =============================================================================
 // NATS Credentials Models
 // =============================================================================
 
