@@ -4,7 +4,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from aggregator.api.dependencies import get_optional_token, get_orchestrator
 from aggregator.schemas import ChatRequest, ChatResponse, ErrorResponse
@@ -27,7 +27,7 @@ async def chat(
     request: ChatRequest,
     orchestrator: Annotated[Orchestrator, Depends(get_orchestrator)],
     user_token: Annotated[str | None, Depends(get_optional_token)],
-) -> ChatResponse:
+) -> ChatResponse | JSONResponse:
     """
     Process a chat request with RAG context aggregation.
 
@@ -53,7 +53,15 @@ async def chat(
         return await orchestrator.process_chat(request, user_token)
     except OrchestratorError as e:
         logger.error(f"Orchestration error: {e}")
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        # Surface any billing already incurred (e.g. paid data sources) even when
+        # generation is rejected, so the caller can reconcile charges.
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": str(e),
+                "billing": e.billing.model_dump() if e.billing else None,
+            },
+        )
     except Exception as e:
         logger.exception("Unexpected error in chat endpoint")
         raise HTTPException(status_code=500, detail="Internal server error") from e

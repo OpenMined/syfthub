@@ -145,16 +145,26 @@ class ChatError(SyftHubError):
 
 
 class AggregatorError(ChatError):
-    """Raised when the aggregator service is unavailable or returns an error."""
+    """Raised when the aggregator service is unavailable or returns an error.
+
+    Attributes:
+        billing: Optional billing/policy metadata the aggregator may attach even
+            on an error response — a paid query can be REJECTED yet still carry a
+            charge that must be surfaced (and possibly refunded). Typed as
+            ``Any`` to avoid importing the models layer into ``exceptions``;
+            callers should treat it as a ``Billing | None``.
+    """
 
     def __init__(
         self,
         message: str = "Aggregator service error",
         status_code: int | None = None,
         detail: Any = None,
+        billing: Any = None,
     ) -> None:
         super().__init__(message, detail=detail)
         self.status_code = status_code
+        self.billing = billing
 
 
 class RetrievalError(ChatError):

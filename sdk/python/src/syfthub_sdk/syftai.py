@@ -40,7 +40,13 @@ from typing import TYPE_CHECKING
 import httpx
 
 from syfthub_sdk.exceptions import GenerationError, RetrievalError
-from syfthub_sdk.models import Document, EndpointRef, Message
+from syfthub_sdk.models import (
+    DataSourceQueryResult,
+    Document,
+    EndpointRef,
+    Message,
+    PolicyMetadata,
+)
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -256,7 +262,7 @@ class SyftAIResource:
         authorization_token: str | None = None,
         owner_username: str | None = None,
         pay: bool = False,
-    ) -> list[Document]:
+    ) -> DataSourceQueryResult:
         """Query a data source endpoint directly.
 
         Sends a query to a SyftAI-Space data source endpoint and returns
@@ -283,13 +289,15 @@ class SyftAIResource:
                 ``RetrievalError``.
 
         Returns:
-            List of Document objects
+            DataSourceQueryResult — iterable over the retrieved ``Document``
+            objects and exposing the raw ``policy_metadata`` block from the
+            syft-space response (price, recipient, transaction, status).
 
         Raises:
             RetrievalError: If the query fails
 
         Example:
-            docs = client.syftai.query_data_source(
+            result = client.syftai.query_data_source(
                 endpoint=EndpointRef(
                     url="http://syftai:8080", slug="docs", owner_username="alice"
                 ),
@@ -297,8 +305,10 @@ class SyftAIResource:
                 user_email="alice@example.com",
                 pay=True,  # auto-pay if the endpoint is metered
             )
-            for doc in docs:
+            for doc in result:
                 print(f"[{doc.score:.2f}] {doc.content[:100]}...")
+            if result.policy_metadata:
+                print(result.policy_metadata.entries)
         """
         token = authorization_token
         if token is None:
@@ -323,7 +333,29 @@ class SyftAIResource:
             source_path=endpoint.slug,
         )
 
-        return self._parse_documents(response.json())
+        data = response.json()
+        return DataSourceQueryResult(
+            documents=self._parse_documents(data),
+            policy_metadata=self._parse_policy_metadata(data),
+        )
+
+    @staticmethod
+    def _parse_policy_metadata(data: dict[str, object]) -> PolicyMetadata | None:
+        """Parse the raw ``policy_metadata`` block from a syft-space response.
+
+        The direct path (Boundary A) carries a top-level ``policy_metadata``
+        object shaped ``{"outcome": str, "entries": [PolicyMetadataEntry...]}``.
+        Entries reuse the :class:`BillingEntry` shape (with ``source`` absent).
+
+        The wire shape already matches :class:`PolicyMetadata`, whose nested
+        ``entries`` coerce into :class:`BillingEntry` (and their ``recipient`` /
+        ``transaction`` dicts in turn), so this defers to pydantic. Unexpected
+        keys are ignored (models use the default ``extra="ignore"``).
+        """
+        pm = data.get("policy_metadata")
+        if not isinstance(pm, dict):
+            return None
+        return PolicyMetadata.model_validate(pm)
 
     @staticmethod
     def _parse_documents(data: dict[str, object]) -> list[Document]:

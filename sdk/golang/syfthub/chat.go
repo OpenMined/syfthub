@@ -296,6 +296,7 @@ func (c *ChatResource) Complete(ctx context.Context, req *ChatCompleteRequest) (
 		RetrievalInfo []SourceInfo              `json:"retrieval_info"`
 		Metadata      ChatMetadata              `json:"metadata"`
 		Usage         *TokenUsage               `json:"usage,omitempty"`
+		Billing       *Billing                  `json:"billing,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -307,6 +308,7 @@ func (c *ChatResource) Complete(ctx context.Context, req *ChatCompleteRequest) (
 		RetrievalInfo: data.RetrievalInfo,
 		Metadata:      data.Metadata,
 		Usage:         data.Usage,
+		Billing:       data.Billing,
 	}, nil
 }
 
@@ -481,11 +483,14 @@ func (c *ChatResource) parseSSEEvent(eventType, dataStr string) ChatEvent {
 			Metadata: metadata,
 			Sources:  sources,
 			Usage:    usage,
+			Billing:  parseBilling(data),
 		}
 
 	case "error":
+		// A paid query may be REJECTED yet still carry billing metadata.
 		return &ErrorEvent{
-			Error: getString(data, "message"),
+			Error:   getString(data, "message"),
+			Billing: parseBilling(data),
 		}
 
 	default:
@@ -659,21 +664,29 @@ func (c *ChatResource) buildRequestBody(
 }
 
 // handleAggregatorError converts aggregator errors to SDK errors.
+//
+// The aggregator may include an optional top-level "billing" block on an error
+// body (a paid query can be REJECTED yet still carry a charge), so it is parsed
+// and attached to the returned AggregatorError for callers that need to surface
+// or reconcile it.
 func (c *ChatResource) handleAggregatorError(statusCode int, body []byte) error {
 	var data map[string]interface{}
 	message := string(body)
+	var billing *Billing
 	if err := json.Unmarshal(body, &data); err == nil {
 		if msg, ok := data["message"].(string); ok {
 			message = msg
 		} else if msg, ok := data["error"].(string); ok {
 			message = msg
 		}
+		billing = parseBilling(data)
 	}
 
 	return &AggregatorError{
 		ChatError: &ChatError{
 			SyftHubError: newSyftHubError(statusCode, fmt.Sprintf("Aggregator error: %s", message)),
 		},
+		Billing: billing,
 	}
 }
 
@@ -740,4 +753,25 @@ func getInt(m map[string]interface{}, key string) int {
 		return v
 	}
 	return 0
+}
+
+// parseBilling extracts the top-level "billing" block from a decoded aggregator
+// payload (SSE event data or an error body) into a *Billing. It re-marshals the
+// sub-object and lets encoding/json map it onto the struct tags, so the snake_case
+// wire shape (incl. nested recipient / transaction) coerces automatically.
+// Returns nil if "billing" is absent or not an object.
+func parseBilling(m map[string]interface{}) *Billing {
+	raw, ok := m["billing"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var billing Billing
+	if err := json.Unmarshal(encoded, &billing); err != nil {
+		return nil
+	}
+	return &billing
 }

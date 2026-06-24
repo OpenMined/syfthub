@@ -160,6 +160,10 @@ func (e *ChatError) Unwrap() error {
 // AggregatorError represents an error from the aggregator service.
 type AggregatorError struct {
 	*ChatError
+	// Billing is the optional payment-policy metadata the aggregator may attach
+	// even on an error response — a paid query can be REJECTED yet still carry a
+	// charge that must be surfaced (and possibly refunded).
+	Billing *Billing
 }
 
 // RetrievalError represents an error during RAG retrieval.

@@ -45,6 +45,7 @@ from syfthub_sdk.exceptions import (
     EndpointResolutionError,
 )
 from syfthub_sdk.models import (
+    Billing,
     ChatMetadata,
     ChatResponse,
     DocumentSource,
@@ -154,6 +155,7 @@ class DoneEvent:
     usage: TokenUsage | None = (
         None  # Token usage if available (only from non-streaming)
     )
+    billing: Billing | None = None  # Aggregated payment-policy metadata
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,9 @@ class ErrorEvent:
 
     type: Literal["error"] = field(default="error", repr=False)
     message: str = ""
+    # Billing surfaced on the error path: a paid query may be REJECTED yet still
+    # carry policy/billing metadata (e.g. a charge that must be refunded).
+    billing: Billing | None = None
 
 
 ChatStreamEvent = (
@@ -570,10 +575,19 @@ class ChatResource:
         return body
 
     def _handle_aggregator_error(self, response: httpx.Response) -> None:
-        """Handle error responses from the aggregator."""
+        """Handle error responses from the aggregator.
+
+        The aggregator may include an optional top-level ``billing`` block on an
+        error body (a paid query can be REJECTED yet still carry a charge), so it
+        is parsed and attached to the raised :class:`AggregatorError` for callers
+        that need to surface or reconcile it.
+        """
+        billing: Billing | None = None
         try:
             data = response.json()
             message = data.get("message", data.get("error", str(data)))
+            if isinstance(data, dict):
+                billing = self._parse_billing(data)
         except Exception:
             message = response.text or f"HTTP {response.status_code}"
 
@@ -581,6 +595,7 @@ class ChatResource:
             message=f"Aggregator error: {message}",
             status_code=response.status_code,
             detail=response.text,
+            billing=billing,
         )
 
     # ------------------------------------------------------------------
@@ -639,6 +654,21 @@ class ChatResource:
             completion_tokens=u.get("completion_tokens", 0),
             total_tokens=u.get("total_tokens", 0),
         )
+
+    @staticmethod
+    def _parse_billing(data: dict[str, Any]) -> Billing | None:
+        """Parse the aggregated 'billing' block from an aggregator response.
+
+        The wire shape already matches :class:`Billing` (and its nested
+        ``entries[].recipient`` / ``transaction`` dicts coerce into
+        :class:`BillingEntry` / :class:`Recipient` / :class:`Transaction`
+        automatically), so this defers to pydantic. Unexpected keys are ignored
+        (models use the default ``extra="ignore"``).
+        """
+        b = data.get("billing")
+        if not isinstance(b, dict):
+            return None
+        return Billing.model_validate(b)
 
     def _prepare_request(
         self,
@@ -757,10 +787,14 @@ class ChatResource:
                 retrieval_info=self._parse_retrieval_info(data),
                 metadata=self._parse_metadata(data),
                 usage=self._parse_usage(data),
+                billing=self._parse_billing(data),
             )
 
         elif event_type == "error":
-            return ErrorEvent(message=data.get("message", "Unknown error"))
+            return ErrorEvent(
+                message=data.get("message", "Unknown error"),
+                billing=self._parse_billing(data),
+            )
 
         # Unknown event type - return as error
         logger.warning(f"Unknown SSE event type: {event_type}")
@@ -859,6 +893,7 @@ class ChatResource:
             retrieval_info=self._parse_retrieval_info(data),
             metadata=metadata,
             usage=self._parse_usage(data),
+            billing=self._parse_billing(data),
         )
 
     # Placeholder model for retrieval-only requests. The aggregator requires a
@@ -948,6 +983,7 @@ class ChatResource:
             documents=documents,
             retrieval_info=self._parse_retrieval_info(data),
             metadata=metadata,
+            billing=self._parse_billing(data),
         )
 
     def stream(

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from aggregator.clients._policy_meta import extract_policy_metadata
 from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
@@ -30,9 +31,15 @@ RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 class ModelClientError(Exception):
     """Error from model endpoint."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        policy_metadata: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.policy_metadata = policy_metadata
 
 
 class ModelClient:
@@ -159,21 +166,25 @@ class ModelClient:
                                     headers=retry_headers,
                                 )
                         except Exception as pay_err:
+                            pay_policy_metadata = extract_policy_metadata(response)
                             error_detail = str(pay_err).lower()
                             if "insufficient" in error_detail:
                                 raise ModelClientError(
                                     "Payment failed: insufficient wallet balance",
                                     status_code=402,
+                                    policy_metadata=pay_policy_metadata,
                                 ) from pay_err
                             elif "timeout" in error_detail or "timed out" in error_detail:
                                 raise ModelClientError(
                                     "Payment failed: blockchain timeout",
                                     status_code=504,
+                                    policy_metadata=pay_policy_metadata,
                                 ) from pay_err
                             else:
                                 raise ModelClientError(
                                     f"Payment failed: {pay_err}",
                                     status_code=402,
+                                    policy_metadata=pay_policy_metadata,
                                 ) from pay_err
 
                     latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -198,6 +209,7 @@ class ModelClient:
                         raise ModelClientError(
                             f"Model access denied: {error_detail}",
                             status_code=403,
+                            policy_metadata=extract_policy_metadata(response),
                         )
 
                     if response.status_code != 200:
@@ -227,6 +239,7 @@ class ModelClient:
                             last_error = ModelClientError(
                                 user_message,
                                 status_code=response.status_code,
+                                policy_metadata=extract_policy_metadata(response),
                             )
                             await asyncio.sleep(delay)
                             start_time = time.perf_counter()
@@ -250,6 +263,7 @@ class ModelClient:
                         raise ModelClientError(
                             user_message,
                             status_code=response.status_code,
+                            policy_metadata=extract_policy_metadata(response),
                         )
 
                     try:
@@ -289,6 +303,7 @@ class ModelClient:
                         response=response_text,
                         latency_ms=latency_ms,
                         usage=usage,
+                        policy_metadata=data.get("policy_metadata"),
                     )
 
                 except ModelClientError:

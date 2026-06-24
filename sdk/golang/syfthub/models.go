@@ -58,9 +58,28 @@ const (
 type SourceStatus string
 
 const (
-	SourceStatusSuccess SourceStatus = "success"
-	SourceStatusError   SourceStatus = "error"
-	SourceStatusTimeout SourceStatus = "timeout"
+	SourceStatusSuccess         SourceStatus = "success"
+	SourceStatusError           SourceStatus = "error"
+	SourceStatusTimeout         SourceStatus = "timeout"
+	SourceStatusPaymentFailed   SourceStatus = "payment_failed"
+	SourceStatusAccessDenied    SourceStatus = "access_denied"
+	SourceStatusPolicyViolation SourceStatus = "policy_violation"
+	SourceStatusRateLimited     SourceStatus = "rate_limited"
+)
+
+// ReasonCode is the machine-readable rejection reason on a BillingEntry.
+//
+// The known set the producer emits today. BillingEntry.ReasonCode is a
+// *ReasonCode, but any string decodes into it, so a future code never breaks
+// parsing — compare against these consts.
+type ReasonCode string
+
+const (
+	ReasonCodeNoPricingTier       ReasonCode = "NO_PRICING_TIER"
+	ReasonCodeInsufficientBalance ReasonCode = "INSUFFICIENT_BALANCE"
+	ReasonCodePaymentRequired     ReasonCode = "PAYMENT_REQUIRED"
+	ReasonCodeAccessDenied        ReasonCode = "ACCESS_DENIED"
+	ReasonCodeRateLimited         ReasonCode = "RATE_LIMITED"
 )
 
 // APITokenScope represents API token permission scopes.
@@ -320,6 +339,81 @@ type TokenUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
+// =============================================================================
+// Policy-Metadata / Billing Models
+// =============================================================================
+
+// Recipient is the "to whom" of a billing entry — the endpoint owner / publisher.
+//
+// All fields are optional; WalletAddress is a public MPP address only and never
+// a private key.
+type Recipient struct {
+	Username      *string `json:"username,omitempty"`
+	Email         *string `json:"email,omitempty"`
+	WalletAddress *string `json:"wallet_address,omitempty"`
+}
+
+// TransactionRef is a rail-native transaction reference for a billing entry.
+//
+// ID is the rail-native identifier (Tempo tx hash for "mpp"; the ledger
+// transaction id for "xendit" / "stripe"); Rail is the discriminator.
+//
+// Named TransactionRef (not Transaction) to avoid colliding with the accounting
+// Transaction type defined above.
+type TransactionRef struct {
+	Rail      string  `json:"rail"`
+	ID        string  `json:"id"`
+	Reference *string `json:"reference,omitempty"`
+}
+
+// BillingEntry is a single policy-metadata entry from a queried source.
+//
+// Emitted by both payment and non-payment policies. When surfaced via the
+// aggregated Billing block, Source carries the owner/slug of the source that
+// produced the entry; on the direct path it is nil.
+type BillingEntry struct {
+	Source      *string                `json:"source,omitempty"`
+	PolicyType  string                 `json:"policy_type"`
+	Kind        string                 `json:"kind"`
+	Status      string                 `json:"status"`
+	Amount      *float64               `json:"amount,omitempty"`
+	Currency    *string                `json:"currency,omitempty"`
+	Recipient   *Recipient             `json:"recipient,omitempty"`
+	Transaction *TransactionRef        `json:"transaction,omitempty"`
+	ReasonCode  *ReasonCode            `json:"reason_code,omitempty"`
+	Reason      *string                `json:"reason,omitempty"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+}
+
+// Billing is the aggregated billing block surfaced on chat responses.
+//
+// TotalCost is the sum of entries with Status == "charged" (nil if none
+// charged); Currency is the common currency or nil if mixed. No FX conversion
+// is performed — each entry keeps its own currency.
+//
+// Note: TotalCost can be > 0 on a rejected query — an earlier policy may have
+// committed a charge before a later policy blocked the request, so the
+// rejection envelope carries both the "charged" and the "rejected" entry.
+// Inspect per-entry Status rather than assuming a positive TotalCost means the
+// query succeeded.
+type Billing struct {
+	TotalCost *float64       `json:"total_cost,omitempty"`
+	Currency  *string        `json:"currency,omitempty"`
+	Entries   []BillingEntry `json:"entries"`
+}
+
+// PolicyMetadata is the raw policy-metadata block returned on the direct
+// syft-space query path.
+//
+// Unlike the aggregated Billing block, this is the per-source object exactly as
+// the syft-space /query response carries it: an Outcome string plus the list of
+// BillingEntry items (whose Source key is absent / nil on the direct path). No
+// aggregation or total is applied.
+type PolicyMetadata struct {
+	Outcome string         `json:"outcome"`
+	Entries []BillingEntry `json:"entries"`
+}
+
 // ChatResponse represents the response from a chat completion request.
 type ChatResponse struct {
 	Response      string                    `json:"response"`
@@ -327,6 +421,8 @@ type ChatResponse struct {
 	RetrievalInfo []SourceInfo              `json:"retrieval_info"`
 	Metadata      ChatMetadata              `json:"metadata"`
 	Usage         *TokenUsage               `json:"usage,omitempty"`
+	// Billing is the aggregated payment-policy metadata across queried sources.
+	Billing *Billing `json:"billing,omitempty"`
 }
 
 // Message represents a chat message for model queries.
@@ -601,6 +697,8 @@ type DoneEvent struct {
 	Metadata ChatMetadata              `json:"metadata"`
 	Sources  map[string]DocumentSource `json:"sources"`
 	Usage    *TokenUsage               `json:"usage,omitempty"`
+	// Billing is the aggregated payment-policy metadata across queried sources.
+	Billing *Billing `json:"billing,omitempty"`
 }
 
 func (e *DoneEvent) EventType() ChatEventType { return ChatEventTypeDone }
@@ -610,6 +708,9 @@ type ErrorEvent struct {
 	Error   string `json:"error"`
 	Code    string `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
+	// Billing is surfaced on the error path: a paid query may be REJECTED yet
+	// still carry policy/billing metadata (e.g. a charge that must be refunded).
+	Billing *Billing `json:"billing,omitempty"`
 }
 
 func (e *ErrorEvent) EventType() ChatEventType { return ChatEventTypeError }

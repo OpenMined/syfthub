@@ -58,17 +58,71 @@ describe('SyftAIResource', () => {
 
       mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
-      const docs = await client.syftai.queryDataSource({
+      const result = await client.syftai.queryDataSource({
         endpoint: dataSourceEndpoint,
         query: 'What is machine learning?',
         userEmail: 'test@example.com',
         topK: 5,
       });
 
-      expect(docs).toHaveLength(2);
-      expect(docs[0].content).toBe('Machine learning is a type of AI.');
-      expect(docs[0].score).toBe(0.95);
-      expect(docs[0].metadata.source).toBe('ml-intro.txt');
+      expect(result.documents).toHaveLength(2);
+      expect(result.documents[0].content).toBe('Machine learning is a type of AI.');
+      expect(result.documents[0].score).toBe(0.95);
+      expect(result.documents[0].metadata.source).toBe('ml-intro.txt');
+      expect(result.policyMetadata).toBeUndefined();
+    });
+
+    it('should parse policy_metadata when present', async () => {
+      const mockResponse = {
+        references: {
+          documents: [{ content: 'Paid doc.', similarity_score: 0.9, metadata: {} }],
+        },
+        policy_metadata: {
+          outcome: 'success',
+          entries: [
+            {
+              policy_type: 'mpp_per_request',
+              kind: 'payment',
+              status: 'charged',
+              amount: 0.01,
+              currency: 'USD',
+              recipient: {
+                username: 'alice',
+                email: 'alice@x.io',
+                wallet_address: '0xabc',
+              },
+              transaction: { rail: 'mpp', id: '0xdeadbeef', reference: 'ext-1' },
+              reason_code: null,
+              reason: null,
+              details: { documents: 1 },
+            },
+          ],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
+
+      const result = await client.syftai.queryDataSource({
+        endpoint: dataSourceEndpoint,
+        query: 'paid query',
+        userEmail: 'test@example.com',
+      });
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.policyMetadata?.outcome).toBe('success');
+      expect(result.policyMetadata?.entries).toHaveLength(1);
+      const entry = result.policyMetadata!.entries[0];
+      expect(entry.policyType).toBe('mpp_per_request');
+      expect(entry.kind).toBe('payment');
+      expect(entry.status).toBe('charged');
+      expect(entry.amount).toBe(0.01);
+      expect(entry.currency).toBe('USD');
+      expect(entry.recipient?.username).toBe('alice');
+      expect(entry.recipient?.walletAddress).toBe('0xabc');
+      expect(entry.transaction?.rail).toBe('mpp');
+      expect(entry.transaction?.id).toBe('0xdeadbeef');
+      expect(entry.transaction?.reference).toBe('ext-1');
+      expect(entry.details['documents']).toBe(1);
     });
 
     it('should send X-Tenant-Name header', async () => {
@@ -97,13 +151,14 @@ describe('SyftAIResource', () => {
         new Response(JSON.stringify({ documents: [] }), { status: 200 })
       );
 
-      const docs = await client.syftai.queryDataSource({
+      const result = await client.syftai.queryDataSource({
         endpoint: dataSourceEndpoint,
         query: 'obscure query',
         userEmail: 'test@example.com',
       });
 
-      expect(docs).toHaveLength(0);
+      expect(result.documents).toHaveLength(0);
+      expect(result.policyMetadata).toBeUndefined();
     });
 
     it('should throw RetrievalError on HTTP error', async () => {

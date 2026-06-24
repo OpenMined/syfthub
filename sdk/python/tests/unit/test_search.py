@@ -53,6 +53,23 @@ def mock_search_response() -> dict[str, Any]:
             "generation_time_ms": 0,
             "total_time_ms": 120,
         },
+        "billing": {
+            "total_cost": 0.03,
+            "currency": "USD",
+            "entries": [
+                {
+                    "source": "epfl-news/epfl-news",
+                    "policy_type": "mpp_per_request",
+                    "kind": "payment",
+                    "status": "charged",
+                    "amount": 0.03,
+                    "currency": "USD",
+                    "recipient": {"username": "epfl-news"},
+                    "transaction": {"rail": "mpp", "id": "0xsearch"},
+                    "details": {},
+                }
+            ],
+        },
     }
 
 
@@ -100,6 +117,12 @@ class TestSearchQuery:
         assert response.documents[0].slug == "epfl-news/epfl-news"
         assert response.retrieval_info[0].documents_retrieved == 2
         assert response.metadata.generation_time_ms == 0
+        # Billing block is surfaced on retrieval-only responses too.
+        assert response.billing is not None
+        assert response.billing.total_cost == 0.03
+        assert response.billing.entries[0].source == "epfl-news/epfl-news"
+        assert response.billing.entries[0].transaction is not None
+        assert response.billing.entries[0].transaction.id == "0xsearch"
 
     @respx.mock
     def test_query_sends_retrieval_only_and_user_token(

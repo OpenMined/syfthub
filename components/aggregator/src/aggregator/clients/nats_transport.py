@@ -53,9 +53,15 @@ def extract_tunnel_username(url: str) -> str:
 class NATSTransportError(Exception):
     """Error during NATS transport communication."""
 
-    def __init__(self, message: str, code: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        code: str | None = None,
+        policy_metadata: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.code = code
+        self.policy_metadata = policy_metadata
 
 
 class NATSTransport:
@@ -440,6 +446,7 @@ class NATSTransport:
             if response.get("status") == "error":
                 error = response.get("error", {})
                 error_msg = error.get("message", "Unknown tunnel error")
+                err_payload = response.get("payload")
                 logger.warning(
                     f"Tunnel data source query failed: {error_msg}",
                     extra={"endpoint_path": endpoint_path},
@@ -450,6 +457,9 @@ class NATSTransport:
                     status="error",
                     error_message=error_msg,
                     latency_ms=latency_ms,
+                    policy_metadata=err_payload.get("policy_metadata")
+                    if isinstance(err_payload, dict)
+                    else None,
                 )
 
             # Parse response payload (same format as HTTP response)
@@ -466,6 +476,9 @@ class NATSTransport:
                 documents=documents,
                 status="success",
                 latency_ms=latency_ms,
+                policy_metadata=resp_payload.get("policy_metadata")
+                if isinstance(resp_payload, dict)
+                else None,
             )
 
         except NATSTransportError as exc:
@@ -554,7 +567,14 @@ class NATSTransport:
             if response.get("status") == "error":
                 error = response.get("error", {})
                 error_msg = error.get("message", "Unknown tunnel error")
-                raise NATSTransportError(error_msg, code=error.get("code"))
+                err_payload = response.get("payload")
+                raise NATSTransportError(
+                    error_msg,
+                    code=error.get("code"),
+                    policy_metadata=err_payload.get("policy_metadata")
+                    if isinstance(err_payload, dict)
+                    else None,
+                )
 
             # Parse response payload (same format as HTTP response)
             resp_payload = response.get("payload", {})
@@ -566,6 +586,9 @@ class NATSTransport:
                 response=response_text,
                 latency_ms=latency_ms,
                 usage=usage,
+                policy_metadata=resp_payload.get("policy_metadata")
+                if isinstance(resp_payload, dict)
+                else None,
             )
 
         except NATSTransportError:
