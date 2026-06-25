@@ -456,17 +456,48 @@ class CollectiveService(BaseService):
         self,
         skip: int = 0,
         limit: int = 50,
-        owner_id: Optional[int] = None,
+        owner_username: Optional[str] = None,
         search: Optional[str] = None,
     ) -> List[CollectiveResponse]:
         """List collectives, newest first.
 
-        Optionally filtered by ``owner_id`` and/or a ``search`` string.
+        Optionally filtered by ``owner_username`` (resolved to an owner_id
+        internally) and/or a ``search`` string. Returns an empty list when
+        ``owner_username`` is provided but does not match any user.
         """
+        owner_id: Optional[int] = None
+        if owner_username is not None:
+            owner = self.user_repo.get_by_username(owner_username)
+            if owner is None:
+                return []
+            owner_id = owner.id
         collectives = self.collective_repo.list_collectives(
             skip, limit, owner_id, search
         )
         # Grouped queries for all counts instead of N per-row queries.
+        ids = [c.id for c in collectives]
+        approved = MembershipStatus.APPROVED.value
+        member_counts = self.member_repo.count_members_bulk(ids, approved)
+        owner_counts = self.member_repo.count_owners_bulk(ids, approved)
+        for collective in collectives:
+            collective.member_count = member_counts.get(collective.id, 0)
+            collective.owner_count = owner_counts.get(collective.id, 0)
+        return collectives
+
+    def list_collectives_for_user_endpoints(
+        self, username: str
+    ) -> List[CollectiveResponse]:
+        """List distinct collectives where any endpoint owned by ``username`` is an approved member.
+
+        Public-readable. Returns only ``APPROVED`` memberships. Returns an
+        empty list when the username does not exist or has no memberships.
+        """
+        owner = self.user_repo.get_by_username(username)
+        if owner is None:
+            return []
+        collectives = self.member_repo.list_collectives_for_user(
+            owner.id, [MembershipStatus.APPROVED.value]
+        )
         ids = [c.id for c in collectives]
         approved = MembershipStatus.APPROVED.value
         member_counts = self.member_repo.count_members_bulk(ids, approved)
