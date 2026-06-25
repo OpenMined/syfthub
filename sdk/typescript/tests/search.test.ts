@@ -20,9 +20,7 @@ describe('SearchResource', () => {
       'EPFL News #1': { slug: 'epfl-news/epfl-news', content: 'First story.' },
       'EPFL News #2': { slug: 'epfl-news/epfl-news', content: 'Second story.' },
     },
-    retrieval_info: [
-      { path: 'epfl-news/epfl-news', documents_retrieved: 2, status: 'success' },
-    ],
+    retrieval_info: [{ path: 'epfl-news/epfl-news', documents_retrieved: 2, status: 'success' }],
     metadata: { retrieval_time_ms: 120, generation_time_ms: 0, total_time_ms: 120 },
   };
 
@@ -126,9 +124,9 @@ describe('SearchResource', () => {
       });
     });
 
-    await expect(
-      client.search.query({ prompt: 'hi', dataSources: [dataSource] })
-    ).rejects.toThrow(AggregatorError);
+    await expect(client.search.query({ prompt: 'hi', dataSources: [dataSource] })).rejects.toThrow(
+      AggregatorError
+    );
   });
 
   it('exposes a cached SearchResource', () => {
