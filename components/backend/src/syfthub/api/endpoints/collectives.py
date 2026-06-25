@@ -57,7 +57,9 @@ async def list_collectives(
     service: Annotated[CollectiveService, Depends(get_collective_service)],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    owner_id: Optional[int] = Query(None, description="Filter by owning user ID"),
+    owner_username: Optional[str] = Query(
+        None, description="Filter by owning username"
+    ),
     search: Optional[str] = Query(
         None,
         min_length=1,
@@ -67,7 +69,7 @@ async def list_collectives(
 ) -> List[CollectiveResponse]:
     """List collectives, newest first. Collectives are publicly viewable."""
     return service.list_collectives(
-        skip=skip, limit=limit, owner_id=owner_id, search=search
+        skip=skip, limit=limit, owner_username=owner_username, search=search
     )
 
 
@@ -95,6 +97,20 @@ async def list_collectives_for_endpoint(
     member of any collective, or when the endpoint can't be resolved.
     """
     return service.list_collectives_for_endpoint(owner_username, slug)
+
+
+@router.get("/by-member-username/{username}", response_model=List[CollectiveResponse])
+async def list_collectives_for_user_endpoints(
+    username: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[CollectiveResponse]:
+    """List distinct approved collectives where any endpoint owned by ``username`` is a member.
+
+    Public-readable. Returns an empty list when the username does not exist or
+    has no approved memberships. A user with multiple endpoints in the same
+    collective sees that collective only once.
+    """
+    return service.list_collectives_for_user_endpoints(username)
 
 
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])
