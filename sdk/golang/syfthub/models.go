@@ -511,19 +511,6 @@ type SyncEndpointsResponse struct {
 }
 
 // =============================================================================
-// Heartbeat Models
-// =============================================================================
-
-// HeartbeatResponse represents the response from the heartbeat endpoint.
-type HeartbeatResponse struct {
-	Status     string    `json:"status"`
-	ReceivedAt time.Time `json:"received_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	Domain     string    `json:"domain"`
-	TTLSeconds int       `json:"ttl_seconds"`
-}
-
-// =============================================================================
 // User Aggregator Models
 // =============================================================================
 

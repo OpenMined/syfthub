@@ -27,7 +27,6 @@ class TestEndpointHealthInfo:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
         assert info.id == 1
         assert info.slug == "test-endpoint"
@@ -37,7 +36,6 @@ class TestEndpointHealthInfo:
         assert info.owner_domain == "https://example.com"
         assert info.owner_id == 10
         assert info.owner_type == "user"
-        assert info.heartbeat_expires_at is None
         assert info.health_status is None
         assert info.health_checked_at is None
         assert info.health_ttl_seconds is None
@@ -53,7 +51,6 @@ class TestEndpointHealthInfo:
             owner_domain="https://test.com",
             owner_id=20,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
         assert info.id == 2
         assert info.slug == "inactive-endpoint"
@@ -73,7 +70,6 @@ class TestEndpointHealthInfo:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="healthy",
             health_checked_at=now,
             health_ttl_seconds=300,
@@ -220,8 +216,8 @@ class TestGetEndpointsForHealthCheck:
         """Test getting user-owned endpoints."""
         mock_session = MagicMock()
 
-        # 11-column tuple: id, slug, type, is_active, connect, domain, owner_id,
-        # heartbeat_expires_at, health_status, health_checked_at, health_ttl_seconds
+        # 10-column tuple: id, slug, type, is_active, connect, domain, owner_id,
+        # health_status, health_checked_at, health_ttl_seconds
         user_results = [
             (
                 1,
@@ -234,7 +230,6 @@ class TestGetEndpointsForHealthCheck:
                 None,
                 None,
                 None,
-                None,
             ),
             (
                 2,
@@ -244,7 +239,6 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "mcp", "config": {"url": "/mcp"}}],
                 "https://user2.com",
                 20,
-                None,
                 "healthy",
                 datetime.now(timezone.utc),
                 300,
@@ -285,7 +279,6 @@ class TestGetEndpointsForHealthCheck:
                 None,
                 None,
                 None,
-                None,
             ),
             # Empty connect config (falsy)
             (
@@ -299,7 +292,6 @@ class TestGetEndpointsForHealthCheck:
                 None,
                 None,
                 None,
-                None,
             ),
             # Has connect config
             (
@@ -310,7 +302,6 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api"}],
                 "https://user3.com",
                 30,
-                None,
                 None,
                 None,
                 None,
@@ -342,7 +333,6 @@ class TestGetEndpointsForHealthCheck:
                 None,
                 None,
                 None,
-                None,
             ),
             # Empty domain - included
             (
@@ -356,7 +346,6 @@ class TestGetEndpointsForHealthCheck:
                 None,
                 None,
                 None,
-                None,
             ),
             # Has domain - included
             (
@@ -367,7 +356,6 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api"}],
                 "https://valid.com",
                 30,
-                None,
                 None,
                 None,
                 None,
@@ -412,7 +400,6 @@ class TestCheckEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
 
     def test_no_domain_is_unhealthy(self, monitor):
@@ -426,7 +413,6 @@ class TestCheckEndpointHealth:
             owner_domain=None,
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
         endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
         assert endpoint_id == 1
@@ -443,7 +429,6 @@ class TestCheckEndpointHealth:
             owner_domain="",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
         endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
         assert endpoint_id == 2
@@ -461,7 +446,6 @@ class TestCheckEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="healthy",
             health_checked_at=now - timedelta(seconds=10),
             health_ttl_seconds=300,
@@ -482,7 +466,6 @@ class TestCheckEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="unhealthy",
             health_checked_at=now - timedelta(seconds=10),
             health_ttl_seconds=300,
@@ -491,8 +474,14 @@ class TestCheckEndpointHealth:
         assert endpoint_id == 1
         assert is_healthy is False
 
-    def test_stale_per_endpoint_health_falls_through_to_heartbeat(self, monitor):
-        """Test expired per-endpoint health falls through to heartbeat tier."""
+    def test_no_signals_is_unhealthy(self, monitor, sample_endpoint):
+        """Test no health signals (null health fields) is unhealthy."""
+        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is False
+
+    def test_stale_per_endpoint_health_is_unhealthy(self, monitor):
+        """Test expired per-endpoint health is unhealthy (no heartbeat fallback)."""
         now = datetime.now(timezone.utc)
         endpoint = EndpointHealthInfo(
             id=1,
@@ -503,80 +492,13 @@ class TestCheckEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=now + timedelta(seconds=60),  # Fresh heartbeat
-            health_status="unhealthy",
+            health_status="healthy",
             health_checked_at=now - timedelta(seconds=600),  # Stale (expired)
             health_ttl_seconds=300,
         )
         endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
         assert endpoint_id == 1
-        assert is_healthy is True  # Heartbeat says healthy
-
-    def test_fresh_heartbeat_is_healthy(self, monitor, sample_endpoint):
-        """Test fresh heartbeat makes endpoint healthy."""
-        sample_endpoint.heartbeat_expires_at = datetime.now(timezone.utc) + timedelta(
-            seconds=60
-        )
-        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
-        assert endpoint_id == 1
-        assert is_healthy is True
-
-    def test_stale_heartbeat_no_health_is_unhealthy(self, monitor, sample_endpoint):
-        """Test stale heartbeat with no per-endpoint health is unhealthy."""
-        sample_endpoint.heartbeat_expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=60
-        )
-        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
-        assert endpoint_id == 1
         assert is_healthy is False
-
-    def test_no_signals_is_unhealthy(self, monitor, sample_endpoint):
-        """Test no health signals (null heartbeat, null health fields) is unhealthy."""
-        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
-        assert endpoint_id == 1
-        assert is_healthy is False
-
-    def test_per_endpoint_health_takes_priority_over_heartbeat(self, monitor):
-        """Test per-endpoint health overrides heartbeat when both are fresh."""
-        now = datetime.now(timezone.utc)
-        endpoint = EndpointHealthInfo(
-            id=1,
-            slug="test",
-            endpoint_type="model",
-            is_active=True,
-            connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=now + timedelta(seconds=60),  # Fresh heartbeat
-            health_status="unhealthy",  # Per-endpoint says unhealthy
-            health_checked_at=now - timedelta(seconds=10),
-            health_ttl_seconds=300,
-        )
-        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
-        assert endpoint_id == 1
-        assert is_healthy is False  # Per-endpoint health wins
-
-    def test_partial_health_fields_skipped(self, monitor):
-        """Test that partial health fields (missing TTL) skip tier 1."""
-        now = datetime.now(timezone.utc)
-        endpoint = EndpointHealthInfo(
-            id=1,
-            slug="test",
-            endpoint_type="model",
-            is_active=True,
-            connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=now + timedelta(seconds=60),
-            health_status="unhealthy",
-            health_checked_at=now,
-            health_ttl_seconds=None,  # Missing TTL
-        )
-        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
-        assert endpoint_id == 1
-        assert is_healthy is True  # Falls through to heartbeat
 
 
 class TestCheckPerEndpointHealth:
@@ -601,7 +523,6 @@ class TestCheckPerEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
         )
         now = datetime.now(timezone.utc)
         assert monitor._check_per_endpoint_health(endpoint, now) is None
@@ -618,7 +539,6 @@ class TestCheckPerEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="healthy",
             health_checked_at=now - timedelta(seconds=600),
             health_ttl_seconds=300,
@@ -637,7 +557,6 @@ class TestCheckPerEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="healthy",
             health_checked_at=now - timedelta(seconds=10),
             health_ttl_seconds=300,
@@ -656,72 +575,11 @@ class TestCheckPerEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,
             health_status="unhealthy",
             health_checked_at=now - timedelta(seconds=10),
             health_ttl_seconds=300,
         )
         assert monitor._check_per_endpoint_health(endpoint, now) is False
-
-
-class TestCheckHeartbeatHealth:
-    """Tests for _check_heartbeat_health tier method (deprecated)."""
-
-    @pytest.fixture
-    def monitor(self):
-        settings = MagicMock()
-        settings.health_check_enabled = True
-        settings.health_check_interval_seconds = 30
-        settings.health_check_failure_threshold = 3
-        return EndpointHealthMonitor(settings)
-
-    def test_returns_none_when_no_heartbeat(self, monitor):
-        """Test returns None when heartbeat is absent."""
-        endpoint = EndpointHealthInfo(
-            id=1,
-            slug="test",
-            endpoint_type="model",
-            is_active=True,
-            connect=[],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=None,
-        )
-        now = datetime.now(timezone.utc)
-        assert monitor._check_heartbeat_health(endpoint, now) is None
-
-    def test_returns_none_when_expired(self, monitor):
-        """Test returns None when heartbeat has expired."""
-        now = datetime.now(timezone.utc)
-        endpoint = EndpointHealthInfo(
-            id=1,
-            slug="test",
-            endpoint_type="model",
-            is_active=True,
-            connect=[],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=now - timedelta(seconds=60),
-        )
-        assert monitor._check_heartbeat_health(endpoint, now) is None
-
-    def test_returns_true_when_fresh(self, monitor):
-        """Test returns True when heartbeat is fresh."""
-        now = datetime.now(timezone.utc)
-        endpoint = EndpointHealthInfo(
-            id=1,
-            slug="test",
-            endpoint_type="model",
-            is_active=True,
-            connect=[],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=now + timedelta(seconds=60),
-        )
-        assert monitor._check_heartbeat_health(endpoint, now) is True
 
 
 class TestUpdateEndpointHealthStatus:
@@ -879,7 +737,6 @@ class TestRunHealthCheckCycle:
                 owner_domain="https://example.com",
                 owner_id=10,
                 owner_type="user",
-                heartbeat_expires_at=None,
             )
         ]
 
@@ -916,7 +773,6 @@ class TestRunHealthCheckCycle:
                 owner_domain="https://example.com",
                 owner_id=10,
                 owner_type="user",
-                heartbeat_expires_at=None,
             )
         ]
 

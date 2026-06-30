@@ -51,7 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aggregators` resource for managing user aggregator configurations
 - `api_tokens` resource for creating and managing personal access tokens
 - Multi-turn message history support in the `chat` resource
-- Heartbeat integration tests
 
 ### Changed
 

@@ -1,25 +1,15 @@
 """Endpoint health monitoring background job.
 
-This module provides a background task that periodically checks the health
-of all registered endpoints using a 2-tier approach:
+This module provides a background task that periodically evaluates the health
+of all registered endpoints from client-reported per-endpoint health:
 
-1. Per-endpoint health (client-reported via POST /endpoints/health):
-   If health_checked_at + health_ttl_seconds > now, trust client-reported status
-2. Domain-level heartbeat (deprecated fallback):
-   If heartbeat_expires_at > now, assume all endpoints for that owner are healthy
+   Per-endpoint health (client-reported via POST /endpoints/health):
+   If health_checked_at + health_ttl_seconds > now, the client-reported
+   status is trusted. Otherwise — no report, or the report has expired — the
+   endpoint is considered unhealthy.
 
-If neither signal is fresh, the endpoint is considered unhealthy.
 After consecutive failures reach the configured threshold, is_active is set
 to False. If the endpoint becomes healthy again, is_active is restored.
-
-Deprecation path:
-    Tier 2 (heartbeat fallback) exists for backward compatibility with clients
-    that still use the deprecated ``POST /users/me/heartbeat`` endpoint. Once
-    all clients migrate to ``POST /endpoints/health``, remove:
-    - ``_check_heartbeat_health()`` method
-    - The tier 2 call in ``_check_endpoint_health()``
-    - ``heartbeat_expires_at`` from ``EndpointHealthInfo`` dataclass
-    - ``heartbeat_expires_at`` from the queries in ``_get_endpoints_for_health_check()``
 
 Multi-worker safety:
     In multi-worker deployments (e.g., uvicorn --workers 4), each worker
@@ -73,7 +63,6 @@ class EndpointHealthInfo:
     owner_domain: Optional[str]  # None if owner has no domain configured
     owner_id: int  # ID of the owning user
     owner_type: str  # Always "user"
-    heartbeat_expires_at: Optional[datetime]  # Deprecated: remove with heartbeat system
     # Per-endpoint health fields (reported by client via POST /endpoints/health)
     health_status: Optional[str] = None
     health_checked_at: Optional[datetime] = None
@@ -84,8 +73,8 @@ class EndpointHealthMonitor:
     """Background task for monitoring endpoint health.
 
     This class manages a periodic health check cycle that:
-    1. Queries all endpoints with their owner's health and heartbeat info
-    2. Evaluates health using per-endpoint status and domain heartbeat
+    1. Queries all endpoints with their owner's domain and per-endpoint health
+    2. Evaluates health from the client-reported per-endpoint status
     3. Updates is_active status based on health signals
 
     Attributes:
@@ -153,13 +142,11 @@ class EndpointHealthMonitor:
     def _get_endpoints_for_health_check(
         self, session: Session
     ) -> list[EndpointHealthInfo]:
-        """Query all endpoints with their owner's domain and heartbeat info.
+        """Query all endpoints with their owner's domain and per-endpoint health.
 
         This method joins endpoints with their owning user to get the domain
-        and heartbeat information needed for hybrid health checking.
-
-        heartbeat_expires_at is included to enable skipping HTTP checks when
-        the heartbeat is fresh.
+        and client-reported per-endpoint health fields needed for the health
+        check cycle.
 
         Endpoints without owner domains are included and will be marked as
         unhealthy (is_active=False) during the health check cycle.
@@ -169,7 +156,7 @@ class EndpointHealthMonitor:
 
         Returns:
             List of EndpointHealthInfo objects containing endpoint data,
-            owner domain, and heartbeat information
+            owner domain, and per-endpoint health fields
         """
         # Query endpoints joined with their owning user
         user_endpoints_stmt = select(
@@ -180,7 +167,6 @@ class EndpointHealthMonitor:
             EndpointModel.connect,
             UserModel.domain,
             label("owner_id", UserModel.id),
-            UserModel.heartbeat_expires_at,
             EndpointModel.health_status,
             EndpointModel.health_checked_at,
             EndpointModel.health_ttl_seconds,
@@ -198,7 +184,6 @@ class EndpointHealthMonitor:
                 connect,
                 domain,
                 owner_id,
-                heartbeat_expires_at,
                 health_status,
                 health_checked_at,
                 health_ttl_seconds,
@@ -216,7 +201,6 @@ class EndpointHealthMonitor:
                         owner_domain=domain,  # May be None
                         owner_id=owner_id,
                         owner_type="user",
-                        heartbeat_expires_at=heartbeat_expires_at,
                         health_status=health_status,
                         health_checked_at=health_checked_at,
                         health_ttl_seconds=health_ttl_seconds,
@@ -233,8 +217,8 @@ class EndpointHealthMonitor:
         """Check per-endpoint health reported via POST /endpoints/health.
 
         Returns True/False if a fresh per-endpoint health signal exists,
-        or None if no fresh signal is available (caller should fall through
-        to the next health check tier).
+        or None if no fresh signal is available (no report, or the report has
+        expired) — in which case the caller treats the endpoint as unhealthy.
         """
         if (
             endpoint.health_checked_at is not None
@@ -253,44 +237,15 @@ class EndpointHealthMonitor:
                 return is_healthy
         return None
 
-    def _check_heartbeat_health(
-        self,
-        endpoint: EndpointHealthInfo,
-        now: datetime,
-    ) -> bool | None:
-        """Check domain-level heartbeat for health (fallback tier).
-
-        .. deprecated::
-            This method implements the heartbeat fallback tier in the health monitor.
-            When all clients have migrated to ``POST /endpoints/health`` and the
-            deprecated heartbeat endpoints are removed, delete this method and
-            remove the heartbeat fallback call in ``_check_endpoint_health()``.
-
-        Returns True if heartbeat is fresh, or None if not available.
-        """
-        if endpoint.heartbeat_expires_at and endpoint.heartbeat_expires_at > now:
-            logger.debug(
-                f"Endpoint {endpoint.id}: fresh heartbeat "
-                f"(expires {endpoint.heartbeat_expires_at}), assuming healthy"
-            )
-            return True
-        return None
-
     def _check_endpoint_health(
         self,
         endpoint: EndpointHealthInfo,
     ) -> tuple[int, bool]:
-        """Determine if an endpoint is healthy using a 2-tier approach.
+        """Determine if an endpoint is healthy from client-reported health.
 
-        Priority:
-        1. Per-endpoint health (client-reported via POST /endpoints/health):
-           If health_checked_at + health_ttl_seconds > now, trust health_status
-        2. Domain-level heartbeat (deprecated fallback):
-           If heartbeat_expires_at > now, assume healthy
-        3. Neither is fresh: Mark unhealthy
-
-        When the deprecated heartbeat system is removed, delete tier 2
-        (the ``_check_heartbeat_health`` call) so this becomes a single-tier check.
+        Per-endpoint health (client-reported via POST /endpoints/health):
+        if health_checked_at + health_ttl_seconds > now, trust health_status.
+        Otherwise — no report, or the report has expired — mark unhealthy.
 
         Args:
             endpoint: The endpoint information to evaluate
@@ -307,17 +262,12 @@ class EndpointHealthMonitor:
             )
             return (endpoint.id, False)
 
-        # Tier 1: Per-endpoint health (client-reported)
-        tier1 = self._check_per_endpoint_health(endpoint, now)
-        if tier1 is not None:
-            return (endpoint.id, tier1)
+        # Per-endpoint health (client-reported)
+        is_healthy = self._check_per_endpoint_health(endpoint, now)
+        if is_healthy is not None:
+            return (endpoint.id, is_healthy)
 
-        # Tier 2: Domain-level heartbeat (deprecated fallback — remove with heartbeat)
-        tier2 = self._check_heartbeat_health(endpoint, now)
-        if tier2 is not None:
-            return (endpoint.id, tier2)
-
-        # Neither signal is fresh — mark unhealthy
+        # No fresh per-endpoint health signal — mark unhealthy
         logger.debug(f"Endpoint {endpoint.id}: no fresh health signal (unhealthy)")
         return (endpoint.id, False)
 
@@ -449,8 +399,8 @@ class EndpointHealthMonitor:
         """Run one complete health check cycle for all endpoints.
 
         This method:
-        1. Queries all endpoints with their owner's health and heartbeat info
-        2. Evaluates each endpoint using per-endpoint health and domain heartbeat
+        1. Queries all endpoints with their owner's domain and per-endpoint health
+        2. Evaluates each endpoint from the client-reported per-endpoint health
         3. Atomically updates is_active status and failure counts in the database
            (multi-worker safe - no in-memory state)
         """

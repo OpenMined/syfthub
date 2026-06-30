@@ -215,7 +215,7 @@ sequenceDiagram
 
 | Table | Key Fields | Description |
 |---|---|---|
-| `users` | id (UUID), email, username, password_hash, encryption_public_key, heartbeat_expires_at | User accounts |
+| `users` | id (UUID), email, username, password_hash, encryption_public_key | User accounts |
 | `endpoints` | id, user_id, organization_id, name, slug, type, visibility, connect (JSON), policies (JSON), stars_count, health_status, health_checked_at | Registered endpoints |
 | `endpoint_stars` | id, user_id, endpoint_id | Star associations (denormalized with endpoints.stars_count) |
 | `organizations` | id, name, slug, owner_id, heartbeat_expires_at | Team groupings |

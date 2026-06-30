@@ -68,13 +68,6 @@ class User(UserBase):
     aggregator_url: Optional[str] = Field(
         None, description="Custom aggregator URL for RAG/chat workflows"
     )
-    # Heartbeat tracking fields
-    last_heartbeat_at: Optional[datetime] = Field(
-        None, description="Timestamp of last heartbeat received"
-    )
-    heartbeat_expires_at: Optional[datetime] = Field(
-        None, description="Timestamp when heartbeat expires"
-    )
     last_login_at: Optional[datetime] = Field(
         None,
         description="Timestamp of the user's last successful login (null if never)",
@@ -131,13 +124,6 @@ class UserResponse(BaseModel):
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Optional[str] = Field(
         None, description="Custom aggregator URL for RAG/chat workflows"
-    )
-    # Heartbeat tracking fields
-    last_heartbeat_at: Optional[datetime] = Field(
-        None, description="Timestamp of last heartbeat received"
-    )
-    heartbeat_expires_at: Optional[datetime] = Field(
-        None, description="Timestamp when heartbeat expires"
     )
     last_login_at: Optional[datetime] = Field(
         None,
@@ -269,94 +255,6 @@ class TunnelCredentialsResponse(BaseModel):
         ..., description="ngrok authtoken for tunnel authentication"
     )
     domain: str = Field(..., description="Reserved tunnel domain for the user")
-
-
-class HeartbeatRequest(BaseModel):
-    """Request schema for heartbeat endpoint.
-
-    .. deprecated::
-        Used by the deprecated ``POST /users/me/heartbeat`` endpoint.
-        Use ``EndpointHealthRequest`` (from ``syfthub.schemas.endpoint``) instead.
-        Remove this schema when the heartbeat API route is removed.
-    """
-
-    url: str = Field(
-        ...,
-        description="Full URL of the domain (e.g., 'https://api.example.com')",
-        max_length=500,
-    )
-    ttl_seconds: Optional[int] = Field(
-        None,
-        ge=1,
-        le=3600,
-        description="Requested TTL in seconds (capped by server max)",
-    )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        """Validate URL format and structure.
-
-        Ensures the URL:
-        - Starts with http://, https://, or tunneling:<username>
-        - Is parseable (for HTTP URLs)
-        - Has a valid hostname (netloc) for HTTP URLs
-        - Has a valid username for tunneling URLs
-        """
-        v = v.strip()
-
-        # Handle tunneling URLs (for spaces behind firewalls/NAT)
-        if v.startswith(TUNNELING_PREFIX):
-            username = v[len(TUNNELING_PREFIX) :]
-            if not username:
-                raise ValueError("Tunneling URL must include a username")
-            if not TUNNELING_USERNAME_PATTERN.match(username):
-                raise ValueError(
-                    "Tunneling username must be 1-50 characters, "
-                    "alphanumeric with underscores and hyphens only"
-                )
-            return v
-
-        # Handle HTTP/HTTPS URLs
-        if not v.startswith(("http://", "https://")):
-            raise ValueError(
-                f"URL must start with http://, https://, or {TUNNELING_PREFIX}"
-            )
-
-        # Parse the URL to validate structure
-        parsed = urlparse(v)
-
-        # Ensure netloc (host:port) exists
-        if not parsed.netloc:
-            raise ValueError("URL must contain a valid hostname")
-
-        # Extract hostname (without port) and validate it's not empty
-        hostname = parsed.netloc.split(":")[0]
-        if not hostname:
-            raise ValueError("URL must contain a valid hostname, not just a port")
-
-        return v
-
-
-class HeartbeatResponse(BaseModel):
-    """Response schema for heartbeat endpoint.
-
-    .. deprecated::
-        Used by the deprecated heartbeat endpoints.
-        Use ``EndpointHealthResponse`` (from ``syfthub.schemas.endpoint``) instead.
-        Remove this schema when the heartbeat API routes are removed.
-    """
-
-    status: str = Field(..., description="Status of heartbeat receipt")
-    received_at: datetime = Field(
-        ..., description="Timestamp when heartbeat was received"
-    )
-    expires_at: datetime = Field(..., description="Timestamp when heartbeat expires")
-    domain: str = Field(
-        ...,
-        description="Domain with protocol extracted from URL (e.g., 'https://example.com:8080')",
-    )
-    ttl_seconds: int = Field(..., description="Actual TTL applied (may be capped)")
 
 
 # =============================================================================

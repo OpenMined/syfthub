@@ -90,8 +90,6 @@ export type {
   PasswordResetConfirmInput,
   AuthConfig,
   AccountingCredentials,
-  HeartbeatInput,
-  HeartbeatResponse,
   UserAggregator,
   UserAggregatorCreateInput,
   UserAggregatorUpdateInput,

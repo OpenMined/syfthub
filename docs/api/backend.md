@@ -330,8 +330,6 @@ Get current authenticated user profile.
   "accounting_service_url": null,
   "domain": null,
   "aggregator_url": null,
-  "last_heartbeat_at": null,
-  "heartbeat_expires_at": null,
   "encryption_public_key": null
 }
 ```
@@ -494,33 +492,6 @@ Get tunnel credentials for the user's domain.
 {
   "auth_token": "ngrok-token",
   "domain": "alice.example.com"
-}
-```
-
----
-
-### `POST /users/me/heartbeat` _(deprecated)_
-
-Send heartbeat indicating the user's domain is online. **Use `POST /endpoints/health` instead.**
-
-**Auth:** Hub token required.
-
-**Request body:**
-```json
-{
-  "url": "https://alice.example.com",
-  "ttl_seconds": 300
-}
-```
-
-**Response `200 OK`:**
-```json
-{
-  "status": "ok",
-  "received_at": "2026-01-01T00:00:00Z",
-  "expires_at": "2026-01-01T00:05:00Z",
-  "domain": "alice.example.com",
-  "ttl_seconds": 300
 }
 ```
 
@@ -912,7 +883,7 @@ Semantic search endpoints using Meilisearch.
 
 ### `POST /endpoints/health`
 
-Report per-endpoint health status. **Preferred over deprecated heartbeat endpoints.** Also registers the owner's domain.
+Report per-endpoint health status. This is the mechanism clients use to report the health of each endpoint they own (with a TTL); it also registers the owner's domain.
 
 **Auth:** Hub token required.
 
@@ -1587,8 +1558,6 @@ Same as above but includes `owner_username` and omits internal fields.
   "accounting_service_url": null,
   "domain": null,
   "aggregator_url": null,
-  "last_heartbeat_at": null,
-  "heartbeat_expires_at": null,
   "encryption_public_key": null
 }
 ```

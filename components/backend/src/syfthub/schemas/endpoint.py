@@ -555,8 +555,8 @@ class SyncEndpointsRequest(BaseModel):
 
     endpoints: List[EndpointCreate] = Field(
         default_factory=list,
-        max_length=100,
-        description="List of endpoint specifications to sync (max 100)",
+        max_length=300,
+        description="List of endpoint specifications to sync (max 300)",
     )
 
 
@@ -703,13 +703,13 @@ class EndpointHealthRequest(BaseModel):
     """Request schema for bulk endpoint health reporting.
 
     Allows clients to report per-endpoint health status. Also updates the
-    owner's domain-level heartbeat (subsumes POST /users/me/heartbeat).
+    owner's domain (used for endpoint URL construction).
     """
 
     endpoints: List[EndpointHealthItem] = Field(
         ...,
         min_length=1,
-        max_length=100,
+        max_length=300,
         description="List of endpoint health status reports",
     )
     ttl_seconds: Optional[int] = Field(
@@ -727,7 +727,7 @@ class EndpointHealthRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        """Validate URL format (same rules as HeartbeatRequest)."""
+        """Validate URL format (http(s):// or tunneling: prefix)."""
         from urllib.parse import urlparse
 
         from syfthub.schemas.user import TUNNELING_PREFIX, TUNNELING_USERNAME_PATTERN

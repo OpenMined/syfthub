@@ -160,8 +160,6 @@ erDiagram
         string accounting_password
         string domain
         string aggregator_url
-        datetime last_heartbeat_at
-        datetime heartbeat_expires_at
         string encryption_public_key
     }
 
@@ -252,7 +250,7 @@ The backend exposes 89 API routes under `/api/v1` plus top-level routes:
 | Tag | Prefix | Key Endpoints |
 |-----|--------|---------------|
 | **authentication** | `/api/v1/auth` | `POST /register`, `POST /login`, `POST /refresh`, `POST /google`, `POST /logout` |
-| **users** | `/api/v1/users` | `GET /me`, `PUT /me`, `DELETE /me`, `GET /me/starred`, `POST /me/heartbeat` (deprecated), `GET /{username}` |
+| **users** | `/api/v1/users` | `GET /me`, `PUT /me`, `DELETE /me`, `GET /me/starred`, `GET /{username}` |
 | **user-aggregators** | `/api/v1/users` | `GET /me/aggregators`, `POST /me/aggregators`, `PUT /me/aggregators/{id}`, `DELETE /me/aggregators/{id}` |
 | **endpoints** | `/api/v1/endpoints` | Full CRUD, `POST /{id}/star`, `DELETE /{id}/star`, `POST /health`, `GET /search`, `GET /browse` |
 | **organizations** | `/api/v1/organizations` | Full CRUD, member management, `POST /{id}/heartbeat` (deprecated) |
@@ -343,11 +341,9 @@ sequenceDiagram
             HM->>DB: SELECT endpoints + owner health info
             loop For each endpoint (max 20 concurrent)
                 HM->>HM: Check per-endpoint health<br/>(health_checked_at + TTL > now?)
-                alt Tier 1 fresh
+                alt Per-endpoint health fresh
                     HM->>HM: Use client-reported status
-                else Tier 2 fallback
-                    HM->>HM: Check owner heartbeat_expires_at
-                else Neither fresh
+                else Not fresh
                     HM->>DB: Increment consecutive_failure_count
                     alt Failures >= threshold (3)
                         HM->>DB: SET is_active = false

@@ -67,7 +67,7 @@ class EndpointModel(BaseModel, TimestampMixin):
     )
 
     # Per-endpoint health status reported by client (via POST /endpoints/health)
-    # NULL means no client-reported status; fallback to existing heartbeat-based health
+    # NULL means no client-reported status; the health monitor treats it as unhealthy
     health_status: Mapped[Optional[str]] = mapped_column(
         String(20), nullable=True, default=None
     )
@@ -177,7 +177,7 @@ class EndpointUptimeSampleModel(Base):
     rendered as a single uptime + latency data point.
 
     Bucket size is controlled by ``settings.uptime_bucket_seconds`` (default
-    1800s = 30 min, matching ``heartbeat_max_ttl_seconds``).
+    1800s = 30 min, matching ``health_max_ttl_seconds``).
     """
 
     __tablename__ = "endpoint_uptime_samples"

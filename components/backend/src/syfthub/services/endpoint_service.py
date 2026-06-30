@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
 from urllib.parse import urlparse
 
@@ -1229,34 +1229,6 @@ class EndpointService(BaseService):
     # ENDPOINT HEALTH REPORTING
     # ===========================================
 
-    def _update_owner_heartbeats(
-        self,
-        user_id: int,
-        domain: str,
-        expires_at: datetime,
-        now: datetime,
-    ) -> None:
-        """Update heartbeat fields on the user owner.
-
-        .. deprecated::
-            This method updates the legacy heartbeat fields (last_heartbeat_at,
-            heartbeat_expires_at) on the user record. It exists to maintain
-            backward compatibility while clients migrate from the deprecated
-            heartbeat endpoints to ``POST /endpoints/health``.
-
-            When the deprecated heartbeat endpoints are fully removed and
-            ``_check_heartbeat_health()`` is removed from the health monitor,
-            delete this method and its call in ``report_endpoint_health()``.
-
-        Does NOT commit — caller manages the transaction.
-        """
-        self.user_repository.update_heartbeat(
-            user_id=user_id,
-            domain=domain,
-            last_heartbeat_at=now,
-            heartbeat_expires_at=expires_at,
-        )
-
     def report_endpoint_health(
         self,
         endpoints_health: List[EndpointHealthItem],
@@ -1270,7 +1242,7 @@ class EndpointService(BaseService):
         1. Extracts domain from URL and caps TTL at server max
         2. Matches slugs against the user's endpoints
         3. Updates health_status, health_checked_at, health_ttl_seconds per endpoint
-        4. Updates owner heartbeat (deprecated — backward compat with heartbeat fallback)
+        4. Updates the owner's domain (used for endpoint URL construction)
 
         Args:
             endpoints_health: List of EndpointHealthItem with slug, status, checked_at
@@ -1283,11 +1255,9 @@ class EndpointService(BaseService):
         """
         from syfthub.schemas.user import TUNNELING_PREFIX
 
-        now = datetime.now(timezone.utc)
-
         # --- TTL calculation ---
-        requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
-        effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
+        requested_ttl = ttl_seconds or settings.health_default_ttl_seconds
+        effective_ttl = min(requested_ttl, settings.health_max_ttl_seconds)
 
         # --- Domain extraction ---
         if url.startswith(TUNNELING_PREFIX):
@@ -1300,8 +1270,6 @@ class EndpointService(BaseService):
                     detail="Invalid URL: could not extract domain",
                 )
             domain = f"{parsed.scheme}://{parsed.netloc}"
-
-        expires_at = now + timedelta(seconds=effective_ttl)
 
         # --- Bulk slug match (single query, no is_active filter) ---
         slugs = [item.slug for item in endpoints_health]
@@ -1338,12 +1306,10 @@ class EndpointService(BaseService):
 
         ignored = len(endpoints_health) - updated
 
-        # --- Update owner heartbeat (deprecated — remove with heartbeat system) ---
-        self._update_owner_heartbeats(
+        # --- Update owner domain for dynamic endpoint URL construction ---
+        self.user_repository.update_domain(
             user_id=current_user.id,
             domain=domain,
-            expires_at=expires_at,
-            now=now,
         )
 
         # --- Commit all changes ---

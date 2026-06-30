@@ -330,7 +330,7 @@ class MyEndpointsResource:
         Important Notes:
         - Stars on existing endpoints will be lost (reset to 0)
         - Endpoint IDs will change (new IDs assigned)
-        - Maximum 100 endpoints per sync request
+        - Maximum 300 endpoints per sync request
 
         Args:
             endpoints: List of endpoint specifications to sync. Each dict should contain

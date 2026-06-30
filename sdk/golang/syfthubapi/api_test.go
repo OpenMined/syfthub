@@ -276,17 +276,6 @@ func TestAPISetTransport(t *testing.T) {
 	}
 }
 
-func TestAPISetHeartbeatManager(t *testing.T) {
-	api := New()
-	hm := &mockHeartbeatManager{}
-
-	api.SetHeartbeatManager(hm)
-
-	if api.heartbeatManager != hm {
-		t.Error("heartbeat manager not set")
-	}
-}
-
 func TestAPISetFileProvider(t *testing.T) {
 	api := New()
 	fp := &mockFileProvider{}
@@ -425,11 +414,9 @@ func TestAPIShutdown(t *testing.T) {
 
 	// Add mock components
 	transport := &mockTransport{}
-	hm := &mockHeartbeatManager{}
 	fp := &mockFileProvider{}
 
 	api.SetTransport(transport)
-	api.SetHeartbeatManager(hm)
 	api.SetFileProvider(fp)
 
 	// Add shutdown hook
@@ -446,9 +433,6 @@ func TestAPIShutdown(t *testing.T) {
 
 	if !transport.stopped {
 		t.Error("transport should be stopped")
-	}
-	if !hm.stopped {
-		t.Error("heartbeat manager should be stopped")
 	}
 	if !fp.stopped {
 		t.Error("file provider should be stopped")
@@ -508,22 +492,6 @@ func (m *mockTransport) Stop(ctx context.Context) error {
 
 func (m *mockTransport) SetRequestHandler(handler RequestHandler) {
 	m.handler = handler
-}
-
-type mockHeartbeatManager struct {
-	started bool
-	stopped bool
-}
-
-func (m *mockHeartbeatManager) Start(ctx context.Context) error {
-	m.started = true
-	<-ctx.Done()
-	return nil
-}
-
-func (m *mockHeartbeatManager) Stop(ctx context.Context) error {
-	m.stopped = true
-	return nil
 }
 
 type mockFileProvider struct {
@@ -864,7 +832,6 @@ func (m *mockFileProviderWithContainerRuntime) SetContainerRuntime(rt ContainerR
 func TestInterfaceImplementations(t *testing.T) {
 	// Verify interfaces
 	var _ Transport = (*mockTransport)(nil)
-	var _ HeartbeatManager = (*mockHeartbeatManager)(nil)
 	var _ FileProvider = (*mockFileProvider)(nil)
 }
 

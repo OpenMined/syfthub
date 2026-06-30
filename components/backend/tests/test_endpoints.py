@@ -2207,11 +2207,11 @@ def test_sync_endpoints_max_batch_size(client: TestClient, user1_token: str) -> 
     """Test that batch size limit is enforced."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Try to sync 101 endpoints (over limit of 100)
+    # Try to sync 301 endpoints (over limit of 300)
     sync_data = {
         "endpoints": [
             {"name": f"Endpoint {i}", "type": "model", "visibility": "public"}
-            for i in range(101)
+            for i in range(301)
         ]
     }
 

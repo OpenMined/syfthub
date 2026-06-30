@@ -65,20 +65,6 @@ class UserModel(BaseModel, TimestampMixin):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
-    # Heartbeat tracking fields for push-based health monitoring
-    # Deprecated: These fields are written by the deprecated POST /users/me/heartbeat
-    # endpoint and by POST /endpoints/health (heartbeat subsumption). The health monitor
-    # reads heartbeat_expires_at as a fallback when per-endpoint health fields are absent.
-    # When the deprecated heartbeat endpoints are removed and all clients use
-    # POST /endpoints/health, these fields can be removed along with the heartbeat
-    # fallback logic in health_monitor._check_endpoint_health().
-    last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None
-    )
-    heartbeat_expires_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None
-    )
-
     # Timestamp of the user's last successful login (password or Google sign-in).
     # Null until the user logs in for the first time. Used by the admin
     # user-overview dashboard for last-login recency bucketing.
@@ -109,7 +95,6 @@ class UserModel(BaseModel, TimestampMixin):
         Index("idx_users_email", "email"),
         Index("idx_users_role", "role"),
         Index("idx_users_is_active", "is_active"),
-        Index("idx_users_heartbeat_expires_at", "heartbeat_expires_at"),
         Index("idx_users_google_id", "google_id"),
         Index("idx_users_last_login_at", "last_login_at"),
     )
