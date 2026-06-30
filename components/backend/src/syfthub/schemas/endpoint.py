@@ -709,7 +709,7 @@ class EndpointHealthRequest(BaseModel):
     endpoints: List[EndpointHealthItem] = Field(
         ...,
         min_length=1,
-        max_length=100,
+        max_length=300,
         description="List of endpoint health status reports",
     )
     ttl_seconds: Optional[int] = Field(
