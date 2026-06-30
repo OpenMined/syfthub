@@ -555,8 +555,8 @@ class SyncEndpointsRequest(BaseModel):
 
     endpoints: List[EndpointCreate] = Field(
         default_factory=list,
-        max_length=100,
-        description="List of endpoint specifications to sync (max 100)",
+        max_length=300,
+        description="List of endpoint specifications to sync (max 300)",
     )
 
 

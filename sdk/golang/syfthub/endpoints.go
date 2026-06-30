@@ -241,7 +241,7 @@ func (e *MyEndpointsResource) Delete(ctx context.Context, path string) error {
 // Important Notes:
 //   - Stars on existing endpoints will be lost (reset to 0)
 //   - Endpoint IDs will change (new IDs assigned)
-//   - Maximum 100 endpoints per sync request
+//   - Maximum 300 endpoints per sync request
 //
 // Errors:
 //   - AuthenticationError: If not authenticated
