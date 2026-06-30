@@ -15,8 +15,6 @@ from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_service
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
-    HeartbeatRequest,
-    HeartbeatResponse,
     PublicUserProfile,
     TunnelCredentialsResponse,
     User,
@@ -106,34 +104,6 @@ async def get_tunnel_credentials(
         )
 
     return TunnelCredentialsResponse(auth_token=token, domain=domain)
-
-
-@router.post("/me/heartbeat", response_model=HeartbeatResponse)
-async def send_heartbeat(
-    heartbeat_data: HeartbeatRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
-) -> HeartbeatResponse:
-    """Send heartbeat to indicate domain is online.
-
-    .. deprecated::
-        Use ``POST /api/v1/endpoints/health`` instead, which reports per-endpoint
-        health status and also updates the owner heartbeat (subsumes this endpoint).
-        This endpoint will be removed in a future release.
-
-    This endpoint is called periodically by domain clients
-    to indicate they are online and reachable. The heartbeat updates:
-    - User's domain (extracted from URL)
-    - last_heartbeat_at timestamp
-    - heartbeat_expires_at timestamp
-
-    The TTL is capped at the server's maximum TTL setting.
-    """
-    return user_service.send_heartbeat(
-        user_id=current_user.id,
-        url=heartbeat_data.url,
-        ttl_seconds=heartbeat_data.ttl_seconds,
-    )
 
 
 @router.get("/check-username/{username}")

@@ -92,7 +92,6 @@ from syfthub_sdk.models import (
     EndpointSearchResponse,
     EndpointSearchResult,
     EndpointType,
-    HeartbeatResponse,
     Message,
     NatsCredentials,
     PeerTokenResponse,
@@ -195,8 +194,6 @@ __all__ = [
     "CreatorType",
     # Sync models
     "SyncEndpointsResponse",
-    # Heartbeat models
-    "HeartbeatResponse",
     # User Aggregator models
     "UserAggregator",
     "AggregatorsResource",

@@ -36,7 +36,6 @@ import (
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 )
 
@@ -155,19 +154,6 @@ func main() {
 		t = httpTransport
 	}
 	app.SetTransport(t)
-
-	// Setup heartbeat manager
-	if config.HeartbeatEnabled {
-		hbManager := heartbeat.NewManager(&heartbeat.Config{
-			BaseURL:            config.SyftHubURL,
-			APIKey:             config.APIKey,
-			SpaceURL:           config.SpaceURL,
-			TTLSeconds:         config.HeartbeatTTLSeconds,
-			IntervalMultiplier: config.HeartbeatIntervalMultiplier,
-			Logger:             logger,
-		})
-		app.SetHeartbeatManager(hbManager)
-	}
 
 	// Add lifecycle hooks
 	app.OnStartup(func(ctx context.Context) error {

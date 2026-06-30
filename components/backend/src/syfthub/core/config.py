@@ -353,28 +353,24 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
-    # HEARTBEAT SETTINGS (Deprecated)
+    # HEALTH REPORT TTL SETTINGS
     # ===========================================
-    # These settings are used by the deprecated heartbeat endpoint
-    # (POST /users/me/heartbeat) and also by POST /endpoints/health
-    # for TTL capping.
-    #
-    # When the deprecated heartbeat endpoints are removed, rename these
-    # to generic TTL settings (e.g., health_max_ttl_seconds) or inline
-    # them into the endpoint health configuration above.
+    # TTL bounds for per-endpoint health reports (POST /endpoints/health).
+    # A report's freshness window is health_checked_at + ttl; the health
+    # monitor treats an endpoint as unhealthy once that window lapses.
 
-    # Maximum TTL that clients can request for heartbeats
-    # Set to 1800s (30 min) to match SyftAI-Space heartbeat manager's max TTL
+    # Maximum TTL that clients can request for a health report.
+    # Set to 1800s (30 min) to match SyftAI-Space's max reporting TTL
     # (600s interval * 3 TTL multiplier = 1800s)
-    heartbeat_max_ttl_seconds: int = Field(
+    health_max_ttl_seconds: int = Field(
         default=1800,
-        description="Maximum TTL clients can request for heartbeats (30 min cap)",
+        description="Maximum TTL clients can request for a health report (30 min cap)",
     )
 
     # Default TTL if client doesn't specify
-    heartbeat_default_ttl_seconds: int = Field(
+    health_default_ttl_seconds: int = Field(
         default=300,
-        description="Default heartbeat TTL if not specified (5 min)",
+        description="Default health-report TTL if not specified (5 min)",
     )
 
     # ===========================================
@@ -387,7 +383,7 @@ class Settings(BaseSettings):
         default=1800,
         description=(
             "Bucket size for endpoint uptime aggregates, in seconds. "
-            "Default 1800s (30 min) mirrors heartbeat_max_ttl_seconds so a "
+            "Default 1800s (30 min) mirrors health_max_ttl_seconds so a "
             "single missed report fills at most one bucket."
         ),
     )

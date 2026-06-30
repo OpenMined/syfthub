@@ -1153,7 +1153,7 @@ class TestReportEndpointHealth:
                 return_value=1,
             ),
             patch.object(
-                endpoint_service.user_repository, "update_heartbeat", return_value=True
+                endpoint_service.user_repository, "update_domain", return_value=True
             ),
         ):
             result = endpoint_service.report_endpoint_health(
@@ -1184,7 +1184,7 @@ class TestReportEndpointHealth:
                 return_value=[],
             ),
             patch.object(
-                endpoint_service.user_repository, "update_heartbeat", return_value=True
+                endpoint_service.user_repository, "update_domain", return_value=True
             ),
         ):
             result = endpoint_service.report_endpoint_health(
@@ -1233,7 +1233,7 @@ class TestReportEndpointHealth:
                 return_value=[],
             ),
             patch.object(
-                endpoint_service.user_repository, "update_heartbeat", return_value=True
+                endpoint_service.user_repository, "update_domain", return_value=True
             ),
         ):
             result = endpoint_service.report_endpoint_health(
@@ -1265,7 +1265,7 @@ class TestReportEndpointHealth:
                 return_value=[],
             ),
             patch.object(
-                endpoint_service.user_repository, "update_heartbeat", return_value=True
+                endpoint_service.user_repository, "update_domain", return_value=True
             ),
         ):
             with pytest.raises(HTTPException) as exc_info:

@@ -588,34 +588,6 @@ func TestDocumentJSON(t *testing.T) {
 	}
 }
 
-func TestHeartbeatResponseJSON(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	resp := HeartbeatResponse{
-		Status:     "ok",
-		ReceivedAt: now,
-		ExpiresAt:  now.Add(5 * time.Minute),
-		Domain:     "space.example.com",
-		TTLSeconds: 300,
-	}
-
-	data, err := json.Marshal(resp)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	var decoded HeartbeatResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-
-	if decoded.Status != "ok" {
-		t.Errorf("Status = %q", decoded.Status)
-	}
-	if decoded.TTLSeconds != 300 {
-		t.Errorf("TTLSeconds = %d", decoded.TTLSeconds)
-	}
-}
-
 func TestAccountingUserJSON(t *testing.T) {
 	org := "Acme Corp"
 	user := AccountingUser{

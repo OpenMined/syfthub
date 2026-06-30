@@ -117,30 +117,3 @@ func (u *UsersResource) GetNatsCredentials(ctx context.Context) (*NatsCredential
 	}
 	return &creds, nil
 }
-
-// SendHeartbeat sends a heartbeat to indicate this SyftAI Space is alive.
-//
-// The heartbeat mechanism allows SyftAI Spaces to signal their availability
-// to SyftHub. This should be called periodically (before the TTL expires)
-// to maintain the "active" status.
-//
-// Parameters:
-//   - spaceURL: Full URL of this space (e.g., "https://myspace.example.com")
-//   - ttlSeconds: Time-to-live in seconds (1-3600). Server caps at 600.
-//
-// Errors:
-//   - AuthenticationError: If not authenticated
-//   - ValidationError: If URL or TTL is invalid
-func (u *UsersResource) SendHeartbeat(ctx context.Context, spaceURL string, ttlSeconds int) (*HeartbeatResponse, error) {
-	payload := map[string]interface{}{
-		"url":         spaceURL,
-		"ttl_seconds": ttlSeconds,
-	}
-
-	var response HeartbeatResponse
-	err := u.http.Post(ctx, "/api/v1/users/me/heartbeat", payload, &response)
-	if err != nil {
-		return nil, err
-	}
-	return &response, nil
-}

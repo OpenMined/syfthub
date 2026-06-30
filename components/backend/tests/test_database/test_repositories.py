@@ -312,19 +312,28 @@ class TestUserRepository:
         assert refreshed is not None
         assert refreshed.is_active is True
 
-    def test_update_heartbeat_not_found(self, test_session: Session):
-        """update_heartbeat returns False when user ID does not exist."""
-        from datetime import datetime, timezone
-
+    def test_update_domain_not_found(self, test_session: Session):
+        """update_domain returns False when user ID does not exist."""
         user_repo = UserRepository(test_session)
-        now = datetime.now(timezone.utc)
-        result = user_repo.update_heartbeat(
+        result = user_repo.update_domain(
             user_id=999,
             domain="https://node.example.com",
-            last_heartbeat_at=now,
-            heartbeat_expires_at=now,
         )
         assert result is False
+
+    def test_update_domain_success(self, test_session: Session, sample_user_data: dict):
+        """update_domain sets the user's domain and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+        result = user_repo.update_domain(
+            user_id=user.id,
+            domain="https://node.example.com",
+        )
+        assert result is True
+        test_session.commit()
+        refreshed = user_repo.get_by_id(user.id)
+        assert refreshed is not None
+        assert refreshed.domain == "https://node.example.com"
 
     def test_create_with_data_param(self, test_session: Session):
         """create(data={...}) merges into kwargs and creates a user."""
@@ -502,18 +511,6 @@ class TestUserRepositoryExceptions:
         session.get.return_value = MagicMock()
         session.commit.side_effect = Exception("timeout")
         assert repo.link_google_account(1, "gid") is False
-        session.rollback.assert_called()
-
-    def test_update_heartbeat_exception_returns_false(self):
-        from datetime import datetime, timezone
-
-        from sqlalchemy.exc import SQLAlchemyError
-
-        repo, session = self._make_repo()
-        session.get.return_value = MagicMock()
-        session.commit.side_effect = SQLAlchemyError("sqlalchemy error")
-        now = datetime.now(timezone.utc)
-        assert repo.update_heartbeat(1, "https://x.com", now, now) is False
         session.rollback.assert_called()
 
     def test_delete_exception_returns_false(self):

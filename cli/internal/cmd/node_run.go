@@ -17,7 +17,6 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
@@ -153,19 +152,6 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create NATS transport: %w", err)
 	}
 	api.SetTransport(t)
-
-	// Setup heartbeat
-	if apiConfig.HeartbeatEnabled {
-		hbManager := heartbeat.NewManager(&heartbeat.Config{
-			BaseURL:            apiConfig.SyftHubURL,
-			APIKey:             apiConfig.APIKey,
-			SpaceURL:           spaceURL,
-			TTLSeconds:         apiConfig.HeartbeatTTLSeconds,
-			IntervalMultiplier: apiConfig.HeartbeatIntervalMultiplier,
-			Logger:             logger,
-		})
-		api.SetHeartbeatManager(hbManager)
-	}
 
 	// Setup request log hook (writes per-endpoint JSONL files like syfthub-desktop)
 	if err := os.MkdirAll(nodeconfig.LogsDir, 0755); err != nil {

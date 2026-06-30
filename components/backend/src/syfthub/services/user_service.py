@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
-from urllib.parse import urlparse
 
-from fastapi import HTTPException, status
-
-from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
     ConflictError,
     NotFoundError,
@@ -17,8 +12,6 @@ from syfthub.domain.exceptions import (
 )
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import (
-    TUNNELING_PREFIX,
-    HeartbeatResponse,
     PublicUserProfile,
     User,
     UserResponse,
@@ -28,32 +21,6 @@ from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
-
-
-def extract_domain_from_url(url: str, allow_tunneling: bool = True) -> str:
-    """Extract the domain (scheme + host + port) from a URL.
-
-    For tunneling URLs (e.g., ``tunneling:username``), the full URL is returned
-    as-is when *allow_tunneling* is ``True``. For regular HTTP(S) URLs, the
-    ``scheme://netloc`` is extracted.
-
-    Args:
-        url: The URL to extract a domain from.
-        allow_tunneling: Whether to accept tunneling-prefix URLs.
-
-    Returns:
-        The extracted domain string.
-
-    Raises:
-        ValueError: If the URL is invalid or the domain cannot be extracted.
-    """
-    if allow_tunneling and url.startswith(TUNNELING_PREFIX):
-        return url
-
-    parsed = urlparse(url)
-    if not parsed.netloc:
-        raise ValueError("Invalid URL: could not extract domain")
-    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 class UserService(BaseService):
@@ -209,70 +176,3 @@ class UserService(BaseService):
     def email_available(self, email: str) -> bool:
         """Check if email is available."""
         return not self.user_repository.email_exists(email)
-
-    def send_heartbeat(
-        self, user_id: int, url: str, ttl_seconds: Optional[int] = None
-    ) -> HeartbeatResponse:
-        """Send heartbeat to indicate user's domain is online.
-
-        .. deprecated::
-            This method backs the deprecated ``POST /users/me/heartbeat`` endpoint.
-            Use ``EndpointService.report_endpoint_health()`` instead, which updates
-            owner heartbeats automatically. Remove this method when the heartbeat
-            API route is removed.
-
-        This method:
-        - Extracts domain from the provided URL (or uses full tunneling URL as domain)
-        - Calculates effective TTL (capped at server max, defaults if not specified)
-        - Updates user's heartbeat information in the database
-
-        Args:
-            user_id: ID of the user sending the heartbeat
-            url: Full URL of the domain (e.g., 'https://api.example.com' or
-                 'tunneling:username' for spaces behind firewalls)
-            ttl_seconds: Requested TTL in seconds (optional, will use default if not provided)
-
-        Returns:
-            HeartbeatResponse with status, timestamps, domain, and effective TTL
-
-        Raises:
-            HTTPException: If URL is invalid or heartbeat update fails
-        """
-        now = datetime.now(timezone.utc)
-
-        # Calculate effective TTL (cap at max, use default if not specified)
-        requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
-        effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
-
-        # Extract domain from URL
-        try:
-            domain = extract_domain_from_url(url)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(e),
-            ) from e
-
-        expires_at = now + timedelta(seconds=effective_ttl)
-
-        # Update user record
-        success = self.user_repository.update_heartbeat(
-            user_id=user_id,
-            domain=domain,
-            last_heartbeat_at=now,
-            heartbeat_expires_at=expires_at,
-        )
-
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update heartbeat",
-            )
-
-        return HeartbeatResponse(
-            status="ok",
-            received_at=now,
-            expires_at=expires_at,
-            domain=domain,
-            ttl_seconds=effective_ttl,
-        )

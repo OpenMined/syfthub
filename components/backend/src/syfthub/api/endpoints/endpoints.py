@@ -449,14 +449,13 @@ Report per-endpoint health status from the client.
 **Behavior:**
 - Matches endpoint slugs against the user's own endpoints
 - Updates per-endpoint health fields (health_status, health_checked_at, health_ttl_seconds)
-- Also updates the owner's heartbeat (subsumes POST /users/me/heartbeat)
+- Also updates the owner's domain (used for endpoint URL construction)
 - Slugs that don't match any accessible endpoint are counted as 'ignored'
-- TTL is capped at the server's maximum heartbeat TTL
+- TTL is capped at the server's maximum health-report TTL
 
-**Backward Compatibility:**
-- Existing heartbeat APIs continue to work unchanged
-- If this endpoint is not used, per-endpoint health fields remain NULL
-  and the health monitor falls back to existing behavior
+**Notes:**
+- Endpoints without a fresh per-endpoint health report (none sent, or the
+  report has expired) are treated as unhealthy by the health monitor.
 """,
 )
 async def report_endpoint_health(
@@ -482,7 +481,7 @@ Return a bucketed uptime + latency time series for one endpoint.
 
 Each bucket aggregates the health monitor's per-cycle decisions over the
 configured ``uptime_bucket_seconds`` window (default 30 minutes, matching
-``heartbeat_max_ttl_seconds``). For each bucket the response includes:
+``health_max_ttl_seconds``). For each bucket the response includes:
 
 - ``uptime_pct`` — percentage of monitor cycles in which the endpoint was healthy
 - ``avg_latency_ms`` / ``min_latency_ms`` / ``max_latency_ms`` — derived from

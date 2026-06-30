@@ -273,38 +273,28 @@ class UserRepository(BaseRepository[UserModel]):
             self.session.rollback()
             return False
 
-    def update_heartbeat(
-        self,
-        user_id: int,
-        domain: str,
-        last_heartbeat_at: datetime,
-        heartbeat_expires_at: datetime,
-    ) -> bool:
-        """Update user heartbeat information.
+    def update_domain(self, user_id: int, domain: str) -> bool:
+        """Update the user's domain for dynamic endpoint URL construction.
+
+        Set when an owner reports endpoint health (POST /endpoints/health):
+        the domain is extracted from the report URL so the health monitor and
+        endpoint URL construction know where the owner's node lives.
+
+        Does NOT commit — the caller manages the transaction.
 
         Args:
             user_id: ID of the user to update
-            domain: Normalized domain from the heartbeat URL
-            last_heartbeat_at: When the heartbeat was received
-            heartbeat_expires_at: When the heartbeat expires
+            domain: Normalized domain (scheme + netloc, or tunneling URL)
 
         Returns:
-            True if update was successful, False otherwise
+            True if the user was found and updated, False otherwise
         """
-        try:
-            user_model = self.session.get(self.model, user_id)
-            if not user_model:
-                return False
-
-            user_model.domain = domain
-            user_model.last_heartbeat_at = last_heartbeat_at
-            user_model.heartbeat_expires_at = heartbeat_expires_at
-
-            self.session.commit()
-            return True
-        except SQLAlchemyError:
-            self.session.rollback()
+        user_model = self.session.get(self.model, user_id)
+        if not user_model:
             return False
+
+        user_model.domain = domain
+        return True
 
     def update_last_login(self, user_id: int) -> bool:
         """Stamp the user's last_login_at to the current UTC time.

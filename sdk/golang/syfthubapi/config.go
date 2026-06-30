@@ -30,15 +30,6 @@ type Config struct {
 	// ServerPort is the HTTP server port (default: 8000).
 	ServerPort int
 
-	// HeartbeatEnabled enables periodic heartbeat to SyftHub (default: true).
-	HeartbeatEnabled bool
-
-	// HeartbeatTTLSeconds is the TTL for heartbeat signals (default: 300, range: 1-3600).
-	HeartbeatTTLSeconds int
-
-	// HeartbeatIntervalMultiplier determines heartbeat frequency as TTL * multiplier (default: 0.8).
-	HeartbeatIntervalMultiplier float64
-
 	// EndpointsPath is the directory for file-based endpoints (optional).
 	EndpointsPath string
 
@@ -85,15 +76,12 @@ type ContainerConfig struct {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() *Config {
 	return &Config{
-		LogLevel:                    "INFO",
-		ServerHost:                  "0.0.0.0",
-		ServerPort:                  8000,
-		HeartbeatEnabled:            true,
-		HeartbeatTTLSeconds:         300,
-		HeartbeatIntervalMultiplier: 0.8,
-		WatchEnabled:                true,
-		WatchDebounceSeconds:        1.0,
-		PythonPath:                  "python3",
+		LogLevel:             "INFO",
+		ServerHost:           "0.0.0.0",
+		ServerPort:           8000,
+		WatchEnabled:         true,
+		WatchDebounceSeconds: 1.0,
+		PythonPath:           "python3",
 		Container: ContainerConfig{
 			Enabled:      false,
 			Runtime:      "auto",
@@ -135,26 +123,6 @@ func (c *Config) LoadFromEnv() error {
 			return fmt.Errorf("invalid SERVER_PORT: %w", err)
 		}
 		c.ServerPort = p
-	}
-
-	if enabled := os.Getenv("HEARTBEAT_ENABLED"); enabled != "" {
-		c.HeartbeatEnabled = strings.ToLower(enabled) == "true"
-	}
-
-	if ttl := os.Getenv("HEARTBEAT_TTL_SECONDS"); ttl != "" {
-		t, err := strconv.Atoi(ttl)
-		if err != nil {
-			return fmt.Errorf("invalid HEARTBEAT_TTL_SECONDS: %w", err)
-		}
-		c.HeartbeatTTLSeconds = t
-	}
-
-	if mult := os.Getenv("HEARTBEAT_INTERVAL_MULTIPLIER"); mult != "" {
-		m, err := strconv.ParseFloat(mult, 64)
-		if err != nil {
-			return fmt.Errorf("invalid HEARTBEAT_INTERVAL_MULTIPLIER: %w", err)
-		}
-		c.HeartbeatIntervalMultiplier = m
 	}
 
 	if path := os.Getenv("ENDPOINTS_PATH"); path != "" {
@@ -260,22 +228,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate heartbeat TTL
-	if c.HeartbeatTTLSeconds < 1 || c.HeartbeatTTLSeconds > 3600 {
-		return &ConfigurationError{
-			Field:   "HeartbeatTTLSeconds",
-			Message: "must be between 1 and 3600",
-		}
-	}
-
-	// Validate heartbeat interval multiplier
-	if c.HeartbeatIntervalMultiplier <= 0 || c.HeartbeatIntervalMultiplier > 1 {
-		return &ConfigurationError{
-			Field:   "HeartbeatIntervalMultiplier",
-			Message: "must be between 0 and 1 (exclusive)",
-		}
-	}
-
 	// Validate container config only when enabled
 	if c.Container.Enabled {
 		switch c.Container.Runtime {
@@ -344,12 +296,6 @@ func (c *Config) IsTunnelMode() bool {
 // GetTunnelUsername extracts the username from a tunneling:username SpaceURL.
 func (c *Config) GetTunnelUsername() string {
 	return GetTunnelUsername(c.SpaceURL)
-}
-
-// HeartbeatInterval returns the calculated heartbeat interval.
-func (c *Config) HeartbeatInterval() time.Duration {
-	seconds := float64(c.HeartbeatTTLSeconds) * c.HeartbeatIntervalMultiplier
-	return time.Duration(seconds * float64(time.Second))
 }
 
 // WatchDebounce returns the watch debounce duration.
@@ -425,27 +371,6 @@ func WithServerHost(host string) Option {
 func WithServerPort(port int) Option {
 	return func(c *Config) {
 		c.ServerPort = port
-	}
-}
-
-// WithHeartbeatEnabled enables or disables heartbeat.
-func WithHeartbeatEnabled(enabled bool) Option {
-	return func(c *Config) {
-		c.HeartbeatEnabled = enabled
-	}
-}
-
-// WithHeartbeatTTL sets the heartbeat TTL in seconds.
-func WithHeartbeatTTL(seconds int) Option {
-	return func(c *Config) {
-		c.HeartbeatTTLSeconds = seconds
-	}
-}
-
-// WithHeartbeatIntervalMultiplier sets the heartbeat interval multiplier.
-func WithHeartbeatIntervalMultiplier(multiplier float64) Option {
-	return func(c *Config) {
-		c.HeartbeatIntervalMultiplier = multiplier
 	}
 }
 

@@ -17,9 +17,6 @@ func TestDefaultConfig(t *testing.T) {
 		{"LogLevel", cfg.LogLevel, "INFO"},
 		{"ServerHost", cfg.ServerHost, "0.0.0.0"},
 		{"ServerPort", cfg.ServerPort, 8000},
-		{"HeartbeatEnabled", cfg.HeartbeatEnabled, true},
-		{"HeartbeatTTLSeconds", cfg.HeartbeatTTLSeconds, 300},
-		{"HeartbeatIntervalMultiplier", cfg.HeartbeatIntervalMultiplier, 0.8},
 		{"WatchEnabled", cfg.WatchEnabled, true},
 		{"WatchDebounceSeconds", cfg.WatchDebounceSeconds, 1.0},
 		{"PythonPath", cfg.PythonPath, "python3"},
@@ -54,9 +51,6 @@ func TestConfigLoadFromEnv(t *testing.T) {
 		t.Setenv("LOG_LEVEL", "debug")
 		t.Setenv("SERVER_HOST", "127.0.0.1")
 		t.Setenv("SERVER_PORT", "9000")
-		t.Setenv("HEARTBEAT_ENABLED", "false")
-		t.Setenv("HEARTBEAT_TTL_SECONDS", "600")
-		t.Setenv("HEARTBEAT_INTERVAL_MULTIPLIER", "0.5")
 		t.Setenv("ENDPOINTS_PATH", "/custom/endpoints")
 		t.Setenv("WATCH_ENABLED", "false")
 		t.Setenv("WATCH_DEBOUNCE_SECONDS", "2.5")
@@ -86,15 +80,6 @@ func TestConfigLoadFromEnv(t *testing.T) {
 		if cfg.ServerPort != 9000 {
 			t.Errorf("ServerPort = %d, want %d", cfg.ServerPort, 9000)
 		}
-		if cfg.HeartbeatEnabled {
-			t.Error("HeartbeatEnabled should be false")
-		}
-		if cfg.HeartbeatTTLSeconds != 600 {
-			t.Errorf("HeartbeatTTLSeconds = %d, want %d", cfg.HeartbeatTTLSeconds, 600)
-		}
-		if cfg.HeartbeatIntervalMultiplier != 0.5 {
-			t.Errorf("HeartbeatIntervalMultiplier = %f, want %f", cfg.HeartbeatIntervalMultiplier, 0.5)
-		}
 		if cfg.EndpointsPath != "/custom/endpoints" {
 			t.Errorf("EndpointsPath = %q, want %q", cfg.EndpointsPath, "/custom/endpoints")
 		}
@@ -116,26 +101,6 @@ func TestConfigLoadFromEnv(t *testing.T) {
 		err := cfg.LoadFromEnv()
 		if err == nil {
 			t.Error("expected error for invalid SERVER_PORT")
-		}
-	})
-
-	t.Run("invalid HEARTBEAT_TTL_SECONDS", func(t *testing.T) {
-		t.Setenv("HEARTBEAT_TTL_SECONDS", "invalid")
-
-		cfg := DefaultConfig()
-		err := cfg.LoadFromEnv()
-		if err == nil {
-			t.Error("expected error for invalid HEARTBEAT_TTL_SECONDS")
-		}
-	})
-
-	t.Run("invalid HEARTBEAT_INTERVAL_MULTIPLIER", func(t *testing.T) {
-		t.Setenv("HEARTBEAT_INTERVAL_MULTIPLIER", "not-float")
-
-		cfg := DefaultConfig()
-		err := cfg.LoadFromEnv()
-		if err == nil {
-			t.Error("expected error for invalid HEARTBEAT_INTERVAL_MULTIPLIER")
 		}
 	})
 
@@ -166,12 +131,10 @@ func TestConfigLoadFromEnv(t *testing.T) {
 func TestConfigValidate(t *testing.T) {
 	validConfig := func() *Config {
 		return &Config{
-			SyftHubURL:                  "https://hub.example.com",
-			APIKey:                      "test-api-key",
-			SpaceURL:                    "https://space.example.com",
-			LogLevel:                    "INFO",
-			HeartbeatTTLSeconds:         300,
-			HeartbeatIntervalMultiplier: 0.8,
+			SyftHubURL: "https://hub.example.com",
+			APIKey:     "test-api-key",
+			SpaceURL:   "https://space.example.com",
+			LogLevel:   "INFO",
 		}
 	}
 
@@ -258,59 +221,6 @@ func TestConfigValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("HeartbeatTTLSeconds out of range", func(t *testing.T) {
-		tests := []struct {
-			name string
-			ttl  int
-		}{
-			{"zero", 0},
-			{"negative", -1},
-			{"too large", 3601},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				cfg := validConfig()
-				cfg.HeartbeatTTLSeconds = tt.ttl
-				err := cfg.Validate()
-				if err == nil {
-					t.Errorf("expected error for HeartbeatTTLSeconds = %d", tt.ttl)
-				}
-			})
-		}
-	})
-
-	t.Run("HeartbeatIntervalMultiplier out of range", func(t *testing.T) {
-		tests := []struct {
-			name string
-			mult float64
-		}{
-			{"zero", 0.0},
-			{"negative", -0.5},
-			{"greater than 1", 1.5},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				cfg := validConfig()
-				cfg.HeartbeatIntervalMultiplier = tt.mult
-				err := cfg.Validate()
-				if err == nil {
-					t.Errorf("expected error for HeartbeatIntervalMultiplier = %f", tt.mult)
-				}
-			})
-		}
-
-		// 1.0 is a valid boundary (0 < value <= 1)
-		t.Run("exactly 1 is valid", func(t *testing.T) {
-			cfg := validConfig()
-			cfg.HeartbeatIntervalMultiplier = 1.0
-			err := cfg.Validate()
-			if err != nil {
-				t.Errorf("1.0 should be valid: %v", err)
-			}
-		})
-	})
 }
 
 func TestConfigIsTunnelMode(t *testing.T) {
@@ -354,31 +264,6 @@ func TestConfigGetTunnelUsername(t *testing.T) {
 				t.Errorf("GetTunnelUsername() = %q, want %q", got, tt.expected)
 			}
 		})
-	}
-}
-
-func TestConfigHeartbeatInterval(t *testing.T) {
-	tests := []struct {
-		ttl      int
-		mult     float64
-		expected time.Duration
-	}{
-		{300, 0.8, 240 * time.Second},
-		{100, 0.5, 50 * time.Second},
-		{60, 1.0, 60 * time.Second},
-		{10, 0.1, 1 * time.Second},
-	}
-
-	for _, tt := range tests {
-		cfg := &Config{
-			HeartbeatTTLSeconds:         tt.ttl,
-			HeartbeatIntervalMultiplier: tt.mult,
-		}
-		got := cfg.HeartbeatInterval()
-		if got != tt.expected {
-			t.Errorf("HeartbeatInterval() with ttl=%d, mult=%f = %v, want %v",
-				tt.ttl, tt.mult, got, tt.expected)
-		}
 	}
 }
 
@@ -523,33 +408,6 @@ func TestOptionFunctions(t *testing.T) {
 		opt(cfg)
 		if cfg.ServerPort != 9000 {
 			t.Errorf("expected %d, got %d", 9000, cfg.ServerPort)
-		}
-	})
-
-	t.Run("WithHeartbeatEnabled", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatEnabled(false)
-		opt(cfg)
-		if cfg.HeartbeatEnabled {
-			t.Error("expected false")
-		}
-	})
-
-	t.Run("WithHeartbeatTTL", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatTTL(600)
-		opt(cfg)
-		if cfg.HeartbeatTTLSeconds != 600 {
-			t.Errorf("expected %d, got %d", 600, cfg.HeartbeatTTLSeconds)
-		}
-	})
-
-	t.Run("WithHeartbeatIntervalMultiplier", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatIntervalMultiplier(0.5)
-		opt(cfg)
-		if cfg.HeartbeatIntervalMultiplier != 0.5 {
-			t.Errorf("expected %f, got %f", 0.5, cfg.HeartbeatIntervalMultiplier)
 		}
 	})
 
@@ -718,12 +576,10 @@ func TestConfigLoadFromEnv_ContainerVars(t *testing.T) {
 func TestConfigValidate_ContainerEnabled(t *testing.T) {
 	validContainerConfig := func() *Config {
 		return &Config{
-			SyftHubURL:                  "https://hub.example.com",
-			APIKey:                      "test-api-key",
-			SpaceURL:                    "https://space.example.com",
-			LogLevel:                    "INFO",
-			HeartbeatTTLSeconds:         300,
-			HeartbeatIntervalMultiplier: 0.8,
+			SyftHubURL: "https://hub.example.com",
+			APIKey:     "test-api-key",
+			SpaceURL:   "https://space.example.com",
+			LogLevel:   "INFO",
 			Container: ContainerConfig{
 				Enabled:      true,
 				Runtime:      "docker",

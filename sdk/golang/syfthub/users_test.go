@@ -195,54 +195,6 @@ func TestUsersResourceGetNatsCredentials(t *testing.T) {
 	}
 }
 
-func TestUsersResourceSendHeartbeat(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/users/me/heartbeat" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		if r.Method != "POST" {
-			t.Errorf("method = %s", r.Method)
-		}
-
-		var body map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&body)
-
-		if body["url"] != "https://myspace.example.com" {
-			t.Errorf("url = %v", body["url"])
-		}
-		if body["ttl_seconds"].(float64) != 300 {
-			t.Errorf("ttl_seconds = %v", body["ttl_seconds"])
-		}
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":      "ok",
-			"received_at": "2024-01-01T00:00:00Z",
-			"expires_at":  "2024-01-01T00:05:00Z",
-			"domain":      "myspace.example.com",
-			"ttl_seconds": 300,
-		})
-	}))
-	defer server.Close()
-
-	http := newHTTPClient(server.URL, DefaultTimeout)
-	http.SetTokens(&AuthTokens{AccessToken: "test", RefreshToken: "test"})
-	users := newUsersResource(http)
-
-	resp, err := users.SendHeartbeat(context.Background(), "https://myspace.example.com", 300)
-	if err != nil {
-		t.Fatalf("SendHeartbeat error: %v", err)
-	}
-	if resp.Status != "ok" {
-		t.Errorf("Status = %q", resp.Status)
-	}
-	if resp.Domain != "myspace.example.com" {
-		t.Errorf("Domain = %q", resp.Domain)
-	}
-	if resp.TTLSeconds != 300 {
-		t.Errorf("TTLSeconds = %d", resp.TTLSeconds)
-	}
-}
-
 func TestUsersResourceAggregatorsSubresource(t *testing.T) {
 	http := newHTTPClient("http://localhost", DefaultTimeout)
 	users := newUsersResource(http)

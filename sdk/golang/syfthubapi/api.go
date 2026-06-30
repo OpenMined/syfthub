@@ -42,9 +42,6 @@ type SyftAPI struct {
 	// transport handles HTTP or NATS communication.
 	transport Transport
 
-	// heartbeatManager manages heartbeat signals.
-	heartbeatManager HeartbeatManager
-
 	// fileProvider manages file-based endpoints.
 	fileProvider FileProvider
 
@@ -84,12 +81,6 @@ type SyftAPI struct {
 
 	// mu protects concurrent access.
 	mu sync.RWMutex
-}
-
-// HeartbeatManager interface for heartbeat management.
-type HeartbeatManager interface {
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
 }
 
 // FileProvider interface for file-based endpoint management.
@@ -417,13 +408,6 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 	// Start components concurrently
 	g, gCtx := errgroup.WithContext(ctx)
 
-	// Start heartbeat
-	if api.config.HeartbeatEnabled && api.heartbeatManager != nil {
-		g.Go(func() error {
-			return api.heartbeatManager.Start(gCtx)
-		})
-	}
-
 	// Start file watcher
 	if api.config.WatchEnabled && api.fileProvider != nil {
 		g.Go(func() error {
@@ -459,13 +443,6 @@ func (api *SyftAPI) shutdown(ctx context.Context) {
 	if api.fileProvider != nil {
 		if err := api.fileProvider.Stop(ctx); err != nil {
 			api.logger.Warn("error stopping file provider", "error", err)
-		}
-	}
-
-	// Stop heartbeat
-	if api.heartbeatManager != nil {
-		if err := api.heartbeatManager.Stop(ctx); err != nil {
-			api.logger.Warn("error stopping heartbeat", "error", err)
 		}
 	}
 
@@ -582,11 +559,6 @@ func (api *SyftAPI) handleRequest(ctx context.Context, req *TunnelRequest) (*Tun
 // SetTransport sets the transport (used by transport package).
 func (api *SyftAPI) SetTransport(t Transport) {
 	api.transport = t
-}
-
-// SetHeartbeatManager sets the heartbeat manager.
-func (api *SyftAPI) SetHeartbeatManager(hm HeartbeatManager) {
-	api.heartbeatManager = hm
 }
 
 // SetFileProvider sets the file provider.
