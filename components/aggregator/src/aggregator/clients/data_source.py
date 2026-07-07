@@ -376,26 +376,61 @@ class DataSourceClient:
         }
 
         We extract from references.documents and map similarity_score -> score.
+
+        Hybrid endpoints (model_data_source) also return an AI-generated answer
+        in summary.message.content. We surface that as a Document too, so hybrid
+        sources contribute their generated answer alongside any retrieved docs
+        instead of reporting "0 documents retrieved".
         """
         documents: list[Document] = []
 
         # Extract references from SyftAI-Space response
         references = data.get("references")
-        if not references:
-            logger.debug("No references in SyftAI-Space response")
-            return documents
+        if references:
+            raw_docs = references.get("documents", [])
 
-        raw_docs = references.get("documents", [])
-
-        for doc in raw_docs:
-            if isinstance(doc, dict):
-                documents.append(
-                    Document(
-                        content=doc.get("content", ""),
-                        # Map SyftAI-Space's similarity_score to score
-                        score=float(doc.get("similarity_score", 0.0)),
-                        metadata=doc.get("metadata", {}),
+            for doc in raw_docs:
+                if isinstance(doc, dict):
+                    documents.append(
+                        Document(
+                            content=doc.get("content", ""),
+                            # Map SyftAI-Space's similarity_score to score
+                            score=float(doc.get("similarity_score", 0.0)),
+                            metadata=doc.get("metadata", {}),
+                        )
                     )
-                )
+        else:
+            logger.debug("No references in SyftAI-Space response")
+
+        # Surface an AI-generated summary (hybrid endpoints) as a Document.
+        summary_doc = self._summary_to_document(data.get("summary"))
+        if summary_doc is not None:
+            documents.append(summary_doc)
 
         return documents
+
+    @staticmethod
+    def _summary_to_document(summary: Any) -> Document | None:
+        """Convert a SyftAI-Space summary into a Document, if it has content.
+
+        Returns None when there is no summary or no non-empty content.
+        """
+        if not summary or not isinstance(summary, dict):
+            return None
+
+        message = summary.get("message") or {}
+        if isinstance(message, dict):
+            content = message.get("content", "")
+        elif isinstance(message, str):
+            content = message
+        else:
+            content = ""
+
+        if not content:
+            return None
+
+        return Document(
+            content=str(content),
+            score=1.0,
+            metadata={"source_type": "generated", "model": summary.get("model")},
+        )
