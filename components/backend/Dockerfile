@@ -178,16 +178,15 @@ EXPOSE 8000
 
 # Production entrypoint.
 # --limit-concurrency sheds excess load with 503 instead of unbounded queueing.
-# --proxy-headers + --forwarded-allow-ips make request.client.host the real
-# client IP (behind nginx) so per-IP rate limiting keys correctly; the backend
-# port is only reachable via the internal compose network, so "*" is safe.
+# NOTE: we deliberately do NOT enable --proxy-headers/--forwarded-allow-ips.
+# Trusting client X-Forwarded-For would let a caller spoof request.client.host
+# (uvicorn takes the leftmost XFF entry), defeating the per-IP auth limiter. The
+# rate limiter instead reads nginx's un-spoofable X-Real-IP header directly.
 CMD [".venv/bin/uvicorn", "syfthub.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--workers", "4", \
      "--limit-concurrency", "256", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*", \
      "--log-level", "info", \
      "--access-log", \
      "--use-colors"]
@@ -253,6 +252,4 @@ CMD [".venv/bin/uvicorn", "syfthub.main:app", \
      "--port", "8000", \
      "--workers", "4", \
      "--limit-concurrency", "256", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*", \
      "--log-level", "info"]

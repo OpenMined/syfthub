@@ -62,15 +62,16 @@ services:
     networks:
       - syfthub-network
     depends_on:
-      # service_started (not service_healthy): the proxy must come up and serve
-      # the SPA + aggregator/mcp/nats routes even if the backend is browning
-      # out — a frozen backend must never gate the proxy's (re)start.
+      # Wait for dependencies to be healthy before starting (correct cold-boot
+      # ordering — prevents proxying to a not-yet-migrated backend). Runtime
+      # brownout resilience is handled by the self-answering healthcheck below,
+      # not by depends_on (which only gates startup).
       backend:
-        condition: service_started
+        condition: service_healthy
       aggregator:
-        condition: service_started
+        condition: service_healthy
       mcp:
-        condition: service_started
+        condition: service_healthy
       nats:
         condition: service_healthy
       frontend-init:
@@ -229,11 +230,8 @@ services:
     networks:
       - syfthub-network
     depends_on:
-      # service_started, not service_healthy: the aggregator's own health is
-      # self-contained; gating it on backend health let a stuck backend block
-      # aggregator (re)starts during the incident.
       backend:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -284,12 +282,10 @@ services:
     networks:
       - syfthub-network
     depends_on:
-      # service_started, not service_healthy: mcp's own /health is self-contained;
-      # gating on backend health let a stuck backend block mcp (re)starts.
       backend:
-        condition: service_started
+        condition: service_healthy
       aggregator:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s

@@ -64,6 +64,14 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 
 # Per-IP rate limiters for the public, unauthenticated auth endpoints. These are
 # the direct anti-abuse guard for the login-burst that froze the event loop.
+# Login gets its own bucket so the multi-call registration/OTP flow (register +
+# resend-otp + verify-otp) can't exhaust the login budget for users sharing a
+# NAT/CGNAT egress IP, and vice-versa.
+_login_rate_limit = Depends(
+    per_ip_rate_limit(
+        "auth-login", "auth_rate_limit_max", "auth_rate_limit_window_seconds"
+    )
+)
 _auth_rate_limit = Depends(
     per_ip_rate_limit("auth", "auth_rate_limit_max", "auth_rate_limit_window_seconds")
 )
@@ -161,7 +169,7 @@ def register_user(
         ) from e
 
 
-@router.post("/login", response_model=AuthResponse, dependencies=[_auth_rate_limit])
+@router.post("/login", response_model=AuthResponse, dependencies=[_login_rate_limit])
 def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],

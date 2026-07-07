@@ -226,7 +226,7 @@ services:
       - syfthub-network
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -270,9 +270,9 @@ services:
       - syfthub-network
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
       aggregator:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s

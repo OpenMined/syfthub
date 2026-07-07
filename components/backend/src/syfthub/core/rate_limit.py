@@ -20,6 +20,7 @@ Design choices:
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, Request, status
@@ -32,11 +33,20 @@ logger = get_logger(__name__)
 
 
 def get_client_ip(request: Request) -> str:
-    """Return the client IP for rate-limit keying.
+    """Return the trusted client IP for rate-limit keying.
 
-    Relies on uvicorn ``--proxy-headers`` to make ``request.client.host`` the
-    real client IP behind the reverse proxy.
+    Prefers nginx's ``X-Real-IP`` header, which the proxy sets from
+    ``$remote_addr`` and **overwrites** on every request — so, unlike
+    ``X-Forwarded-For`` (which nginx *appends* to and a client can seed), it
+    cannot be spoofed. The backend port is only reachable via nginx on the
+    internal network, so a client can never set ``X-Real-IP`` directly.
+
+    Falls back to ``request.client.host`` only when the header is absent (e.g.
+    a direct/local request with no proxy in front).
     """
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -46,6 +56,9 @@ def per_ip_rate_limit(
     scope: str,
     max_attr: str,
     window_attr: str,
+    *,
+    fail_open: bool | None = None,
+    respect_enabled_switch: bool = True,
 ) -> Callable[[Request], Awaitable[None]]:
     """Build a per-IP rate-limit dependency for one endpoint group.
 
@@ -53,6 +66,14 @@ def per_ip_rate_limit(
         scope: Short label used in the Redis key and log lines (e.g. ``"auth"``).
         max_attr: Settings attribute name holding the max requests per window.
         window_attr: Settings attribute name holding the window length (seconds).
+        fail_open: Behavior when Redis is unavailable. ``None`` (default) uses
+            ``settings.rate_limit_fail_open``; pass ``False`` to force
+            fail-closed for a security-sensitive scope regardless of the global
+            default (e.g. unauthenticated token minting).
+        respect_enabled_switch: When ``True`` (default), the limiter is skipped
+            if ``settings.rate_limit_enabled`` is False. Pass ``False`` for a
+            limiter that must stay active even when the global auth-limiter
+            switch is off.
 
     Returns:
         An async FastAPI dependency that raises 429 when the caller exceeds the
@@ -61,9 +82,12 @@ def per_ip_rate_limit(
 
     async def dependency(request: Request) -> None:
         settings = get_settings()
-        if not settings.rate_limit_enabled:
+        if respect_enabled_switch and not settings.rate_limit_enabled:
             return
 
+        effective_fail_open = (
+            settings.rate_limit_fail_open if fail_open is None else fail_open
+        )
         max_requests: int = getattr(settings, max_attr)
         window_seconds: int = getattr(settings, window_attr)
 
@@ -81,7 +105,7 @@ def per_ip_rate_limit(
                 _, count, ttl = await pipe.execute()
         except Exception as exc:
             # Redis unavailable/slow. Fail open (default) or closed per config.
-            if settings.rate_limit_fail_open:
+            if effective_fail_open:
                 logger.warning(
                     "rate_limit.redis_unavailable_fail_open",
                     scope=scope,
@@ -108,7 +132,9 @@ def per_ip_rate_limit(
                     "Retry-After": str(retry_after),
                     "X-RateLimit-Limit": str(max_requests),
                     "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(retry_after),
+                    # Unix-epoch seconds when the window resets (GitHub-style),
+                    # not a duration — avoids clients misreading it as epoch 0.
+                    "X-RateLimit-Reset": str(int(time.time()) + retry_after),
                 },
             )
 

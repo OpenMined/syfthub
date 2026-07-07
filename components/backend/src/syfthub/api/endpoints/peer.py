@@ -99,10 +99,16 @@ async def generate_peer_token(
 
 # Per-IP limiter for guest peer tokens, built from the shared utility so there
 # is a single fixed-window implementation. Reuses the existing guest-peer knobs.
+# fail_open=False + respect_enabled_switch=False preserve this limiter's original
+# semantics: it guards unauthenticated token minting, so it must stay active even
+# when the global auth-limiter switch is off and must fail CLOSED on a Redis
+# outage rather than mint tokens uncapped.
 _guest_peer_rate_limiter = per_ip_rate_limit(
     "nats-guest-peer",
     "guest_peer_token_rate_limit_max",
     "guest_peer_token_rate_limit_window_seconds",
+    fail_open=False,
+    respect_enabled_switch=False,
 )
 
 
