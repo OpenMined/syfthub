@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" style="color-scheme: light dark">
+  <head>
+    <!-- THEME: Prevent flash of wrong theme by applying dark class before paint -->
+    <script>
+      (function () {
+        var theme = localStorage.getItem('syfthub-theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (theme === 'dark' || (theme === 'system' && prefersDark) || (!theme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+
+    <!-- ESSENTIAL -->
+    <meta charset="utf-8" />
+    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- PERFORMANCE: Preconnect to external domains (Web Interface Guidelines) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- GENERAL -->
+    <title>%TITLE%</title>
+    <meta name="title" content="%TITLE%" />
+    <meta name="application-name" content="%TITLE%" />
+    <meta name="description" content="%DESCRIPTION%" />
+    <meta name="keywords" content="%KEYWORDS%" />
+    <link rel="manifest" href="/app.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/favicon/openmined-icon.svg" />
+    <link rel="icon" sizes="192x192" href="/favicon/favicon-192.webp" />
+    <link rel="icon" sizes="512x512" href="/favicon/favicon-512.webp" />
+
+    <!-- OPEN GRAPH (Social Media Previews) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="%TITLE%" />
+    <meta property="og:description" content="%DESCRIPTION%" />
+    <meta property="og:image" content="%OG_IMAGE%" />
+    <meta property="og:site_name" content="%TITLE%" />
+
+    <!-- TWITTER -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="%TITLE%" />
+    <meta name="twitter:description" content="%DESCRIPTION%" />
+    <meta name="twitter:image" content="%OG_IMAGE%" />
+
+    <!-- GOOGLE -->
+    <meta name="rating" content="General" />
+    <meta name="robots" content="index,follow" />
+
+    <!-- iOS -->
+    <link rel="apple-touch-icon" href="/favicon/favicon-512.webp" />
+    <link rel="mask-icon" href="/favicon/favicon-512.webp" color="black" />
+    <meta name="apple-mobile-web-app-title" content="%TITLE%" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+
+    <!-- ANDROID -->
+    <meta name="theme-color" content="#fcfcfd" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ANALYTICS -->
+    <script type="text/javascript">
+      (function (c, l, a, r, i, t, y) {
+        c[a] =
+          c[a] ||
+          function () {
+            (c[a].q = c[a].q || []).push(arguments);
+          };
+        t = l.createElement(r);
+        t.async = 1;
+        t.src = 'https://www.clarity.ms/tag/' + i;
+        y = l.getElementsByTagName(r)[0];
+        y.parentNode.insertBefore(t, y);
+      })(window, document, 'clarity', 'script', 'vibowezulx');
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

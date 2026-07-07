@@ -1,0 +1,28 @@
+meta:
+  id: custom-api
+  name: "Custom REST API"
+  description: "Configure a generic REST API connection"
+  category: general
+  tags: [api, rest, http, custom]
+
+steps:
+  - id: base_url
+    type: prompt
+    name: "API Base URL"
+    required: true
+    prompt:
+      message: "Enter the API base URL (e.g., https://api.example.com)"
+      validate:
+        pattern: "^https?://"
+        message: "URL should start with http:// or https://"
+    outputs:
+      API_BASE_URL: "{{value}}"
+
+  - id: api_key
+    type: prompt
+    name: "API Key"
+    prompt:
+      message: "Enter the API key (leave empty if not needed)"
+      secret: true
+    outputs:
+      API_KEY: "{{value}}"

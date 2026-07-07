@@ -1,0 +1,21 @@
+# Docker Compose for standalone aggregator development
+# For integrated development with SyftHub, use the main docker-compose.dev.yml
+
+services:
+  aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - AGGREGATOR_DEBUG=true
+      - AGGREGATOR_SYFTHUB_URL=http://host.docker.internal:8000
+      - AGGREGATOR_CORS_ORIGINS=["*"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=5).raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

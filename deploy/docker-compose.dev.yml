@@ -1,0 +1,320 @@
+# SyftHub Development Docker Compose
+# Single entry point via nginx reverse proxy
+
+services:
+  # Nginx reverse proxy - SINGLE ENTRY POINT
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: syfthub-proxy-dev
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - syfthub-network
+    depends_on:
+      - backend
+      - frontend
+      - aggregator
+      - mcp
+      - nats
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Backend API service (internal only)
+  backend:
+    build:
+      context: ../components/backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-backend-dev
+    # Internal only - not exposed to host
+    expose:
+      - "8000"
+    volumes:
+      # Mount source code for hot reload
+      - ../components/backend/src:/app/src:cached
+      - ../components/backend/tests:/app/tests:cached
+      - ../components/backend/pyproject.toml:/app/pyproject.toml:cached
+      # Alembic migrations for auto-migration on startup
+      - ../components/backend/alembic.ini:/app/alembic.ini:cached
+      - ../components/backend/alembic:/app/alembic:cached
+      # Database volume
+      - ../components/backend/data:/app/data
+      # Named volume for RSA keys so the syfthub user (uid 1000) has write access
+      # (bind-mounted parent dirs are created by Docker as root, blocking auto-generation)
+      - rsa_keys_data:/app/data/rsa_keys
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - DEBUG=true
+      - RELOAD=true
+      - LOG_LEVEL=debug
+      # Single origin since everything goes through proxy
+      - CORS_ORIGINS=http://localhost:8080
+      # Public frontend base URL used to build links in outgoing emails
+      # (e.g. collective invitation accept/decline links)
+      - FRONTEND_URL=http://localhost:8080
+      # MPP / Tempo configuration
+      - TEMPO_TESTNET=true
+      - MPP_SECRET_KEY=${MPP_SECRET_KEY:-}
+      # NATS configuration for P2P tunneling
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      - NATS_WS_PUBLIC_URL=ws://localhost:8080/nats
+      # Meilisearch configuration (optional - semantic search disabled if not set)
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
+      # Redis configuration for peer token storage
+      - REDIS_URL=redis://redis:6379/0
+      # Email delivery via Resend (optional - OTP emails disabled if not set)
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_FROM_EMAIL=noreply@openmined.org
+      - SMTP_FROM_NAME=SyftHub
+      # Auto-generate RSA keys for satellite token signing (dev only)
+      - AUTO_GENERATE_RSA_KEYS=true
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend service (internal only)
+  frontend:
+    build:
+      context: ..
+      dockerfile: components/frontend/Dockerfile.dev
+    container_name: syfthub-frontend-dev
+    # Internal only - not exposed to host
+    expose:
+      - "3000"
+    volumes:
+      # Mount source code for hot reload (targets match Dockerfile.dev WORKDIR: /app/components/frontend)
+      - ../components/frontend/src:/app/components/frontend/src:cached
+      - ../components/frontend/public:/app/components/frontend/public:cached
+      - ../components/frontend/package.json:/app/components/frontend/package.json:cached
+      - ../components/frontend/package-lock.json:/app/components/frontend/package-lock.json:cached
+      - ../components/frontend/vite.config.ts:/app/components/frontend/vite.config.ts:cached
+      - ../components/frontend/tsconfig.json:/app/components/frontend/tsconfig.json:cached
+      - ../components/frontend/tailwind.config.js:/app/components/frontend/tailwind.config.js:cached
+      - ../components/frontend/index.html:/app/components/frontend/index.html:cached
+      - ../components/frontend/_config.ts:/app/components/frontend/_config.ts:cached
+      # Mount SDK (path matches npm file: resolution: /app/components/frontend/../../sdk/typescript)
+      - ../sdk/typescript:/app/sdk/typescript:cached
+      # Exclude node_modules to avoid conflicts with container-installed packages
+      - /app/components/frontend/node_modules
+    environment:
+      - NODE_ENV=development
+      # Empty - API calls use relative paths (same origin via proxy)
+      - VITE_API_URL=
+      - VITE_DEFAULT_MODEL=${VITE_DEFAULT_MODEL:-}
+    networks:
+      - syfthub-network
+    depends_on:
+      - backend
+
+  # PostgreSQL database for development
+  db:
+    image: postgres:16-alpine
+    container_name: syfthub-db-dev
+    environment:
+      - POSTGRES_USER=syfthub
+      - POSTGRES_PASSWORD=syfthub_dev_password
+      - POSTGRES_DB=syfthub_dev
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Exposed for direct DB access (debugging with tools like DBeaver)
+    ports:
+      - "5432:5432"
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syfthub -d syfthub_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis-dev
+    # Internal only
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Meilisearch - full-text search engine for endpoint discovery
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: syfthub-meilisearch-dev
+    expose:
+      - "7700"
+    # Exposed for direct access (debugging)
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
+      - MEILI_ENV=development
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Aggregator service - RAG orchestration
+  aggregator:
+    build:
+      context: ../components/aggregator
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-aggregator-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "8001"
+    volumes:
+      # Mount source code for hot reload
+      - ../components/aggregator/src:/app/src:cached
+      - ../components/aggregator/pyproject.toml:/app/pyproject.toml:cached
+    environment:
+      - AGGREGATOR_DEBUG=true
+      - AGGREGATOR_SYFTHUB_URL=http://backend:8000
+      - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+      - AGGREGATOR_LOG_REQUEST_HEADERS=true
+      - AGGREGATOR_LOG_REQUEST_BODY=true
+      # NATS configuration for P2P tunneling
+      - AGGREGATOR_NATS_URL=nats://nats:4222
+      - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      # Increase tunnel timeout for RAG-augmented prompts (default 30s is too short for local LLMs)
+      - AGGREGATOR_NATS_TUNNEL_TIMEOUT=120
+    # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # MCP Server - OAuth 2.1 and Model Context Protocol
+  mcp:
+    build:
+      context: ../components/mcp
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-mcp-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "8002"
+    volumes:
+      # Mount source code for hot reload
+      - ../components/mcp/server.py:/app/server.py:cached
+      - ../components/mcp/syfthub_client.py:/app/syfthub_client.py:cached
+      - ../components/mcp/fastmcp.json:/app/fastmcp.json:cached
+      - ../components/mcp/pyproject.toml:/app/pyproject.toml:cached
+      # Mount Python SDK for development (path matches pyproject.toml: ../../sdk/python -> /sdk/python)
+      - ../sdk/python:/sdk/python:cached
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - MCP_PORT=8002
+      # OAuth configuration (proxy-aware URLs)
+      - OAUTH_ISSUER=http://localhost:8080/mcp
+      - OAUTH_AUDIENCE=mcp-server
+      - API_BASE_URL=http://localhost:8080/mcp
+      # SyftHub backend (internal Docker network)
+      - SYFTHUB_URL=http://backend:8000
+      # SyftHub public URL (for SDK client)
+      - SYFTHUB_PUBLIC_URL=http://localhost:8080
+      # Aggregator URL (internal Docker network)
+      - AGGREGATOR_URL=http://aggregator:8001
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      aggregator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # NATS messaging server for P2P communication
+  nats:
+    image: nats:2.10-alpine
+    container_name: syfthub-nats-dev
+    ports:
+      - "4222:4222"   # Client connections (exposed for local nats-cli)
+      - "8222:8222"   # HTTP monitoring
+    expose:
+      - "9222"        # WebSocket (proxied via nginx)
+    volumes:
+      - ./nats/nats.dev.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    environment:
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+    command: ["--config", "/etc/nats/nats.conf"]
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  syfthub-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: syfthub_postgres_data_dev
+  redis_data:
+    name: syfthub_redis_data_dev
+  nats_data:
+    name: syfthub_nats_data_dev
+  meili_data:
+    name: syfthub_meili_data_dev
+  rsa_keys_data:
+    name: syfthub_rsa_keys_data_dev

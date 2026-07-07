@@ -1,0 +1,861 @@
+package syfthubapi
+
+import (
+	"errors"
+	"testing"
+	"time"
+)
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	tests := []struct {
+		name     string
+		got      any
+		expected any
+	}{
+		{"LogLevel", cfg.LogLevel, "INFO"},
+		{"ServerHost", cfg.ServerHost, "0.0.0.0"},
+		{"ServerPort", cfg.ServerPort, 8000},
+		{"WatchEnabled", cfg.WatchEnabled, true},
+		{"WatchDebounceSeconds", cfg.WatchDebounceSeconds, 1.0},
+		{"PythonPath", cfg.PythonPath, "python3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.expected {
+				t.Errorf("DefaultConfig().%s = %v, want %v", tt.name, tt.got, tt.expected)
+			}
+		})
+	}
+
+	// Required fields should be empty by default
+	if cfg.SyftHubURL != "" {
+		t.Errorf("SyftHubURL should be empty, got %q", cfg.SyftHubURL)
+	}
+	if cfg.APIKey != "" {
+		t.Errorf("APIKey should be empty, got %q", cfg.APIKey)
+	}
+	if cfg.SpaceURL != "" {
+		t.Errorf("SpaceURL should be empty, got %q", cfg.SpaceURL)
+	}
+}
+
+func TestConfigLoadFromEnv(t *testing.T) {
+	t.Run("loads all environment variables", func(t *testing.T) {
+		// Set environment variables
+		t.Setenv("SYFTHUB_URL", "https://hub.example.com")
+		t.Setenv("SYFTHUB_API_KEY", "test-api-key")
+		t.Setenv("SPACE_URL", "https://space.example.com")
+		t.Setenv("LOG_LEVEL", "debug")
+		t.Setenv("SERVER_HOST", "127.0.0.1")
+		t.Setenv("SERVER_PORT", "9000")
+		t.Setenv("ENDPOINTS_PATH", "/custom/endpoints")
+		t.Setenv("WATCH_ENABLED", "false")
+		t.Setenv("WATCH_DEBOUNCE_SECONDS", "2.5")
+		t.Setenv("PYTHON_PATH", "/usr/bin/python3.11")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+
+		if cfg.SyftHubURL != "https://hub.example.com" {
+			t.Errorf("SyftHubURL = %q, want %q", cfg.SyftHubURL, "https://hub.example.com")
+		}
+		if cfg.APIKey != "test-api-key" {
+			t.Errorf("APIKey = %q, want %q", cfg.APIKey, "test-api-key")
+		}
+		if cfg.SpaceURL != "https://space.example.com" {
+			t.Errorf("SpaceURL = %q, want %q", cfg.SpaceURL, "https://space.example.com")
+		}
+		if cfg.LogLevel != "DEBUG" {
+			t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, "DEBUG")
+		}
+		if cfg.ServerHost != "127.0.0.1" {
+			t.Errorf("ServerHost = %q, want %q", cfg.ServerHost, "127.0.0.1")
+		}
+		if cfg.ServerPort != 9000 {
+			t.Errorf("ServerPort = %d, want %d", cfg.ServerPort, 9000)
+		}
+		if cfg.EndpointsPath != "/custom/endpoints" {
+			t.Errorf("EndpointsPath = %q, want %q", cfg.EndpointsPath, "/custom/endpoints")
+		}
+		if cfg.WatchEnabled {
+			t.Error("WatchEnabled should be false")
+		}
+		if cfg.WatchDebounceSeconds != 2.5 {
+			t.Errorf("WatchDebounceSeconds = %f, want %f", cfg.WatchDebounceSeconds, 2.5)
+		}
+		if cfg.PythonPath != "/usr/bin/python3.11" {
+			t.Errorf("PythonPath = %q, want %q", cfg.PythonPath, "/usr/bin/python3.11")
+		}
+	})
+
+	t.Run("invalid SERVER_PORT", func(t *testing.T) {
+		t.Setenv("SERVER_PORT", "not-a-number")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid SERVER_PORT")
+		}
+	})
+
+	t.Run("invalid WATCH_DEBOUNCE_SECONDS", func(t *testing.T) {
+		t.Setenv("WATCH_DEBOUNCE_SECONDS", "xyz")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid WATCH_DEBOUNCE_SECONDS")
+		}
+	})
+
+	t.Run("empty environment preserves defaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+
+		// Defaults should be preserved
+		if cfg.ServerPort != 8000 {
+			t.Errorf("ServerPort should preserve default, got %d", cfg.ServerPort)
+		}
+	})
+}
+
+func TestConfigValidate(t *testing.T) {
+	validConfig := func() *Config {
+		return &Config{
+			SyftHubURL: "https://hub.example.com",
+			APIKey:     "test-api-key",
+			SpaceURL:   "https://space.example.com",
+			LogLevel:   "INFO",
+		}
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		cfg := validConfig()
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v", err)
+		}
+	})
+
+	t.Run("missing SyftHubURL", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.SyftHubURL = ""
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for missing SyftHubURL")
+		}
+		if !errors.Is(err, ErrConfiguration) {
+			t.Error("expected ConfigurationError")
+		}
+	})
+
+	t.Run("missing APIKey", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.APIKey = ""
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for missing APIKey")
+		}
+	})
+
+	t.Run("missing SpaceURL", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.SpaceURL = ""
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for missing SpaceURL")
+		}
+	})
+
+	t.Run("invalid SpaceURL format", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.SpaceURL = "invalid-url"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid SpaceURL format")
+		}
+	})
+
+	t.Run("valid SpaceURL formats", func(t *testing.T) {
+		validURLs := []string{
+			"http://localhost:8000",
+			"https://space.example.com",
+			"tunneling:testuser",
+		}
+
+		for _, url := range validURLs {
+			cfg := validConfig()
+			cfg.SpaceURL = url
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("SpaceURL %q should be valid, got error: %v", url, err)
+			}
+		}
+	})
+
+	t.Run("invalid log level", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.LogLevel = "INVALID"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid LogLevel")
+		}
+	})
+
+	t.Run("valid log levels", func(t *testing.T) {
+		validLevels := []string{"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "debug", "info", "warning", "warn", "error"}
+
+		for _, level := range validLevels {
+			cfg := validConfig()
+			cfg.LogLevel = level
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("LogLevel %q should be valid, got error: %v", level, err)
+			}
+		}
+	})
+
+}
+
+func TestConfigIsTunnelMode(t *testing.T) {
+	tests := []struct {
+		spaceURL string
+		expected bool
+	}{
+		{"tunneling:testuser", true},
+		{"tunneling:", true},
+		{"https://space.example.com", false},
+		{"http://localhost:8000", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.spaceURL, func(t *testing.T) {
+			cfg := &Config{SpaceURL: tt.spaceURL}
+			if got := cfg.IsTunnelMode(); got != tt.expected {
+				t.Errorf("IsTunnelMode() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigGetTunnelUsername(t *testing.T) {
+	tests := []struct {
+		spaceURL string
+		expected string
+	}{
+		{"tunneling:testuser", "testuser"},
+		{"tunneling:user-with-dashes", "user-with-dashes"},
+		{"tunneling:", ""},
+		{"https://space.example.com", ""},
+		{"http://localhost:8000", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.spaceURL, func(t *testing.T) {
+			cfg := &Config{SpaceURL: tt.spaceURL}
+			if got := cfg.GetTunnelUsername(); got != tt.expected {
+				t.Errorf("GetTunnelUsername() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigWatchDebounce(t *testing.T) {
+	tests := []struct {
+		seconds  float64
+		expected time.Duration
+	}{
+		{1.0, 1 * time.Second},
+		{0.5, 500 * time.Millisecond},
+		{2.5, 2500 * time.Millisecond},
+		{0.0, 0},
+	}
+
+	for _, tt := range tests {
+		cfg := &Config{WatchDebounceSeconds: tt.seconds}
+		got := cfg.WatchDebounce()
+		if got != tt.expected {
+			t.Errorf("WatchDebounce() with seconds=%f = %v, want %v",
+				tt.seconds, got, tt.expected)
+		}
+	}
+}
+
+func TestDeriveNATSWebSocketURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  string
+		wantError bool
+	}{
+		{
+			name:     "https with port",
+			input:    "https://hub.example.com:443",
+			expected: "wss://hub.example.com:443",
+		},
+		{
+			name:     "https without port",
+			input:    "https://hub.example.com",
+			expected: "wss://hub.example.com:443",
+		},
+		{
+			name:     "https with trailing slash",
+			input:    "https://hub.example.com/",
+			expected: "wss://hub.example.com:443",
+		},
+		{
+			name:     "http with port",
+			input:    "http://localhost:8000",
+			expected: "ws://localhost:8000",
+		},
+		{
+			name:     "http without port",
+			input:    "http://localhost",
+			expected: "ws://localhost:80",
+		},
+		{
+			name:     "http with trailing slash",
+			input:    "http://localhost/",
+			expected: "ws://localhost:80",
+		},
+		{
+			name:      "invalid scheme",
+			input:     "ftp://example.com",
+			wantError: true,
+		},
+		{
+			name:      "no scheme",
+			input:     "example.com",
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := DeriveNATSWebSocketURL(tt.input)
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("expected error, got %q", got)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if got != tt.expected {
+					t.Errorf("DeriveNATSWebSocketURL(%q) = %q, want %q", tt.input, got, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestOptionFunctions(t *testing.T) {
+	t.Run("WithSyftHubURL", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithSyftHubURL("https://test.com")
+		opt(cfg)
+		if cfg.SyftHubURL != "https://test.com" {
+			t.Errorf("expected %q, got %q", "https://test.com", cfg.SyftHubURL)
+		}
+	})
+
+	t.Run("WithAPIKey", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithAPIKey("my-api-key")
+		opt(cfg)
+		if cfg.APIKey != "my-api-key" {
+			t.Errorf("expected %q, got %q", "my-api-key", cfg.APIKey)
+		}
+	})
+
+	t.Run("WithSpaceURL", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithSpaceURL("https://space.test.com")
+		opt(cfg)
+		if cfg.SpaceURL != "https://space.test.com" {
+			t.Errorf("expected %q, got %q", "https://space.test.com", cfg.SpaceURL)
+		}
+	})
+
+	t.Run("WithLogLevel", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithLogLevel("DEBUG")
+		opt(cfg)
+		if cfg.LogLevel != "DEBUG" {
+			t.Errorf("expected %q, got %q", "DEBUG", cfg.LogLevel)
+		}
+	})
+
+	t.Run("WithServerHost", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithServerHost("127.0.0.1")
+		opt(cfg)
+		if cfg.ServerHost != "127.0.0.1" {
+			t.Errorf("expected %q, got %q", "127.0.0.1", cfg.ServerHost)
+		}
+	})
+
+	t.Run("WithServerPort", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithServerPort(9000)
+		opt(cfg)
+		if cfg.ServerPort != 9000 {
+			t.Errorf("expected %d, got %d", 9000, cfg.ServerPort)
+		}
+	})
+
+	t.Run("WithEndpointsPath", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithEndpointsPath("/custom/path")
+		opt(cfg)
+		if cfg.EndpointsPath != "/custom/path" {
+			t.Errorf("expected %q, got %q", "/custom/path", cfg.EndpointsPath)
+		}
+	})
+
+	t.Run("WithWatchEnabled", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithWatchEnabled(false)
+		opt(cfg)
+		if cfg.WatchEnabled {
+			t.Error("expected false")
+		}
+	})
+
+	t.Run("WithWatchDebounce", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithWatchDebounce(2.5)
+		opt(cfg)
+		if cfg.WatchDebounceSeconds != 2.5 {
+			t.Errorf("expected %f, got %f", 2.5, cfg.WatchDebounceSeconds)
+		}
+	})
+
+	t.Run("WithPythonPath", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithPythonPath("/usr/bin/python3.11")
+		opt(cfg)
+		if cfg.PythonPath != "/usr/bin/python3.11" {
+			t.Errorf("expected %q, got %q", "/usr/bin/python3.11", cfg.PythonPath)
+		}
+	})
+}
+
+func TestDefaultConfig_ContainerDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	tests := []struct {
+		name     string
+		got      any
+		expected any
+	}{
+		{"Container.Enabled", cfg.Container.Enabled, false},
+		{"Container.Runtime", cfg.Container.Runtime, "auto"},
+		{"Container.Image", cfg.Container.Image, "syfthub/endpoint-runner:latest"},
+		{"Container.CPUs", cfg.Container.CPUs, 1.0},
+		{"Container.MemoryMB", cfg.Container.MemoryMB, 512},
+		{"Container.Network", cfg.Container.Network, "bridge"},
+		{"Container.GPU", cfg.Container.GPU, ""},
+		{"Container.StartTimeout", cfg.Container.StartTimeout, 60 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.expected {
+				t.Errorf("DefaultConfig().%s = %v, want %v", tt.name, tt.got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigLoadFromEnv_ContainerVars(t *testing.T) {
+	t.Run("loads all container environment variables", func(t *testing.T) {
+		t.Setenv("CONTAINER_ENABLED", "true")
+		t.Setenv("CONTAINER_RUNTIME", "podman")
+		t.Setenv("CONTAINER_IMAGE", "custom:latest")
+		t.Setenv("CONTAINER_CPUS", "2.5")
+		t.Setenv("CONTAINER_MEMORY_MB", "1024")
+		t.Setenv("CONTAINER_NETWORK", "host")
+		t.Setenv("CONTAINER_GPU", "all")
+		t.Setenv("CONTAINER_START_TIMEOUT", "90s")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+
+		if !cfg.Container.Enabled {
+			t.Error("Container.Enabled should be true")
+		}
+		if cfg.Container.Runtime != "podman" {
+			t.Errorf("Container.Runtime = %q, want %q", cfg.Container.Runtime, "podman")
+		}
+		if cfg.Container.Image != "custom:latest" {
+			t.Errorf("Container.Image = %q, want %q", cfg.Container.Image, "custom:latest")
+		}
+		if cfg.Container.CPUs != 2.5 {
+			t.Errorf("Container.CPUs = %f, want %f", cfg.Container.CPUs, 2.5)
+		}
+		if cfg.Container.MemoryMB != 1024 {
+			t.Errorf("Container.MemoryMB = %d, want %d", cfg.Container.MemoryMB, 1024)
+		}
+		if cfg.Container.Network != "host" {
+			t.Errorf("Container.Network = %q, want %q", cfg.Container.Network, "host")
+		}
+		if cfg.Container.GPU != "all" {
+			t.Errorf("Container.GPU = %q, want %q", cfg.Container.GPU, "all")
+		}
+		if cfg.Container.StartTimeout != 90*time.Second {
+			t.Errorf("Container.StartTimeout = %v, want %v", cfg.Container.StartTimeout, 90*time.Second)
+		}
+	})
+
+	t.Run("container disabled by default when env unset", func(t *testing.T) {
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+		if cfg.Container.Enabled {
+			t.Error("Container.Enabled should be false by default")
+		}
+	})
+
+	t.Run("CONTAINER_ENABLED=false", func(t *testing.T) {
+		t.Setenv("CONTAINER_ENABLED", "false")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+		if cfg.Container.Enabled {
+			t.Error("Container.Enabled should be false")
+		}
+	})
+
+	t.Run("invalid CONTAINER_CPUS", func(t *testing.T) {
+		t.Setenv("CONTAINER_CPUS", "not-a-float")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_CPUS")
+		}
+	})
+
+	t.Run("invalid CONTAINER_MEMORY_MB", func(t *testing.T) {
+		t.Setenv("CONTAINER_MEMORY_MB", "xyz")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_MEMORY_MB")
+		}
+	})
+
+	t.Run("invalid CONTAINER_START_TIMEOUT", func(t *testing.T) {
+		t.Setenv("CONTAINER_START_TIMEOUT", "not-a-duration")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_START_TIMEOUT")
+		}
+	})
+}
+
+func TestConfigValidate_ContainerEnabled(t *testing.T) {
+	validContainerConfig := func() *Config {
+		return &Config{
+			SyftHubURL: "https://hub.example.com",
+			APIKey:     "test-api-key",
+			SpaceURL:   "https://space.example.com",
+			LogLevel:   "INFO",
+			Container: ContainerConfig{
+				Enabled:      true,
+				Runtime:      "docker",
+				Image:        "syfthub/endpoint-runner:latest",
+				CPUs:         1.0,
+				MemoryMB:     512,
+				Network:      "bridge",
+				StartTimeout: 60 * time.Second,
+			},
+		}
+	}
+
+	t.Run("valid container config", func(t *testing.T) {
+		cfg := validContainerConfig()
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v", err)
+		}
+	})
+
+	t.Run("valid runtimes", func(t *testing.T) {
+		for _, runtime := range []string{"docker", "podman", "auto"} {
+			cfg := validContainerConfig()
+			cfg.Container.Runtime = runtime
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Runtime %q should be valid, got error: %v", runtime, err)
+			}
+		}
+	})
+
+	t.Run("invalid runtime", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Runtime = "containerd"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid runtime")
+		}
+	})
+
+	t.Run("empty image when enabled", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Image = ""
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for empty image when container mode is enabled")
+		}
+	})
+
+	t.Run("CPUs <= 0", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.CPUs = 0
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for CPUs = 0")
+		}
+	})
+
+	t.Run("MemoryMB too small", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.MemoryMB = 32
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for MemoryMB = 32")
+		}
+	})
+
+	t.Run("MemoryMB at minimum boundary", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.MemoryMB = 64
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("MemoryMB = 64 should be valid, got error: %v", err)
+		}
+	})
+
+	t.Run("invalid network", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Network = "overlay"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid network")
+		}
+	})
+
+	t.Run("valid networks", func(t *testing.T) {
+		for _, network := range []string{"bridge", "none", "host"} {
+			cfg := validContainerConfig()
+			cfg.Container.Network = network
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Network %q should be valid, got error: %v", network, err)
+			}
+		}
+	})
+
+	t.Run("StartTimeout <= 0", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.StartTimeout = 0
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for StartTimeout = 0")
+		}
+	})
+
+	t.Run("container disabled skips validation", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Enabled = false
+		cfg.Container.Runtime = "invalid"
+		cfg.Container.Image = ""
+		cfg.Container.CPUs = -1
+		cfg.Container.MemoryMB = 0
+		cfg.Container.Network = "invalid"
+		cfg.Container.StartTimeout = 0
+		// None of these should cause an error when container mode is disabled
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() should pass when container is disabled, got error: %v", err)
+		}
+	})
+}
+
+func TestContainerOptionFunctions(t *testing.T) {
+	t.Run("WithContainerEnabled", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerEnabled(true)
+		opt(cfg)
+		if !cfg.Container.Enabled {
+			t.Error("expected Container.Enabled = true")
+		}
+
+		opt2 := WithContainerEnabled(false)
+		opt2(cfg)
+		if cfg.Container.Enabled {
+			t.Error("expected Container.Enabled = false")
+		}
+	})
+
+	t.Run("WithContainerRuntime", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerRuntime("docker")
+		opt(cfg)
+		if cfg.Container.Runtime != "docker" {
+			t.Errorf("expected %q, got %q", "docker", cfg.Container.Runtime)
+		}
+	})
+
+	t.Run("WithContainerRuntime podman", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerRuntime("podman")
+		opt(cfg)
+		if cfg.Container.Runtime != "podman" {
+			t.Errorf("expected %q, got %q", "podman", cfg.Container.Runtime)
+		}
+	})
+
+	t.Run("WithContainerImage", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerImage("myimage:v2")
+		opt(cfg)
+		if cfg.Container.Image != "myimage:v2" {
+			t.Errorf("expected %q, got %q", "myimage:v2", cfg.Container.Image)
+		}
+	})
+
+	t.Run("WithContainerCPUs", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerCPUs(4.0)
+		opt(cfg)
+		if cfg.Container.CPUs != 4.0 {
+			t.Errorf("expected %f, got %f", 4.0, cfg.Container.CPUs)
+		}
+	})
+
+	t.Run("WithContainerMemoryMB", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerMemoryMB(2048)
+		opt(cfg)
+		if cfg.Container.MemoryMB != 2048 {
+			t.Errorf("expected %d, got %d", 2048, cfg.Container.MemoryMB)
+		}
+	})
+
+	t.Run("WithContainerNetwork", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerNetwork("host")
+		opt(cfg)
+		if cfg.Container.Network != "host" {
+			t.Errorf("expected %q, got %q", "host", cfg.Container.Network)
+		}
+	})
+
+	t.Run("WithContainerGPU", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerGPU("all")
+		opt(cfg)
+		if cfg.Container.GPU != "all" {
+			t.Errorf("expected %q, got %q", "all", cfg.Container.GPU)
+		}
+	})
+
+	t.Run("WithContainerStartTimeout", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerStartTimeout(120 * time.Second)
+		opt(cfg)
+		if cfg.Container.StartTimeout != 120*time.Second {
+			t.Errorf("expected %v, got %v", 120*time.Second, cfg.Container.StartTimeout)
+		}
+	})
+}
+
+func TestContainerOptionChaining(t *testing.T) {
+	cfg := DefaultConfig()
+	options := []Option{
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("custom:latest"),
+		WithContainerCPUs(2.0),
+		WithContainerMemoryMB(1024),
+		WithContainerNetwork("none"),
+		WithContainerGPU("device=0"),
+		WithContainerStartTimeout(30 * time.Second),
+	}
+
+	for _, opt := range options {
+		opt(cfg)
+	}
+
+	if !cfg.Container.Enabled {
+		t.Error("Container.Enabled not set correctly")
+	}
+	if cfg.Container.Runtime != "docker" {
+		t.Error("Container.Runtime not set correctly")
+	}
+	if cfg.Container.Image != "custom:latest" {
+		t.Error("Container.Image not set correctly")
+	}
+	if cfg.Container.CPUs != 2.0 {
+		t.Error("Container.CPUs not set correctly")
+	}
+	if cfg.Container.MemoryMB != 1024 {
+		t.Error("Container.MemoryMB not set correctly")
+	}
+	if cfg.Container.Network != "none" {
+		t.Error("Container.Network not set correctly")
+	}
+	if cfg.Container.GPU != "device=0" {
+		t.Error("Container.GPU not set correctly")
+	}
+	if cfg.Container.StartTimeout != 30*time.Second {
+		t.Error("Container.StartTimeout not set correctly")
+	}
+}
+
+func TestOptionChaining(t *testing.T) {
+	cfg := DefaultConfig()
+	options := []Option{
+		WithSyftHubURL("https://hub.test.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("tunneling:testuser"),
+		WithLogLevel("DEBUG"),
+		WithServerPort(9000),
+	}
+
+	for _, opt := range options {
+		opt(cfg)
+	}
+
+	if cfg.SyftHubURL != "https://hub.test.com" {
+		t.Errorf("SyftHubURL not set correctly")
+	}
+	if cfg.APIKey != "test-key" {
+		t.Errorf("APIKey not set correctly")
+	}
+	if cfg.SpaceURL != "tunneling:testuser" {
+		t.Errorf("SpaceURL not set correctly")
+	}
+	if cfg.LogLevel != "DEBUG" {
+		t.Errorf("LogLevel not set correctly")
+	}
+	if cfg.ServerPort != 9000 {
+		t.Errorf("ServerPort not set correctly")
+	}
+}

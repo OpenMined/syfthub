@@ -1,0 +1,38 @@
+meta:
+  id: openai
+  name: "OpenAI"
+  description: "Configure OpenAI API access with model selection"
+  category: ai
+  tags: [openai, gpt, ai, llm]
+
+steps:
+  - id: api_key
+    type: prompt
+    name: "Enter OpenAI API Key"
+    required: true
+    prompt:
+      message: "Enter your OpenAI API key"
+      secret: true
+      validate:
+        pattern: "^sk-"
+        message: "OpenAI API keys start with 'sk-'"
+    outputs:
+      OPENAI_API_KEY: "{{value}}"
+
+  - id: model
+    type: select
+    name: "Select Model"
+    required: true
+    env_key: OPENAI_MODEL
+    select:
+      message: "Choose the default model"
+      options:
+        - value: "gpt-4o"
+          label: "GPT-4o (recommended)"
+        - value: "gpt-4o-mini"
+          label: "GPT-4o Mini (faster, cheaper)"
+        - value: "gpt-4-turbo"
+          label: "GPT-4 Turbo"
+        - value: "o1"
+          label: "o1 (reasoning)"
+      default: "gpt-4o"

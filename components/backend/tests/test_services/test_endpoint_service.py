@@ -1,0 +1,1470 @@
+"""Tests for EndpointService."""
+
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from syfthub.database.connection import get_db_session
+from syfthub.schemas.endpoint import (
+    Endpoint,
+    EndpointCreate,
+    EndpointHealthItem,
+    EndpointHealthRequest,
+    EndpointHealthResponse,
+    EndpointHealthStatus,
+    EndpointPublicResponse,
+    EndpointResponse,
+    EndpointType,
+    EndpointUpdate,
+    EndpointVisibility,
+)
+from syfthub.schemas.user import User
+from syfthub.services.endpoint_service import EndpointService
+
+
+@pytest.fixture
+def db_session():
+    """Get database session for testing."""
+    session = next(get_db_session())
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def endpoint_service(db_session):
+    """Create EndpointService instance for testing."""
+    return EndpointService(db_session)
+
+
+@pytest.fixture
+def sample_user():
+    """Sample user for testing."""
+    return User(
+        id=1,
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        role="user",
+        is_active=True,
+        created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+        updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+        key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+        age=25,
+        public_key="public_key",
+        password_hash="hashed_pass",
+    )
+
+
+@pytest.fixture
+def sample_endpoint():
+    """Sample endpoint for testing."""
+    return Endpoint(
+        id=1,
+        name="Test Endpoint",
+        slug="test-endpoint",
+        description="A test endpoint",
+        type=EndpointType.MODEL,
+        visibility=EndpointVisibility.PUBLIC,
+        version="1.0.0",
+        readme="# Test Endpoint\n\nA test endpoint for unit tests.",
+        tags=[],
+        policies=[],
+        connect=[],
+        is_active=True,
+        archived=False,
+        contributors=[],
+        user_id=1,
+        stars_count=0,
+        created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+        updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+    )
+
+
+class TestEndpointServiceCreate:
+    """Test endpoint creation."""
+
+    def test_create_user_endpoint_success(
+        self,
+        endpoint_service,
+        sample_user,
+        sample_endpoint,
+    ):
+        """Test successful user endpoint creation."""
+        endpoint_data = EndpointCreate(
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
+            visibility=EndpointVisibility.PUBLIC,
+        )
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "slug_exists_for_user",
+                return_value=False,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "create_endpoint",
+                return_value=sample_endpoint,
+            ),
+        ):
+            result = endpoint_service.create_endpoint(endpoint_data, 1)
+
+            assert isinstance(result, EndpointResponse)
+            assert result.name == "Test Endpoint"
+            assert result.slug == "test-endpoint"
+
+    def test_create_user_endpoint_slug_exists(
+        self,
+        endpoint_service,
+        sample_user,
+    ):
+        """Test user endpoint creation with existing slug."""
+        endpoint_data = EndpointCreate(
+            name="Test Endpoint",
+            slug="existing-slug",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
+        )
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "slug_exists_for_user",
+            return_value=True,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.create_endpoint(endpoint_data, 1)
+
+            assert exc_info.value.status_code == 400
+            assert "slug already exists" in str(exc_info.value.detail)
+
+    def test_create_endpoint_failure(
+        self,
+        endpoint_service,
+        sample_user,
+    ):
+        """Test endpoint creation failure."""
+        endpoint_data = EndpointCreate(
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
+        )
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "slug_exists_for_user",
+                return_value=False,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "create_endpoint",
+                return_value=None,
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.create_endpoint(endpoint_data, 1)
+
+            assert exc_info.value.status_code == 500
+            assert "Failed to create endpoint" in str(exc_info.value.detail)
+
+
+class TestEndpointServiceGet:
+    """Test endpoint retrieval."""
+
+    def test_get_endpoint_by_user_and_slug(self, endpoint_service, sample_endpoint):
+        """Test getting endpoint by user and slug."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_by_user_and_slug",
+            return_value=sample_endpoint,
+        ):
+            result = endpoint_service.get_endpoint_by_user_and_slug(1, "test-endpoint")
+
+            assert result == sample_endpoint
+
+    def test_get_endpoint_by_user_and_slug_not_found(self, endpoint_service):
+        """Test getting non-existent endpoint by user and slug."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_by_user_and_slug",
+            return_value=None,
+        ):
+            result = endpoint_service.get_endpoint_by_user_and_slug(1, "nonexistent")
+
+            assert result is None
+
+    def test_get_public_endpoints(self, endpoint_service):
+        """Test getting public endpoints."""
+        mock_public_endpoints = [
+            EndpointPublicResponse(
+                name="Public Endpoint",
+                slug="public-endpoint",
+                description="A public endpoint",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme="# Public Endpoint",
+                tags=[],
+                stars_count=5,
+                policies=[],
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        ]
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints",
+            return_value=mock_public_endpoints,
+        ):
+            result = endpoint_service.get_public_endpoints()
+
+            assert len(result) == 1
+            assert result[0].name == "Public Endpoint"
+
+
+class TestEndpointServiceUpdate:
+    """Test endpoint update."""
+
+    def test_update_endpoint_success(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test successful endpoint update."""
+        update_data = EndpointUpdate(name="Updated Endpoint")
+        endpoint_dict = sample_endpoint.model_dump()
+        endpoint_dict.update({"name": "Updated Endpoint"})
+        updated_endpoint = Endpoint(**endpoint_dict)
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "update_endpoint",
+                return_value=updated_endpoint,
+            ),
+        ):
+            result = endpoint_service.update_endpoint(1, update_data, sample_user)
+
+            assert result.name == "Updated Endpoint"
+
+    def test_update_endpoint_not_found(self, endpoint_service, sample_user):
+        """Test updating non-existent endpoint."""
+        update_data = EndpointUpdate(name="Updated Endpoint")
+
+        with patch.object(
+            endpoint_service.endpoint_repository, "get_by_id", return_value=None
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.update_endpoint(999, update_data, sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_update_endpoint_permission_denied(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test permission denied for endpoint update."""
+        update_data = EndpointUpdate(name="Updated Endpoint")
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=False),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.update_endpoint(1, update_data, sample_user)
+
+            assert exc_info.value.status_code == 403
+            assert "Permission denied" in str(exc_info.value.detail)
+
+    def test_update_endpoint_failure(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test endpoint update failure."""
+        update_data = EndpointUpdate(name="Updated Endpoint")
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "update_endpoint",
+                return_value=None,
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.update_endpoint(1, update_data, sample_user)
+
+            assert exc_info.value.status_code == 500
+            assert "Failed to update endpoint" in str(exc_info.value.detail)
+
+
+class TestEndpointServiceLists:
+    """Test endpoint list methods."""
+
+    def test_get_user_endpoints_basic(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test getting user endpoints."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_user_endpoints",
+                return_value=[sample_endpoint],
+            ),
+            patch.object(endpoint_service, "_can_access_endpoint", return_value=True),
+            patch.object(endpoint_service, "_can_see_full_details", return_value=True),
+        ):
+            result = endpoint_service.get_user_endpoints(1, current_user=sample_user)
+
+            assert len(result) == 1
+            assert result[0].name == "Test Endpoint"
+
+    def test_get_user_endpoints_no_access(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test getting user endpoints with no access."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_user_endpoints",
+                return_value=[sample_endpoint],
+            ),
+            patch.object(endpoint_service, "_can_access_endpoint", return_value=False),
+        ):
+            result = endpoint_service.get_user_endpoints(1, current_user=sample_user)
+
+            assert len(result) == 0
+
+
+class TestEndpointServiceDelete:
+    """Test endpoint deletion."""
+
+    def test_delete_endpoint_success(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test successful endpoint deletion."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=True,
+            ),
+        ):
+            result = endpoint_service.delete_endpoint(1, sample_user)
+
+            assert result is True
+
+    def test_delete_endpoint_not_found(self, endpoint_service, sample_user):
+        """Test deleting non-existent endpoint."""
+        with patch.object(
+            endpoint_service.endpoint_repository, "get_by_id", return_value=None
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint(999, sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_permission_denied(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test permission denied for endpoint deletion."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=False),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint(1, sample_user)
+
+            assert exc_info.value.status_code == 403
+            assert "Permission denied" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_failure(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test endpoint deletion failure."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint(1, sample_user)
+
+            assert exc_info.value.status_code == 500
+            assert "Failed to delete endpoint" in str(exc_info.value.detail)
+
+
+class TestEndpointServiceDeleteBySlug:
+    """Test endpoint deletion by slug."""
+
+    def test_delete_endpoint_by_slug_success(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test successful endpoint deletion by slug."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=True,
+            ),
+        ):
+            result = endpoint_service.delete_endpoint_by_slug(
+                "test-endpoint", sample_user
+            )
+
+            assert result is True
+
+    def test_delete_endpoint_by_slug_not_found(self, endpoint_service, sample_user):
+        """Test deleting non-existent endpoint by slug."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_by_user_and_slug",
+            return_value=None,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("nonexistent", sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_permission_denied(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test permission denied for endpoint deletion by slug."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=False),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            assert exc_info.value.status_code == 403
+            assert "Permission denied" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_failure(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test endpoint deletion by slug failure."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            assert exc_info.value.status_code == 500
+            assert "Failed to delete endpoint" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_uses_correct_user_id(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test that delete_endpoint_by_slug looks up using the current user's ID."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ) as mock_get,
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=True,
+            ),
+        ):
+            endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            # Verify the lookup was called with the correct user ID
+            mock_get.assert_called_once_with(sample_user.id, "test-endpoint")
+
+
+class TestEndpointServiceStar:
+    """Test endpoint star functionality."""
+
+    def test_star_endpoint_success(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test successful endpoint starring."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_access_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.star_repository, "star_endpoint", return_value=True
+            ),
+            patch.object(endpoint_service.endpoint_repository, "increment_stars"),
+        ):
+            result = endpoint_service.star_endpoint(1, sample_user)
+
+            assert result is True
+
+    def test_star_endpoint_not_found(self, endpoint_service, sample_user):
+        """Test starring non-existent endpoint."""
+        with patch.object(
+            endpoint_service.endpoint_repository, "get_by_id", return_value=None
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.star_endpoint(999, sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_star_endpoint_no_access(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test starring endpoint without access."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_id",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_access_endpoint", return_value=False),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.star_endpoint(1, sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_unstar_endpoint_success(self, endpoint_service, sample_user):
+        """Test successful endpoint unstarring."""
+        with (
+            patch.object(
+                endpoint_service.star_repository, "unstar_endpoint", return_value=True
+            ),
+            patch.object(endpoint_service.endpoint_repository, "decrement_stars"),
+        ):
+            result = endpoint_service.unstar_endpoint(1, sample_user)
+
+            assert result is True
+
+    def test_unstar_endpoint_not_starred(self, endpoint_service, sample_user):
+        """Test unstarring not-starred endpoint."""
+        with patch.object(
+            endpoint_service.star_repository, "unstar_endpoint", return_value=False
+        ):
+            result = endpoint_service.unstar_endpoint(1, sample_user)
+
+            assert result is False
+
+    def test_is_endpoint_starred(self, endpoint_service, sample_user):
+        """Test checking if endpoint is starred."""
+        with patch.object(
+            endpoint_service.star_repository, "is_starred", return_value=True
+        ):
+            result = endpoint_service.is_endpoint_starred(1, sample_user)
+
+            assert result is True
+
+
+class TestEndpointServicePermissions:
+    """Test endpoint permission methods."""
+
+    def test_can_access_endpoint_public(self, endpoint_service, sample_endpoint):
+        """Test access to public endpoint."""
+        sample_endpoint.visibility = EndpointVisibility.PUBLIC
+
+        result = endpoint_service._can_access_endpoint(sample_endpoint, None)
+        assert result is True
+
+    def test_can_access_endpoint_unauthenticated_private(
+        self, endpoint_service, sample_endpoint
+    ):
+        """Test unauthenticated access to private endpoint."""
+        sample_endpoint.visibility = EndpointVisibility.PRIVATE
+
+        result = endpoint_service._can_access_endpoint(sample_endpoint, None)
+        assert result is False
+
+    def test_can_access_endpoint_admin(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test admin access to any endpoint."""
+        sample_endpoint.visibility = EndpointVisibility.PRIVATE
+        admin_user_data = sample_user.model_dump()
+        admin_user_data.update({"id": 2, "role": "admin"})
+        admin_user = User(**admin_user_data)
+
+        result = endpoint_service._can_access_endpoint(sample_endpoint, admin_user)
+        assert result is True
+
+    def test_can_access_user_endpoint_owner(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test user access to their own endpoint."""
+        sample_endpoint.visibility = EndpointVisibility.PRIVATE
+        sample_endpoint.user_id = sample_user.id
+
+        result = endpoint_service._can_access_endpoint(sample_endpoint, sample_user)
+        assert result is True
+
+    def test_can_see_full_details_public_unauthenticated(
+        self, endpoint_service, sample_endpoint
+    ):
+        """Test unauthenticated user seeing public endpoint details."""
+        sample_endpoint.visibility = EndpointVisibility.PUBLIC
+
+        result = endpoint_service._can_see_full_details(sample_endpoint, None)
+        assert result is True
+
+    def test_can_see_full_details_admin(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test admin seeing any endpoint details."""
+        admin_user_data = sample_user.model_dump()
+        admin_user_data.update({"id": 2, "role": "admin"})
+        admin_user = User(**admin_user_data)
+
+        result = endpoint_service._can_see_full_details(sample_endpoint, admin_user)
+        assert result is True
+
+    def test_can_see_full_details_owner(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test owner seeing their endpoint details."""
+        sample_endpoint.user_id = sample_user.id
+
+        result = endpoint_service._can_see_full_details(sample_endpoint, sample_user)
+        assert result is True
+
+    def test_can_see_full_details_non_owner_user_endpoint(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test non-owner cannot see private user endpoint details."""
+        sample_endpoint.visibility = EndpointVisibility.PRIVATE
+        sample_endpoint.user_id = 999  # Different user
+
+        result = endpoint_service._can_see_full_details(sample_endpoint, sample_user)
+        assert result is False  # User endpoints require ownership
+
+    def test_can_modify_endpoint_admin(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test admin can modify any endpoint."""
+        admin_user_data = sample_user.model_dump()
+        admin_user_data.update({"id": 2, "role": "admin"})
+        admin_user = User(**admin_user_data)
+
+        result = endpoint_service._can_modify_endpoint(sample_endpoint, admin_user)
+        assert result is True
+
+    def test_can_modify_endpoint_owner(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test owner can modify their endpoint."""
+        sample_endpoint.user_id = sample_user.id
+
+        result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
+        assert result is True
+
+    def test_can_modify_endpoint_no_permissions(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test user with no permissions cannot modify endpoint."""
+        sample_endpoint.user_id = 999  # Different user
+
+        result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
+        assert result is False
+
+
+class TestEndpointServiceSearch:
+    """Test endpoint search functionality."""
+
+    def test_search_endpoints_rag_not_available(self, endpoint_service):
+        """Test search returns empty when RAG is not available."""
+        # Replace rag_service with a mock that has is_available=False
+        mock_rag = MagicMock()
+        mock_rag.is_available = False
+        endpoint_service.rag_service = mock_rag
+
+        result = endpoint_service.search_endpoints("test query")
+
+        assert result.results == []
+        assert result.total == 0
+        assert result.query == "test query"
+
+    def test_search_endpoints_empty_results(self, endpoint_service):
+        """Test search with no matching results."""
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = []
+        endpoint_service.rag_service = mock_rag
+
+        result = endpoint_service.search_endpoints("no match query")
+
+        assert result.results == []
+        assert result.total == 0
+        assert result.query == "no match query"
+
+    def test_search_endpoints_with_results(self, endpoint_service):
+        """Test successful search with results."""
+        mock_public_response = EndpointPublicResponse(
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Test",
+            tags=["test"],
+            stars_count=5,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(1, 0.95)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=[mock_public_response],
+        ):
+            result = endpoint_service.search_endpoints("test query", top_k=5)
+
+            assert len(result.results) == 1
+            assert result.results[0].name == "Test Endpoint"
+            assert result.results[0].relevance_score == 0.95
+            assert result.query == "test query"
+
+    def test_search_endpoints_filter_by_type(self, endpoint_service):
+        """Test search with endpoint type filter."""
+        model_response = EndpointPublicResponse(
+            name="Model Endpoint",
+            slug="model-endpoint",
+            description="A model endpoint",
+            type=EndpointType.MODEL,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Model",
+            tags=["model"],
+            stars_count=5,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        datasource_response = EndpointPublicResponse(
+            name="Data Source Endpoint",
+            slug="datasource-endpoint",
+            description="A data source endpoint",
+            type=EndpointType.DATA_SOURCE,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Data Source",
+            tags=["data"],
+            stars_count=3,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(1, 0.95), (2, 0.85)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=[model_response, datasource_response],
+        ):
+            # Filter by MODEL type
+            result = endpoint_service.search_endpoints(
+                "test query", endpoint_type=EndpointType.MODEL
+            )
+
+            assert len(result.results) == 1
+            assert result.results[0].type == EndpointType.MODEL
+
+    def test_search_endpoints_respects_top_k(self, endpoint_service):
+        """Test search respects top_k limit."""
+        responses = [
+            EndpointPublicResponse(
+                name=f"Endpoint {i}",
+                slug=f"endpoint-{i}",
+                description=f"Endpoint {i} description",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme=f"# Endpoint {i}",
+                tags=["test"],
+                stars_count=i,
+                policies=[],
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            for i in range(5)
+        ]
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(i, 0.9 - i * 0.1) for i in range(5)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=responses,
+        ):
+            # Limit to 2 results
+            result = endpoint_service.search_endpoints("test query", top_k=2)
+
+            assert len(result.results) == 2
+
+
+class TestEndpointServiceGuestAccessible:
+    """Test guest-accessible endpoint listing."""
+
+    def test_list_guest_accessible_endpoints_success(self, endpoint_service):
+        """Test successful listing of guest-accessible endpoints."""
+        # Create mock responses - endpoints with NO policies (guest accessible)
+        responses = [
+            EndpointPublicResponse(
+                name="Free Model",
+                slug="free-model",
+                description="A free model with no policies",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme="# Free Model",
+                tags=["free"],
+                stars_count=10,
+                policies=[],  # No policies - guest accessible
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+            EndpointPublicResponse(
+                name="Free Data Source",
+                slug="free-data-source",
+                description="A free data source with no policies",
+                type=EndpointType.DATA_SOURCE,
+                owner_username="testuser",
+                contributors_count=0,
+                version="1.0.0",
+                readme="# Free Data Source",
+                tags=["free"],
+                stars_count=5,
+                policies=[],  # No policies - guest accessible
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+        ]
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=responses,
+        ):
+            result = endpoint_service.list_guest_accessible_endpoints()
+
+            assert len(result) == 2
+            assert all(ep.policies == [] for ep in result)
+
+    def test_list_guest_accessible_endpoints_empty_when_all_have_policies(
+        self, endpoint_service
+    ):
+        """Test that guest-accessible list is empty when all endpoints have policies."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=[],  # No guest-accessible endpoints
+        ):
+            result = endpoint_service.list_guest_accessible_endpoints()
+
+            assert len(result) == 0
+
+    def test_list_guest_accessible_endpoints_with_type_filter(self, endpoint_service):
+        """Test filtering guest-accessible endpoints by type."""
+        model_response = [
+            EndpointPublicResponse(
+                name="Free Model",
+                slug="free-model",
+                description="A free model",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme="# Free Model",
+                tags=["free"],
+                stars_count=10,
+                policies=[],
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+        ]
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=model_response,
+        ) as mock_method:
+            result = endpoint_service.list_guest_accessible_endpoints(
+                endpoint_type=EndpointType.MODEL
+            )
+
+            mock_method.assert_called_once_with(
+                skip=0,
+                limit=10,
+                endpoint_type=EndpointType.MODEL,
+                viewer_email=None,
+            )
+            assert len(result) == 1
+            assert result[0].type == EndpointType.MODEL
+
+    def test_list_guest_accessible_endpoints_with_pagination(self, endpoint_service):
+        """Test pagination for guest-accessible endpoints."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=[],
+        ) as mock_method:
+            endpoint_service.list_guest_accessible_endpoints(skip=10, limit=20)
+
+            mock_method.assert_called_once_with(
+                skip=10, limit=20, endpoint_type=None, viewer_email=None
+            )
+
+
+class TestEndpointHealthSchemas:
+    """Tests for endpoint health request/response schemas."""
+
+    def test_health_item_creation(self):
+        """Test EndpointHealthItem creation."""
+        now = datetime.now(timezone.utc)
+        item = EndpointHealthItem(
+            slug="my-endpoint",
+            status=EndpointHealthStatus.HEALTHY,
+            checked_at=now,
+        )
+        assert item.slug == "my-endpoint"
+        assert item.status == EndpointHealthStatus.HEALTHY
+        assert item.checked_at == now
+
+    def test_health_request_valid_https_url(self):
+        """Test EndpointHealthRequest with valid HTTPS URL."""
+        now = datetime.now(timezone.utc)
+        req = EndpointHealthRequest(
+            endpoints=[
+                EndpointHealthItem(
+                    slug="my-endpoint",
+                    status=EndpointHealthStatus.HEALTHY,
+                    checked_at=now,
+                )
+            ],
+            url="https://example.com:8080",
+            ttl_seconds=300,
+        )
+        assert req.url == "https://example.com:8080"
+        assert req.ttl_seconds == 300
+        assert len(req.endpoints) == 1
+
+    def test_health_request_valid_tunneling_url(self):
+        """Test EndpointHealthRequest with valid tunneling URL."""
+        now = datetime.now(timezone.utc)
+        req = EndpointHealthRequest(
+            endpoints=[
+                EndpointHealthItem(
+                    slug="my-endpoint",
+                    status=EndpointHealthStatus.HEALTHY,
+                    checked_at=now,
+                )
+            ],
+            url="tunneling:myuser",
+        )
+        assert req.url == "tunneling:myuser"
+
+    def test_health_request_invalid_url_scheme(self):
+        """Test EndpointHealthRequest rejects invalid URL scheme."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="ftp://example.com",
+            )
+
+    def test_health_request_tunneling_empty_username(self):
+        """Test EndpointHealthRequest rejects tunneling URL without username."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="tunneling:",
+            )
+
+    def test_health_request_url_no_hostname(self):
+        """Test EndpointHealthRequest rejects URL without hostname."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="https://",
+            )
+
+    def test_health_response_creation(self):
+        """Test EndpointHealthResponse creation."""
+        resp = EndpointHealthResponse(updated=3, ignored=1)
+        assert resp.updated == 3
+        assert resp.ignored == 1
+
+    def test_health_status_enum_values(self):
+        """Test EndpointHealthStatus enum values."""
+        assert EndpointHealthStatus.HEALTHY == "healthy"
+        assert EndpointHealthStatus.UNHEALTHY == "unhealthy"
+
+
+class TestReportEndpointHealth:
+    """Tests for EndpointService.report_endpoint_health method."""
+
+    @pytest.fixture
+    def endpoint_service(self):
+        """Create EndpointService with mocked session."""
+        session = MagicMock()
+        return EndpointService(session)
+
+    @pytest.fixture
+    def sample_user(self):
+        """Sample user for testing."""
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            role="user",
+            is_active=True,
+            created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            age=25,
+            public_key="public_key",
+            password_hash="hashed_pass",
+        )
+
+    def test_report_health_happy_path(self, endpoint_service, sample_user):
+        """Test reporting health for matching endpoints."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[MagicMock(slug="my-endpoint", id=1)],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "bulk_update_health_status",
+                return_value=1,
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_domain", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="https://example.com",
+                current_user=sample_user,
+                ttl_seconds=300,
+            )
+
+        assert result.updated == 1
+        assert result.ignored == 0
+
+    def test_report_health_unmatched_slugs(self, endpoint_service, sample_user):
+        """Test reporting health for slugs that don't match any endpoints."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="nonexistent",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_domain", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="https://example.com",
+                current_user=sample_user,
+            )
+
+        assert result.updated == 0
+        assert result.ignored == 1
+
+    def test_report_health_invalid_url(self, endpoint_service, sample_user):
+        """Test reporting health with invalid URL raises HTTPException."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="not-a-url",
+                current_user=sample_user,
+            )
+        assert exc_info.value.status_code == 422
+
+    def test_report_health_tunneling_url(self, endpoint_service, sample_user):
+        """Test reporting health with tunneling URL."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_domain", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="tunneling:testuser",
+                current_user=sample_user,
+            )
+
+        assert result.updated == 0
+        assert result.ignored == 1
+
+    def test_report_health_commit_failure(self, endpoint_service, sample_user):
+        """Test that commit failure raises HTTPException."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        endpoint_service.session.commit.side_effect = Exception("DB error")
+
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_domain", return_value=True
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.report_endpoint_health(
+                    endpoints_health=items,
+                    url="https://example.com",
+                    current_user=sample_user,
+                )
+            assert exc_info.value.status_code == 500
+
+        endpoint_service.session.rollback.assert_called_once()
+
+
+class TestGetEndpointUptime:
+    """Tests for EndpointService.get_endpoint_uptime method."""
+
+    @pytest.fixture
+    def endpoint_service(self):
+        session = MagicMock()
+        return EndpointService(session)
+
+    @pytest.fixture
+    def sample_user(self):
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            role="user",
+            is_active=True,
+            created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            age=25,
+            public_key="public_key",
+            password_hash="hashed_pass",
+        )
+
+    def _endpoint(self, **overrides):
+        ep = MagicMock()
+        ep.id = overrides.get("id", 42)
+        ep.slug = overrides.get("slug", "ep")
+        ep.user_id = overrides.get("user_id", 1)
+        ep.visibility = overrides.get("visibility", EndpointVisibility.PUBLIC)
+        return ep
+
+    def _sample(self, **kwargs):
+        s = MagicMock()
+        s.bucket_start = kwargs["bucket_start"]
+        s.total_checks = kwargs.get("total_checks", 0)
+        s.healthy_checks = kwargs.get("healthy_checks", 0)
+        return s
+
+    def test_uptime_user_owned_happy_path(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="my-ep", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+        samples = [
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=60)
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=samples,
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="my-ep",
+                window_hours=24,
+                current_user=sample_user,
+            )
+
+        assert result.endpoint_id == 42
+        assert result.owner_username == "testuser"
+        assert result.window_hours == 24
+        assert result.bucket_seconds > 0
+        assert len(result.buckets) == 1
+        b = result.buckets[0]
+        assert b.bucket_start == bucket
+        assert b.samples == 60
+        assert b.healthy_samples == 60
+        assert b.uptime_pct == 100.0
+
+    def test_uptime_not_found_returns_404(self, endpoint_service, sample_user):
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=None
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            endpoint_service.get_endpoint_uptime(
+                owner_username="ghost",
+                slug="missing",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        assert exc.value.status_code == 404
+
+    def test_uptime_private_endpoint_hidden_from_outsider(
+        self, endpoint_service, sample_user
+    ):
+        owner = MagicMock(id=2, username="owner2")
+        # Endpoint owned by user 2 with private visibility — sample_user.id is 1
+        endpoint = self._endpoint(
+            id=11, slug="hush", user_id=2, visibility=EndpointVisibility.PRIVATE
+        )
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            endpoint_service.get_endpoint_uptime(
+                owner_username="owner2",
+                slug="hush",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        # Hidden via 404, not 403, to avoid leaking existence
+        assert exc.value.status_code == 404
+
+    def test_uptime_zero_samples_returns_empty(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="empty", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=[],
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="empty",
+                window_hours=24,
+                current_user=None,
+            )
+        assert result.buckets == []
+
+    def test_uptime_partial_health(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="mixed", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        bucket = datetime(2026, 5, 13, 12, 30, tzinfo=timezone.utc)
+        # 40 of 60 cycles observed a healthy state
+        samples = [
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=40)
+        ]
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=samples,
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="mixed",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        b = result.buckets[0]
+        assert b.uptime_pct == round(100.0 * 40 / 60, 2)
+        assert b.samples == 60
+        assert b.healthy_samples == 40

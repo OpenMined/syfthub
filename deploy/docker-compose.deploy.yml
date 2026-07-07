@@ -1,0 +1,499 @@
+# SyftHub Production Deployment Docker Compose
+# Used by GitHub Actions CD pipeline
+# Pulls pre-built images from GitHub Container Registry (GHCR)
+#
+# Required environment variables:
+#   - GITHUB_REPOSITORY: GitHub repository (e.g., org/syfthub)
+#   - IMAGE_TAG: Docker image tag (e.g., abc1234 or latest)
+#   - DB_PASSWORD: PostgreSQL password
+#   - SECRET_KEY: Application secret key
+#   - REDIS_PASSWORD: Redis password
+#   - DOMAIN: Production domain (e.g., syfthub.example.com)
+#   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
+#   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
+#
+# Optional environment variables:
+#   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
+#   - NGROK_API_KEY: ngrok API key for tunnel credential provisioning
+#
+# RSA Key Generation (required for satellite token signing):
+#   openssl genrsa -out private.pem 2048
+#   openssl rsa -in private.pem -pubout -out public.pem
+#   export RSA_PRIVATE_KEY_PEM=$(base64 -w0 private.pem)
+#   export RSA_PUBLIC_KEY_PEM=$(base64 -w0 public.pem)
+#
+# IMPORTANT: RSA keys MUST be configured in production when running multiple workers.
+# Without shared RSA keys, each worker generates its own keys, causing satellite
+# token verification to fail when requests are handled by different workers.
+#
+# Usage:
+#   # Set environment variables or use .env file
+#   export IMAGE_TAG=abc1234
+#   export GITHUB_REPOSITORY=your-org/syfthub
+#
+#   # Deploy
+#   docker compose -f docker-compose.deploy.yml up -d
+#
+#   # Run migrations
+#   docker compose -f docker-compose.deploy.yml --profile migrate run --rm migrate
+
+services:
+  # ==========================================================================
+  # NGINX REVERSE PROXY - Single entry point with SSL termination
+  # ==========================================================================
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: syfthub-proxy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./certbot/www:/var/www/certbot:ro  # For Let's Encrypt ACME challenges
+      - frontend_dist:/usr/share/nginx/html:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      aggregator:
+        condition: service_healthy
+      mcp:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      frontend-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ==========================================================================
+  # BACKEND API SERVICE - FastAPI application
+  # ==========================================================================
+  backend:
+    image: ghcr.io/${GITHUB_REPOSITORY}-backend:${IMAGE_TAG:-latest}
+    container_name: syfthub-backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "8000"
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://syfthub:${DB_PASSWORD}@db:5432/syfthub
+      - SECRET_KEY=${SECRET_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - CORS_ORIGINS=https://${DOMAIN:-localhost}
+      # Public frontend base URL used to build links in outgoing emails
+      # (e.g. collective invitation accept/decline links)
+      - FRONTEND_URL=https://${DOMAIN:-localhost}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      # RSA keys for satellite token signing (required for multi-worker deployment)
+      - RSA_PRIVATE_KEY_PEM=${RSA_PRIVATE_KEY_PEM}
+      - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
+      # NATS configuration for P2P tunneling
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+      - NATS_WS_PUBLIC_URL=wss://${DOMAIN:-localhost}/nats
+      # Meilisearch configuration (semantic search disabled if MEILI_URL not set)
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      # Email delivery via Resend (required for OTP emails)
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_FROM_EMAIL=noreply@openmined.org
+      - SMTP_FROM_NAME=SyftHub
+      # Google OAuth configuration (optional - Google Sign-In disabled if not set)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # ngrok tunnel credentials (optional - tunnel credentials endpoint disabled if not set)
+      - NGROK_API_KEY=${NGROK_API_KEY:-}
+      # Linear API credentials (optional - feedback endpoint disabled if not set)
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
+      - LINEAR_TEAM_ID=${LINEAR_TEAM_ID:-}
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ==========================================================================
+  # MEILISEARCH - Full-text search engine for endpoint discovery
+  # ==========================================================================
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: syfthub-meilisearch
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "7700"
+    volumes:
+      - meili_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=production
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ==========================================================================
+  # AGGREGATOR SERVICE - RAG orchestration
+  # ==========================================================================
+  aggregator:
+    image: ghcr.io/${GITHUB_REPOSITORY}-aggregator:${IMAGE_TAG:-latest}
+    container_name: syfthub-aggregator
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "8001"
+    environment:
+      - AGGREGATOR_DEBUG=false
+      - AGGREGATOR_SYFTHUB_URL=http://backend:8000
+      - AGGREGATOR_CORS_ORIGINS=["https://${DOMAIN:-localhost}"]
+      - AGGREGATOR_LOG_LEVEL=${LOG_LEVEL:-info}
+      - AGGREGATOR_LOG_FORMAT=${LOG_FORMAT:-json}
+      # NATS configuration for P2P tunneling
+      - AGGREGATOR_NATS_URL=nats://nats:4222
+      - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 5G
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # MCP SERVER - OAuth 2.1 and Model Context Protocol for AI clients
+  # ==========================================================================
+  mcp:
+    image: ghcr.io/${GITHUB_REPOSITORY}-mcp:${IMAGE_TAG:-latest}
+    container_name: syfthub-mcp
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "8002"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - MCP_PORT=8002
+      # RSA key for JWT signing (REQUIRED for multi-worker deployments)
+      # Generate with: python mcp/generate_rsa_key.py
+      - RSA_PRIVATE_KEY=${RSA_PRIVATE_KEY_PEM}
+      # OAuth configuration (proxy-aware URLs)
+      - OAUTH_ISSUER=https://${DOMAIN:-localhost}/mcp
+      - OAUTH_AUDIENCE=mcp-server
+      - API_BASE_URL=https://${DOMAIN:-localhost}/mcp
+      # SyftHub backend (internal Docker network)
+      - SYFTHUB_URL=http://backend:8000
+      # SyftHub public URL (for register link)
+      - SYFTHUB_PUBLIC_URL=https://${DOMAIN:-localhost}
+      # Aggregator URL (internal Docker network)
+      - AGGREGATOR_URL=http://aggregator:8001
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      aggregator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # NATS - Messaging server for P2P communication between SyftAI Spaces
+  # ==========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: syfthub-nats
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "4222"
+      - "8222"
+      - "9222"
+    volumes:
+      - ./nats/nats.prod.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    environment:
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+    command: ["--config", "/etc/nats/nats.conf"]
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # FRONTEND INIT - One-shot container to copy static files to volume
+  # ==========================================================================
+  frontend-init:
+    image: ghcr.io/${GITHUB_REPOSITORY}-frontend:${IMAGE_TAG:-latest}
+    container_name: syfthub-frontend-init
+    volumes:
+      - frontend_dist:/output
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Copying frontend static files to volume..."
+        rm -rf /output/*
+        cp -r /usr/share/nginx/html/* /output/
+        echo "Frontend files copied successfully"
+        ls -la /output/
+    networks:
+      - syfthub-network
+
+  # ==========================================================================
+  # POSTGRESQL DATABASE
+  # ==========================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: syfthub-db
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "5432"
+    environment:
+      - POSTGRES_USER=syfthub
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=syfthub
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backup:/backup
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syfthub -d syfthub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # REDIS - Caching and sessions
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ==========================================================================
+  # DATABASE MIGRATION - Run with: docker compose --profile migrate run --rm migrate
+  # ==========================================================================
+  migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY}-backend:${IMAGE_TAG:-latest}
+    container_name: syfthub-migrate
+    environment:
+      - DATABASE_URL=postgresql://syfthub:${DB_PASSWORD}@db:5432/syfthub
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+    command: [".venv/bin/alembic", "upgrade", "head"]
+
+  # ==========================================================================
+  # DATABASE BACKUP - Run with: docker compose --profile backup up -d backup
+  # ==========================================================================
+  backup:
+    image: postgres:16-alpine
+    container_name: syfthub-backup
+    restart: unless-stopped
+    environment:
+      - PGHOST=db
+      - PGUSER=syfthub
+      - PGPASSWORD=${DB_PASSWORD}
+      - PGDATABASE=syfthub
+    volumes:
+      - ./backup:/backup
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      while true; do
+        echo "Starting backup at $$(date)"
+        pg_dump -Fc > /backup/syfthub_$$(date +%Y%m%d_%H%M%S).dump
+        # Keep only last 7 backups
+        ls -t /backup/*.dump 2>/dev/null | tail -n +8 | xargs -r rm
+        echo "Backup completed"
+        sleep 86400
+      done
+    profiles:
+      - backup
+
+networks:
+  syfthub-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  frontend_dist:
+    name: syfthub_frontend_dist
+  postgres_data:
+    name: syfthub_postgres_data
+  redis_data:
+    name: syfthub_redis_data
+  nginx_logs:
+    name: syfthub_nginx_logs
+  backend_logs:
+    name: syfthub_backend_logs
+  backend_data:
+    name: syfthub_backend_data
+  nats_data:
+    name: syfthub_nats_data
+  meili_data:
+    name: syfthub_meili_data

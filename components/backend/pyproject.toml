@@ -1,0 +1,269 @@
+[project]
+name = "syfthub"
+version = "0.1.0"
+description = "A Python project managed with uv"
+authors = [
+    { name = "Ionesio Junior", email = "ionesiojr@gmail.com" }
+]
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.14.0",
+    "argon2-cffi>=25.1.0",
+    "cryptography>=48.0.1",
+    "email-validator>=2.3.0",
+    "fastapi>=0.121.1",
+    "httpx>=0.28.1",
+    "resend>=2.21.0",
+    "jinja2>=3.1.0",
+    "markdown>=3.6.0",
+    "passlib[bcrypt]>=1.7.4",
+    "psycopg2-binary>=2.9.0",
+    "pydantic>=2.12.4",
+    "pydantic-settings>=2.14.2",
+    "pyjwt>=2.13.0",
+    "python-multipart>=0.0.31",
+    "sqlalchemy>=2.0.36",
+    "uvicorn>=0.38.0",
+    "structlog>=24.0.0",
+    "bleach>=6.4.0",
+    "redis[hiredis]>=5.0.0",
+    "nats-py>=2.7.0",
+    "google-auth[urllib3]>=2.0.0",
+    "meilisearch>=0.31.0",
+    "pympp[tempo]>=0.4.0",
+]
+
+[project.scripts]
+syfthub-server = "syfthub.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-xdist>=3.5.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=3.8.0",
+]
+test = [
+    "pytest>=9.0.3",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-xdist>=3.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/IonesioJunior/syfthub"
+Repository = "https://github.com/IonesioJunior/syfthub"
+Issues = "https://github.com/IonesioJunior/syfthub/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/syfthub"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "ARG",  # flake8-unused-arguments
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "DTZ",  # flake8-datetimez
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "TC003", # Move standard library import into type-checking block (too strict for Pydantic models)
+    "UP006", # Use `list` instead of `List` for type annotation (Python 3.9 compatibility)
+    "UP007", # Use `X | Y` for type annotations (Python 3.9 compatibility)
+    "UP035", # `typing.List` is deprecated (Python 3.9 compatibility)
+    "UP045", # Use `X | None` for Optional type annotations (Python 3.9 compatibility)
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# Pattern works both from backend/ (CI) and repo root (pre-commit)
+"**/tests/**/*.py" = [
+    "ARG001",  # Unused function arguments (test helpers)
+    "ARG002",  # Unused method arguments (test fixtures)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["syfthub"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-n",
+    "auto",
+    "--dist",
+    "loadfile",
+    "--cov=syfthub",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["src/syfthub"]
+# Pydantic v2's dataclass_transform support alone doesn't recognize positional
+# `Field(None, ...)` defaults, so optional fields look required at call sites.
+# The official plugin reads the FieldInfo defaults correctly.
+plugins = ["pydantic.mypy"]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_reexport = true
+namespace_packages = true
+show_error_codes = true
+show_column_numbers = true
+show_error_context = true
+pretty = true
+
+# SQLAlchemy 2.0 has complex typing, disable strict checking for database modules
+# Redis asyncio also has complex typing that doesn't work well with mypy strict mode
+[[tool.mypy.overrides]]
+module = [
+    "syfthub.database.*",
+    "syfthub.models.*",
+    "syfthub.repositories.*",
+    "syfthub.auth.security",
+    "syfthub.core.redis_client",
+    "syfthub.services.mq_service"
+]
+ignore_errors = true
+
+# Handle SQLAlchemy 2.0 import issues
+[[tool.mypy.overrides]]
+module = "sqlalchemy.*"
+ignore_missing_imports = true
+
+# Handle redis async import issues (no type stubs available)
+[[tool.mypy.overrides]]
+module = "redis.*"
+ignore_missing_imports = true
+
+# Meilisearch Python client has no type stubs
+[[tool.mypy.overrides]]
+module = "meilisearch.*"
+ignore_missing_imports = true
+
+# resend SDK has no bundled type stubs
+[[tool.mypy.overrides]]
+module = "resend.*"
+ignore_missing_imports = true
+
+# Jinja2 stubs may not be available in all environments
+[[tool.mypy.overrides]]
+module = "jinja2.*"
+ignore_missing_imports = true
+
+# MPP SDK has no type stubs and uses dynamic exports
+[[tool.mypy.overrides]]
+module = "mpp.*"
+ignore_missing_imports = true
+ignore_errors = true
+
+# eth_account has no type stubs
+[[tool.mypy.overrides]]
+module = "eth_account.*"
+ignore_missing_imports = true
+
+# Wallet endpoints use untyped MPP SDK imports
+[[tool.mypy.overrides]]
+module = "syfthub.api.endpoints.wallet"
+disallow_untyped_calls = false
+disable_error_code = ["attr-defined", "no-untyped-call"]
+
+# Tempo utils uses untyped web3 SDK with dynamic return types
+[[tool.mypy.overrides]]
+module = "syfthub.services.tempo_utils"
+ignore_errors = true
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=1.18.2",
+    "pre-commit>=4.3.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.5.0",
+    "ruff>=0.14.4",
+    "types-markdown>=3.10.0.20251106",
+    "types-passlib>=1.7.7.20250602",
+    "types-sqlalchemy>=1.4.0",
+]
+
+[tool.uv]
+override-dependencies = [
+    # Security overrides - force minimum secure versions even when transitive deps pin older versions
+    "pyasn1>=0.6.3",  # CVE-2026-30922: DoS via unbounded recursion (transitive via google-auth)
+    "mako>=1.3.12",  # CVE-2025-68735 + path traversal via backslash URI on Windows in TemplateLookup (transitive via alembic)
+    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching (transitive via pytest)
+    "urllib3>=2.7.0",  # GHSA-pq67-6m6q-mj2v: sensitive headers forwarded on cross-origin redirects; CVE-2026-21441: decompression bomb (transitive via requests/google-auth)
+]

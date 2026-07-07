@@ -1,0 +1,590 @@
+"""Authentication resource for SyftHub SDK."""
+
+from __future__ import annotations
+
+import concurrent.futures
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from syfthub_sdk.models import (
+    AuthConfig,
+    AuthTokens,
+    PeerTokenResponse,
+    RegisterResult,
+    SatelliteTokenResponse,
+    User,
+)
+
+if TYPE_CHECKING:
+    from syfthub_sdk._http import HTTPClient
+
+
+class AuthResource:
+    """Handle authentication operations.
+
+    Example usage:
+        # Register a new user
+        user = client.auth.register(
+            username="john",
+            email="john@example.com",
+            password="secret123",
+            full_name="John Doe"
+        )
+
+        # Login
+        user = client.auth.login(username="john", password="secret123")
+
+        # Get current user
+        me = client.auth.me()
+
+        # Change password
+        client.auth.change_password(
+            current_password="secret123",
+            new_password="newsecret456"
+        )
+
+        # Logout
+        client.auth.logout()
+    """
+
+    def __init__(self, http: HTTPClient) -> None:
+        """Initialize auth resource.
+
+        Args:
+            http: HTTP client instance
+        """
+        self._http = http
+
+    def get_access_token(self) -> str | None:
+        """Return the current Hub bearer token (API token or JWT access token).
+
+        Used to authorize MPP wallet payments: the aggregator forwards this
+        token to the Hub's ``/wallet/pay`` endpoint when a data source or model
+        responds with ``402 Payment Required``. Returns ``None`` when the client
+        is unauthenticated (e.g. guest mode).
+        """
+        return self._http._get_bearer_token()
+
+    def register(
+        self,
+        *,
+        username: str,
+        email: str,
+        password: str,
+        full_name: str,
+        accounting_service_url: str | None = None,
+        accounting_password: str | None = None,
+    ) -> RegisterResult:
+        """Register a new user.
+
+        If an accounting service URL is configured (via `accounting_service_url` or
+        server default), the backend handles accounting integration using a
+        "try-create-first" approach:
+
+        **Accounting Password Behavior:**
+        - **Not provided**: A secure password is auto-generated and a new
+          accounting account is created.
+        - **Provided (new user)**: The account is created with your chosen password.
+        - **Provided (existing user)**: Your password is validated and accounts
+          are linked.
+
+        This means you can set your own accounting password during registration
+        even if you're a new user - you don't need an existing accounting account.
+
+        Args:
+            username: Unique username (3-50 chars)
+            email: Valid email address
+            password: Password (min 8 chars, must contain letter and digit)
+            full_name: User's full name
+            accounting_service_url: Optional URL to external accounting service
+            accounting_password: Optional password for accounting service. Can be:
+                - A new password to create an account with (for new users)
+                - An existing password to validate (for existing users)
+                - None to auto-generate a password (for new users)
+
+        Returns:
+            The created User
+
+        Raises:
+            ValidationError: If registration data is invalid
+            UserAlreadyExistsError: If username or email already exists in SyftHub
+            AccountingAccountExistsError: If email exists in accounting service
+                and no accounting_password was provided
+            InvalidAccountingPasswordError: If the provided accounting password
+                doesn't match an existing accounting account
+            AccountingServiceUnavailableError: If the accounting service is unreachable
+
+        Example:
+            # Basic registration (auto-generated accounting password)
+            user = client.auth.register(
+                username="alice",
+                email="alice@example.com",
+                password="SecurePass123!",
+                full_name="Alice",
+            )
+
+            # Registration with custom accounting password (NEW user)
+            user = client.auth.register(
+                username="bob",
+                email="bob@example.com",
+                password="SecurePass123!",
+                full_name="Bob",
+                accounting_password="MyChosenAccountingPass!",
+            )
+
+            # Handle existing accounting account
+            try:
+                user = client.auth.register(...)
+            except AccountingAccountExistsError:
+                # Prompt user for their existing accounting password
+                accounting_password = input("Enter your existing accounting password: ")
+                user = client.auth.register(..., accounting_password=accounting_password)
+        """
+        payload: dict[str, str | None] = {
+            "username": username,
+            "email": email,
+            "password": password,
+            "full_name": full_name,
+        }
+        # Only include accounting fields if provided
+        if accounting_service_url is not None:
+            payload["accounting_service_url"] = accounting_service_url
+        if accounting_password is not None:
+            payload["accounting_password"] = accounting_password
+
+        response = self._http.post(
+            "/api/v1/auth/register",
+            json=payload,
+            include_auth=False,
+        )
+        # Response contains user and tokens (tokens may be null)
+        data = response if isinstance(response, dict) else {}
+
+        # Store tokens if present (not withheld for email verification)
+        if data.get("access_token") and data.get("refresh_token"):
+            tokens = AuthTokens(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                token_type=data.get("token_type", "bearer"),
+            )
+            self._http.set_tokens(tokens)
+
+        return RegisterResult(
+            user=User.model_validate(data.get("user", data)),
+            requires_email_verification=data.get("requires_email_verification", False),
+        )
+
+    def login(self, *, username: str, password: str) -> User:
+        """Login with username and password.
+
+        Args:
+            username: Username or email
+            password: User's password
+
+        Returns:
+            The authenticated User
+
+        Raises:
+            AuthenticationError: If credentials are invalid
+        """
+        # OAuth2 password flow uses form data
+        response = self._http.post(
+            "/api/v1/auth/login",
+            data={
+                "username": username,
+                "password": password,
+            },
+            include_auth=False,
+        )
+
+        data = response if isinstance(response, dict) else {}
+
+        # Store tokens
+        tokens = AuthTokens(
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"],
+            token_type=data.get("token_type", "bearer"),
+        )
+        self._http.set_tokens(tokens)
+
+        # Fetch and return user info
+        return self.me()
+
+    def logout(self) -> None:
+        """Logout and invalidate tokens.
+
+        Raises:
+            AuthenticationError: If not authenticated
+        """
+        self._http.post("/api/v1/auth/logout")
+        self._http.clear_tokens()
+
+    def refresh(self) -> None:
+        """Manually refresh the access token.
+
+        This is usually handled automatically on 401 responses,
+        but can be called explicitly if needed.
+
+        Raises:
+            AuthenticationError: If refresh token is invalid/expired
+        """
+        tokens = self._http.get_tokens()
+        if not tokens:
+            from syfthub_sdk.exceptions import AuthenticationError
+
+            raise AuthenticationError("No tokens available to refresh")
+
+        response = self._http.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": tokens.refresh_token},
+            include_auth=False,
+        )
+
+        data = response if isinstance(response, dict) else {}
+
+        # Update stored tokens
+        new_tokens = AuthTokens(
+            access_token=data["access_token"],
+            refresh_token=data["refresh_token"],
+            token_type=data.get("token_type", "bearer"),
+        )
+        self._http.set_tokens(new_tokens)
+
+    def me(self) -> User:
+        """Get the current authenticated user.
+
+        Returns:
+            The current User
+
+        Raises:
+            AuthenticationError: If not authenticated
+        """
+        response = self._http.get("/api/v1/auth/me")
+        data = response if isinstance(response, dict) else {}
+        return User.model_validate(data)
+
+    def change_password(
+        self,
+        *,
+        current_password: str,
+        new_password: str,
+    ) -> None:
+        """Change the current user's password.
+
+        Args:
+            current_password: The current password
+            new_password: The new password (min 8 chars)
+
+        Raises:
+            AuthenticationError: If current password is wrong
+            ValidationError: If new password doesn't meet requirements
+        """
+        self._http.put(
+            "/api/v1/auth/me/password",
+            json={
+                "current_password": current_password,
+                "new_password": new_password,
+            },
+        )
+
+    def get_auth_config(self) -> AuthConfig:
+        """Get the platform's authentication configuration.
+
+        No authentication required. Use this to determine whether email
+        verification or password reset is available.
+
+        Returns:
+            AuthConfig with feature flags
+        """
+        response = self._http.get("/api/v1/auth/config", include_auth=False)
+        data = response if isinstance(response, dict) else {}
+        return AuthConfig.model_validate(data)
+
+    def verify_otp(self, *, email: str, code: str) -> User:
+        """Verify a registration OTP and receive auth tokens.
+
+        After registering when email verification is required, call this
+        with the 6-digit code sent to the user's email.
+
+        Idempotent: if the user is already verified, tokens are issued
+        immediately.
+
+        Args:
+            email: The email address that received the code
+            code: 6-digit numeric OTP code
+
+        Returns:
+            The authenticated User
+
+        Raises:
+            APIError: If code is invalid or max attempts exceeded
+        """
+        response = self._http.post(
+            "/api/v1/auth/register/verify-otp",
+            json={"email": email, "code": code},
+            include_auth=False,
+        )
+        data = response if isinstance(response, dict) else {}
+
+        # Store tokens
+        if data.get("access_token") and data.get("refresh_token"):
+            tokens = AuthTokens(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                token_type=data.get("token_type", "bearer"),
+            )
+            self._http.set_tokens(tokens)
+
+        return User.model_validate(data.get("user", data))
+
+    def resend_otp(self, *, email: str) -> None:
+        """Resend the registration OTP code.
+
+        Rate-limited. Always succeeds to prevent email enumeration.
+
+        Args:
+            email: Email address to resend the OTP to
+        """
+        self._http.post(
+            "/api/v1/auth/register/resend-otp",
+            json={"email": email},
+            include_auth=False,
+        )
+
+    def request_password_reset(self, *, email: str) -> None:
+        """Request a password-reset OTP.
+
+        Always succeeds to prevent email enumeration. If SMTP is not
+        configured on the server, this is a no-op.
+
+        Args:
+            email: Email address for password reset
+        """
+        self._http.post(
+            "/api/v1/auth/password-reset/request",
+            json={"email": email},
+            include_auth=False,
+        )
+
+    def confirm_password_reset(
+        self, *, email: str, code: str, new_password: str
+    ) -> None:
+        """Confirm a password reset with OTP and set a new password.
+
+        Args:
+            email: Email address for the reset
+            code: 6-digit numeric OTP code
+            new_password: New password to set
+
+        Raises:
+            APIError: If code is invalid or max attempts exceeded
+        """
+        self._http.post(
+            "/api/v1/auth/password-reset/confirm",
+            json={
+                "email": email,
+                "code": code,
+                "new_password": new_password,
+            },
+            include_auth=False,
+        )
+
+    def get_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+        """Get a satellite token for a specific audience (target service).
+
+        Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
+        services (like SyftAI-Space) to verify user identity without calling
+        SyftHub for every request.
+
+        Args:
+            audience: Target service identifier (username of the service owner)
+
+        Returns:
+            SatelliteTokenResponse with token and expiry
+
+        Raises:
+            AuthenticationError: If not authenticated
+            ValidationError: If audience is invalid or inactive
+
+        Example:
+            # Get a token for querying alice's SyftAI-Space endpoints
+            token_response = client.auth.get_satellite_token("alice")
+            print(f"Token expires in {token_response.expires_in} seconds")
+        """
+        response = self._http.get("/api/v1/token", params={"aud": audience})
+        data = response if isinstance(response, dict) else {}
+        return SatelliteTokenResponse.model_validate(data)
+
+    def _parallel_fetch_tokens(
+        self,
+        audiences: list[str],
+        fetch_one: Callable[[str], SatelliteTokenResponse],
+    ) -> dict[str, str]:
+        """Fetch tokens for multiple audiences in parallel.
+
+        Failures are silently skipped — the aggregator handles missing tokens.
+        """
+        unique_audiences = list(set(audiences))
+        token_map: dict[str, str] = {}
+
+        if not unique_audiences:
+            return token_map
+
+        def fetch(aud: str) -> tuple[str, str | None]:
+            try:
+                return (aud, fetch_one(aud).target_token)
+            except Exception:
+                return (aud, None)
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(len(unique_audiences), 10)
+        ) as executor:
+            results = list(executor.map(fetch, unique_audiences))
+
+        for aud, token in results:
+            if token is not None:
+                token_map[aud] = token
+
+        return token_map
+
+    def get_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
+        """Get satellite tokens for multiple audiences in parallel.
+
+        This is useful when making requests to endpoints owned by different users.
+        Tokens are cached and reused where possible.
+
+        Args:
+            audiences: List of audience identifiers (usernames)
+
+        Returns:
+            Dict mapping audience to satellite token
+
+        Raises:
+            AuthenticationError: If not authenticated
+
+        Example:
+            # Get tokens for multiple endpoint owners
+            tokens = client.auth.get_satellite_tokens(["alice", "bob"])
+            print(f"Got {len(tokens)} tokens")
+        """
+        return self._parallel_fetch_tokens(audiences, self.get_satellite_token)
+
+    def get_guest_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+        """Get a guest satellite token for a specific audience without authentication.
+
+        Args:
+            audience: Target service identifier (username of the service owner)
+
+        Returns:
+            SatelliteTokenResponse with token and expiry
+        """
+        response = self._http.get(
+            "/api/v1/token/guest",
+            params={"aud": audience},
+            include_auth=False,
+        )
+        data = response if isinstance(response, dict) else {}
+        return SatelliteTokenResponse.model_validate(data)
+
+    def get_guest_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
+        """Get guest satellite tokens for multiple audiences in parallel.
+
+        No authentication is required to call this method.
+
+        Args:
+            audiences: List of audience identifiers (usernames)
+
+        Returns:
+            Dict mapping audience to satellite token
+        """
+        return self._parallel_fetch_tokens(audiences, self.get_guest_satellite_token)
+
+    def get_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
+        """Get a peer token for NATS communication with tunneling spaces.
+
+        Peer tokens are short-lived credentials that allow the aggregator to
+        communicate with tunneling SyftAI Spaces via NATS pub/sub.
+
+        Args:
+            target_usernames: Usernames of the tunneling spaces to communicate with
+
+        Returns:
+            PeerTokenResponse with token, channel, expiry, and NATS URL
+
+        Raises:
+            AuthenticationError: If not authenticated
+
+        Example:
+            peer = client.auth.get_peer_token(["alice", "bob"])
+            print(f"Peer channel: {peer.peer_channel}, expires in {peer.expires_in}s")
+        """
+        response = self._http.post(
+            "/api/v1/peer-token",
+            json={"target_usernames": target_usernames},
+        )
+        data = response if isinstance(response, dict) else {}
+        return PeerTokenResponse.model_validate(data)
+
+    def get_guest_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
+        """Get a guest peer token for NATS communication without authentication.
+
+        Guest peer tokens are rate-limited by IP address. They use the same
+        response format as authenticated peer tokens.
+
+        Args:
+            target_usernames: Usernames of the tunneling spaces to communicate with
+
+        Returns:
+            PeerTokenResponse with token, channel, expiry, and NATS URL
+
+        Example:
+            peer = client.auth.get_guest_peer_token(["alice"])
+            print(f"Guest peer channel: {peer.peer_channel}")
+        """
+        response = self._http.post(
+            "/api/v1/nats/guest-peer-token",
+            json={"target_usernames": target_usernames},
+            include_auth=False,
+        )
+        data = response if isinstance(response, dict) else {}
+        return PeerTokenResponse.model_validate(data)
+
+    def get_transaction_tokens(
+        self, owner_usernames: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """Get transaction tokens for billing authorization.
+
+        Transaction tokens are short-lived JWTs that pre-authorize endpoint owners
+        (recipients) to charge the current user (sender) for usage. This enables
+        billing workflows in the aggregator.
+
+        Args:
+            owner_usernames: List of endpoint owner usernames
+
+        Returns:
+            Dict with 'tokens' (owner -> token) and 'errors' (owner -> error msg)
+
+        Example:
+            response = client.auth.get_transaction_tokens(["alice", "bob"])
+            print(f"Got tokens for: {list(response['tokens'].keys())}")
+            if response['errors']:
+                print(f"Failed for: {list(response['errors'].keys())}")
+        """
+        unique_owners = list(set(owner_usernames))
+        if not unique_owners:
+            return {"tokens": {}, "errors": {}}
+
+        try:
+            response = self._http.post(
+                "/api/v1/accounting/transaction-tokens",
+                json={"owner_usernames": unique_owners},
+            )
+            data = response if isinstance(response, dict) else {}
+            return {
+                "tokens": data.get("tokens", {}),
+                "errors": data.get("errors", {}),
+            }
+        except Exception:
+            # Silent failure - chat can proceed without transaction tokens
+            # Billing will not work, but the query can still execute
+            return {"tokens": {}, "errors": {}}

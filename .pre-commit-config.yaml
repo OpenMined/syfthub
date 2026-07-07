@@ -1,0 +1,186 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.4
+    hooks:
+      # Backend hooks
+      - id: ruff
+        name: ruff (backend)
+        args: [--fix, --config=components/backend/pyproject.toml]
+        files: ^components/backend/
+      - id: ruff-format
+        name: ruff-format (backend)
+        args: [--config=components/backend/pyproject.toml]
+        files: ^components/backend/
+      # Python SDK hooks
+      - id: ruff
+        name: ruff (sdk/python)
+        args: [--fix, --config=sdk/python/pyproject.toml]
+        files: ^sdk/python/
+      - id: ruff-format
+        name: ruff-format (sdk/python)
+        args: [--config=sdk/python/pyproject.toml]
+        files: ^sdk/python/
+      # Aggregator hooks
+      - id: ruff
+        name: ruff (aggregator)
+        args: [--fix, --config=components/aggregator/pyproject.toml]
+        files: ^components/aggregator/
+      - id: ruff-format
+        name: ruff-format (aggregator)
+        args: [--config=components/aggregator/pyproject.toml]
+        files: ^components/aggregator/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      # Backend mypy
+      - id: mypy
+        name: mypy (backend)
+        args: [--config-file=components/backend/pyproject.toml]
+        pass_filenames: false
+        entry: sh -c 'cd components/backend && mypy src/'
+        files: ^components/backend/.*\.py$
+        additional_dependencies: [
+          fastapi,
+          uvicorn,
+          pydantic,
+          pydantic-settings,
+          email-validator,
+          httpx,
+          sqlalchemy,
+          alembic,
+          cryptography,
+          pyjwt,
+          structlog,
+          types-sqlalchemy,
+          types-markdown,
+          types-passlib,
+          google-auth,
+          types-urllib3,
+        ]
+      # Python SDK mypy
+      - id: mypy
+        name: mypy (sdk/python)
+        args: [--config-file=sdk/python/pyproject.toml]
+        pass_filenames: false
+        entry: sh -c 'cd sdk/python && mypy src/syfthub_sdk'
+        files: ^sdk/python/.*\.py$
+        additional_dependencies: [
+          httpx,
+          pydantic,
+        ]
+      # Aggregator mypy
+      - id: mypy
+        name: mypy (aggregator)
+        args: [--config-file=components/aggregator/pyproject.toml]
+        pass_filenames: false
+        entry: sh -c 'cd components/aggregator && mypy src/aggregator/'
+        files: ^components/aggregator/.*\.py$
+        additional_dependencies: [
+          fastapi,
+          uvicorn,
+          pydantic,
+          pydantic-settings,
+          httpx,
+          structlog,
+          nats-py,
+          sse-starlette,
+          pyjwt,
+          cryptography,
+        ]
+
+  # Frontend hooks
+  - repo: local
+    hooks:
+      - id: frontend-eslint
+        name: ESLint (frontend)
+        entry: sh -c 'cd components/frontend && npm run lint'
+        language: system
+        files: ^components/frontend/.*\.(js|jsx|ts|tsx)$
+        pass_filenames: false
+
+      - id: frontend-prettier
+        name: Prettier (frontend)
+        entry: sh -c 'cd components/frontend && npx prettier --check src/'
+        language: system
+        files: ^components/frontend/.*\.(js|jsx|ts|tsx|json|css|scss|md)$
+        pass_filenames: false
+
+      - id: frontend-typecheck
+        name: TypeScript check (frontend)
+        entry: sh -c 'cd components/frontend && npm run typecheck'
+        language: system
+        files: ^components/frontend/.*\.(ts|tsx)$
+        pass_filenames: false
+
+  # TypeScript SDK hooks
+  - repo: local
+    hooks:
+      - id: ts-sdk-eslint
+        name: ESLint (sdk/typescript)
+        entry: sh -c 'cd sdk/typescript && npm run lint'
+        language: system
+        files: ^sdk/typescript/.*\.(js|ts)$
+        pass_filenames: false
+
+      - id: ts-sdk-typecheck
+        name: TypeScript check (sdk/typescript)
+        entry: sh -c 'cd sdk/typescript && npm run typecheck'
+        language: system
+        files: ^sdk/typescript/.*\.ts$
+        pass_filenames: false
+
+  # Go SDK hooks (sdk/golang)
+  - repo: local
+    hooks:
+      - id: go-sdk-fmt
+        name: go fmt (sdk/golang)
+        entry: sh -c 'cd sdk/golang && test -z "$(gofmt -l .)"'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+
+      - id: go-sdk-vet
+        name: go vet (sdk/golang)
+        entry: sh -c 'cd sdk/golang && go vet ./...'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+
+      - id: go-sdk-test
+        name: go test (sdk/golang)
+        entry: sh -c 'cd sdk/golang && go test ./... -count=1'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+  # CLI hooks (Go)
+  - repo: local
+    hooks:
+      - id: cli-gofmt
+        name: go fmt (cli)
+        entry: sh -c 'cd cli && test -z "$(gofmt -l .)"'
+        language: system
+        files: ^cli/.*\.go$
+        pass_filenames: false
+
+      - id: cli-govet
+        name: go vet (cli)
+        entry: sh -c 'cd cli && go vet ./...'
+        language: system
+        files: ^cli/.*\.go$
+        pass_filenames: false

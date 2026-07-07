@@ -1,0 +1,509 @@
+/**
+ * Type definitions matching the SyftHub backend API schemas
+ */
+
+// User Role enum
+export type UserRole = 'admin' | 'user' | 'guest';
+
+// User interfaces matching backend User schema
+export interface BackendUser {
+  id: number; // Backend uses int, not string
+  username: string;
+  email: string;
+  full_name: string; // Backend uses full_name, not name
+  avatar_url?: string; // URL to user's avatar image
+  role: UserRole;
+  is_active: boolean;
+  created_at: string; // ISO datetime string
+  updated_at: string; // ISO datetime string
+}
+
+// User response schema from backend
+export interface UserResponse {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string;
+  avatar_url?: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Frontend User interface (mapped from backend)
+export interface User {
+  id: string; // Convert from number for frontend compatibility
+  username: string;
+  email: string;
+  name: string; // Mapped from full_name
+  full_name: string; // Keep original for API calls
+  avatar_url?: string; // URL to user's avatar image
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  /** Domain for endpoint URL construction (e.g., "api.example.com:8080") */
+  domain?: string;
+  /** Custom aggregator URL for RAG/chat workflows */
+  aggregator_url?: string;
+  /** Markdown bio shown on the user's public profile */
+  bio?: string;
+  /** Whether the user's email is shown on their public profile */
+  is_email_public?: boolean;
+  /** Timestamp of the user's last successful login (null/undefined if never) */
+  last_login_at?: string;
+}
+
+// Authentication request schemas
+export interface LoginRequest {
+  username: string; // Backend expects username (not email) for OAuth2
+  password: string;
+}
+
+export interface RegisterRequest {
+  username: string;
+  email: string;
+  full_name: string;
+  password: string;
+}
+
+// Authentication response schemas
+export interface AuthResponse {
+  user: BackendUser;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+export type RegistrationResponse = AuthResponse;
+
+// Token management
+export interface TokenData {
+  username?: string;
+  user_id?: number;
+  role?: UserRole;
+}
+
+export interface RefreshTokenRequest {
+  refresh_token: string;
+}
+
+// Password change
+export interface PasswordChange {
+  current_password: string;
+  new_password: string;
+}
+
+// User profile update
+export interface UserUpdate {
+  username?: string;
+  email?: string;
+  full_name?: string;
+  avatar_url?: string;
+  /** Domain for endpoint URL construction (no protocol) */
+  domain?: string;
+  /** Custom aggregator URL for RAG/chat workflows */
+  aggregator_url?: string;
+  /** Markdown bio shown on the user's public profile */
+  bio?: string;
+  /** Whether the user's email is shown on their public profile */
+  is_email_public?: boolean;
+}
+
+// =============================================================================
+// Public User Profile (for /:username page)
+// =============================================================================
+
+export interface PublicUserProfile {
+  username: string;
+  full_name: string;
+  avatar_url?: string;
+  role: UserRole;
+  bio?: string;
+  domain?: string;
+  /** Only present when the user has opted in to public email visibility */
+  email?: string;
+  is_email_public: boolean;
+  created_at: string;
+}
+
+// =============================================================================
+// User Aggregator Types
+// =============================================================================
+
+/** User aggregator configuration */
+export interface UserAggregator {
+  id: number;
+  user_id: number;
+  name: string;
+  url: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Request to create a new user aggregator */
+export interface UserAggregatorCreate {
+  name: string;
+  url: string;
+  is_default?: boolean;
+}
+
+/** Request to update an existing user aggregator */
+export interface UserAggregatorUpdate {
+  name?: string;
+  url?: string;
+  is_default?: boolean;
+}
+
+/** Response containing list of user aggregators */
+export interface UserAggregatorListResponse {
+  aggregators: UserAggregator[];
+  default_aggregator_id: number | null;
+}
+
+// Availability check responses
+export interface AvailabilityResponse {
+  available: boolean;
+  username?: string;
+  email?: string;
+}
+
+// Endpoint visibility levels
+export type EndpointVisibility = 'public' | 'private' | 'internal';
+
+// Endpoint type classification
+export type EndpointType = 'model' | 'data_source' | 'model_data_source' | 'agent';
+
+// Policy and Connection types for endpoints
+export interface Policy {
+  type: string;
+  version: string;
+  enabled: boolean;
+  description: string;
+  config: Record<string, unknown>;
+}
+
+export interface Connection {
+  type: string;
+  enabled: boolean;
+  description: string;
+  config: Record<string, unknown>;
+}
+
+// Endpoint schemas
+export interface EndpointBase {
+  name: string;
+  description: string;
+  type: EndpointType;
+  visibility: EndpointVisibility;
+  version: string;
+  readme: string;
+  tags: string[];
+  policies: Policy[];
+  connect: Connection[];
+}
+
+export interface EndpointCreate extends EndpointBase {
+  slug?: string; // Optional, auto-generated if not provided
+  contributors: number[]; // User IDs
+}
+
+export interface EndpointUpdate {
+  name?: string;
+  description?: string;
+  visibility?: EndpointVisibility;
+  contributors?: number[];
+  version?: string;
+  readme?: string;
+  tags?: string[];
+  policies?: Policy[];
+  connect?: Connection[];
+}
+
+export interface Endpoint extends EndpointBase {
+  id: number;
+  user_id?: number;
+  slug: string;
+  is_active: boolean;
+  contributors: number[];
+  stars_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EndpointResponse = Endpoint;
+
+export interface EndpointPublicResponse {
+  name: string;
+  slug: string;
+  description: string;
+  type: EndpointType;
+  /** Number of contributors (user IDs not exposed for privacy) */
+  contributors_count: number;
+  version: string;
+  readme: string;
+  tags: string[];
+  stars_count: number;
+  policies: Policy[];
+  connect: Connection[];
+  created_at: string;
+  updated_at: string;
+  owner_username?: string; // Username of the endpoint owner (if exposed by backend)
+}
+
+// =============================================================================
+// Grouped Endpoints Types (for Global Directory)
+// =============================================================================
+
+/**
+ * A group of endpoints belonging to a single owner.
+ * Used in the grouped public endpoints response for the Global Directory.
+ */
+export interface EndpointGroup {
+  /** Username of the endpoint owner */
+  owner_username: string;
+  /** Endpoints belonging to this owner (limited to max_per_owner) */
+  endpoints: ChatSource[];
+  /** Total number of endpoints this owner has (may be more than shown) */
+  total_count: number;
+  /** True if owner has more endpoints than shown */
+  has_more: boolean;
+}
+
+/**
+ * Response containing endpoints grouped by owner.
+ * Used for the Global Directory to display a balanced view across multiple owners.
+ */
+export interface GroupedEndpointsResponse {
+  /** Endpoint groups ordered by total endpoint count (descending) */
+  groups: EndpointGroup[];
+}
+
+// Frontend ChatSource interface (mapped from EndpointPublicResponse)
+export interface ChatSource {
+  id: string; // Use slug as ID for frontend
+  name: string;
+  tags: string[]; // Tags for categorization
+  description: string;
+  type: EndpointType;
+  updated: string; // Pre-formatted relative time, e.g. "2 days ago" (mapped from updated_at)
+  updated_at: string; // Raw ISO 8601 timestamp — use this for sorting/comparisons
+  status: 'active' | 'inactive'; // Active iff the endpoint has at least one enabled connection (reachable)
+  slug: string; // Backend URL identifier
+  stars_count: number;
+  version: string;
+  readme: string; // Markdown content for documentation
+  /** Number of contributors (user IDs not exposed for privacy) */
+  contributors_count: number;
+  owner_username?: string; // Username of the endpoint owner
+  full_path?: string; // Full path: username/endpoint-name
+  url?: string; // Connection URL from connect[0].config.url (if available)
+  tenant_name?: string; // Tenant name from connect[0].config.tenant_name (for SyftAI-Space multi-tenancy)
+  connections?: Connection[]; // Full connection configurations (for detailed view)
+  policies?: Policy[]; // Access policies for the endpoint
+}
+
+// API Error interface
+export interface APIErrorResponse {
+  detail: string;
+  type?: string;
+  field?: string;
+}
+
+// Utility type for API responses
+export type APIResponse<T> = T;
+
+// Pagination params
+export interface PaginationParams {
+  skip?: number;
+  limit?: number;
+}
+
+// Search params
+export interface SearchParams extends PaginationParams {
+  search?: string;
+}
+
+// Endpoint filters
+export interface EndpointFilters extends SearchParams {
+  visibility?: EndpointVisibility;
+  min_stars?: number;
+}
+
+// =============================================================================
+// Wallet / Payment Types
+// =============================================================================
+
+/**
+ * Wallet information from the backend.
+ */
+export interface WalletInfo {
+  address: string | null;
+  exists: boolean;
+}
+
+/**
+ * Wallet balance and recent transaction data.
+ */
+export interface WalletBalance {
+  balance: number;
+  currency: string;
+  recent_transactions: WalletTransaction[];
+  wallet_configured: boolean;
+}
+
+/**
+ * A single wallet transaction record.
+ */
+export interface WalletTransaction {
+  id: string;
+  sender_email: string;
+  recipient_email: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  app_name?: string;
+  app_ep_path?: string;
+}
+
+/**
+ * A publisher-side Xendit subscription stored on the user account.
+ * One row per distinct credits_url. Identifies a wallet on a publisher's
+ * syft_space that the user has funded; balance is fetched live from the
+ * publisher with a satellite token, last_known_balance is just for fast paint.
+ */
+export interface XenditSubscription {
+  id: number;
+  credits_url: string;
+  payment_url: string;
+  currency: string;
+  endpoint_owner: string;
+  endpoint_slug: string | null;
+  last_known_balance: number | null;
+  last_checked_at: string | null;
+  first_funded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
+// Admin User-Overview Dashboard Types
+//
+// Mirror the backend Pydantic schemas in `schemas/admin.py`. The shapes here
+// are pinned by the admin API contract (`GET /api/v1/admin/overview` and
+// `GET /api/v1/admin/users`) — keep them in sync with the backend.
+// =============================================================================
+
+/** Authentication provider for a user account. */
+export type AuthProvider = 'local' | 'google';
+
+/** Headline scalar counts shown across the overview KPI cards. */
+export interface HeadlineCounts {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+  email_verified: number;
+  email_unverified: number;
+  admins: number;
+}
+
+/** One role's user count. */
+export interface RoleCount {
+  role: UserRole;
+  count: number;
+}
+
+/** One auth provider's user count. */
+export interface AuthProviderCount {
+  provider: AuthProvider;
+  count: number;
+}
+
+/** A single day bucket in the signup trend (ascending, gap-filled with 0). */
+export interface SignupBucket {
+  /** ISO date string `YYYY-MM-DD`. */
+  date: string;
+  signups: number;
+}
+
+/** Daily signup trend over a selected window. */
+export interface SignupTrend {
+  /** Echoes the requested `trend_days` (7 | 30 | 90). */
+  days: number;
+  /** Exactly `days` ascending, gap-filled buckets. */
+  buckets: SignupBucket[];
+}
+
+/** Last-login recency bucket key. */
+export type LastLoginBucketKey = '24h' | '7d' | '30d' | '90d' | 'never';
+
+/** One mutually-exclusive last-login recency bucket. */
+export interface LastLoginBucket {
+  bucket: LastLoginBucketKey;
+  label: string;
+  count: number;
+}
+
+/** Last-login distribution plus derived headline counts. */
+export interface LastLoginStats {
+  buckets: LastLoginBucket[];
+  /** Convenience duplicate of the `24h` bucket (the "Active Now" card). */
+  active_24h: number;
+  /** Users whose `last_login_at` is null OR older than 30 days. */
+  dormant_30d: number;
+}
+
+/** Full payload of `GET /api/v1/admin/overview`. */
+export interface UserOverviewStats {
+  headline: HeadlineCounts;
+  by_role: RoleCount[];
+  by_auth_provider: AuthProviderCount[];
+  signup_trend: SignupTrend;
+  last_login: LastLoginStats;
+}
+
+/** A single row in the admin users table (`AdminUserRow`). */
+export interface AdminUserRow {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string;
+  avatar_url: string | null;
+  role: UserRole;
+  is_active: boolean;
+  is_email_verified: boolean;
+  auth_provider: AuthProvider;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+/** A page of admin users (`AdminUserPage`). */
+export interface AdminUserPage {
+  items: AdminUserRow[];
+  page: number;
+  page_size: number;
+  /** Total rows matching the filters, before pagination. */
+  total: number;
+  total_pages: number;
+}
+
+/** Sortable column keys for the admin users table. */
+export type AdminUserSortBy = 'username' | 'email' | 'role' | 'created_at' | 'last_login_at';
+
+/** Sort direction for the admin users table. */
+export type SortDir = 'asc' | 'desc';
+
+/** Query parameters for `GET /api/v1/admin/users`. */
+export interface AdminUsersQuery {
+  page?: number;
+  page_size?: number;
+  sort_by?: AdminUserSortBy;
+  sort_dir?: SortDir;
+  /** Case-insensitive substring match against username OR email. */
+  search?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  is_email_verified?: boolean;
+}

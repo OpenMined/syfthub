@@ -1,0 +1,1396 @@
+"""Endpoint repository for database operations."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Any, List, Optional
+
+from sqlalchemy import Text, and_, cast, delete, func, or_, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
+
+from syfthub.core.url_builder import transform_connection_urls
+from syfthub.models.endpoint import (
+    EndpointModel,
+    EndpointStarModel,
+    EndpointUptimeSampleModel,
+)
+from syfthub.models.user import UserModel
+from syfthub.repositories.base import BaseRepository
+from syfthub.schemas.endpoint import (
+    Endpoint,
+    EndpointAdminUpdate,
+    EndpointCreate,
+    EndpointGroupItem,
+    EndpointPublicResponse,
+    EndpointType,
+    EndpointUpdate,
+    EndpointVisibility,
+    GroupedEndpointsResponse,
+    filter_visible_policies,
+    get_matching_types,
+)
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+
+class EndpointRepository(BaseRepository[EndpointModel]):
+    """Repository for endpoint database operations."""
+
+    def __init__(self, session: Session):
+        """Initialize repository with database session."""
+        super().__init__(session, EndpointModel)
+
+    def _build_public_select(self):
+        """Build a SELECT statement for endpoints joined with their owner.
+
+        Returns a select() with columns:
+            - EndpointModel (the endpoint)
+            - owner_username (user.username)
+            - owner_domain (user.domain)
+        """
+        return select(
+            self.model,
+            UserModel.username.label("owner_username"),
+            UserModel.domain.label("owner_domain"),
+        ).join(UserModel, self.model.user_id == UserModel.id)
+
+    @staticmethod
+    def _build_public_response(
+        row: Any,
+        owner_username: str,
+        domain: Optional[str],
+        viewer_email: Optional[str] = None,
+    ) -> EndpointPublicResponse:
+        """Build an EndpointPublicResponse from a query row and owner context.
+
+        Accepts any object with the EndpointModel attribute names (ORM instance
+        or SQLAlchemy Row) so it works for both regular and window-function queries.
+        """
+        transformed_connect = transform_connection_urls(domain, row.connect or [])
+        visible_policies = filter_visible_policies(row.policies or [], viewer_email)
+        return EndpointPublicResponse(
+            name=row.name,
+            slug=row.slug,
+            description=row.description,
+            type=row.type,
+            owner_username=owner_username,
+            contributors_count=len(row.contributors or []),
+            version=row.version,
+            readme=row.readme,
+            tags=row.tags or [],
+            stars_count=row.stars_count,
+            policies=visible_policies,
+            connect=transformed_connect,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
+        """Get endpoint by ID (only active endpoints)."""
+        try:
+            stmt = select(self.model).where(
+                and_(self.model.id == endpoint_id, self.model.is_active)
+            )
+            result = self.session.execute(stmt)
+            endpoint_model = result.scalar_one_or_none()
+            if endpoint_model:
+                return Endpoint.model_validate(endpoint_model)
+            return None
+        except SQLAlchemyError:
+            return None
+
+    def get_by_ids(self, endpoint_ids: List[int]) -> List[Endpoint]:
+        """Get active endpoints by a list of IDs in one query."""
+        if not endpoint_ids:
+            return []
+        try:
+            stmt = select(self.model).where(
+                and_(self.model.id.in_(endpoint_ids), self.model.is_active)
+            )
+            result = self.session.execute(stmt)
+            return [Endpoint.model_validate(m) for m in result.scalars().all()]
+        except SQLAlchemyError:
+            return []
+
+    def get_by_user_and_slug(self, user_id: int, slug: str) -> Optional[Endpoint]:
+        """Get endpoint by user ID and slug."""
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.user_id == user_id,
+                    self.model.slug == slug.lower(),
+                    self.model.is_active,
+                )
+            )
+            result = self.session.execute(stmt)
+            endpoint_model = result.scalar_one_or_none()
+
+            if endpoint_model:
+                return Endpoint.model_validate(endpoint_model)
+            return None
+        except SQLAlchemyError:
+            return None
+
+    def get_user_endpoints(
+        self,
+        user_id: int,
+        skip: int = 0,
+        limit: int = 10,
+        visibility: Optional[EndpointVisibility] = None,
+        search: Optional[str] = None,
+    ) -> List[Endpoint]:
+        """Get all endpoints for a user with optional search.
+
+        Note: This returns ALL user endpoints including inactive ones,
+        so owners can always see and manage their own endpoints regardless
+        of health status or soft-delete state.
+        """
+        try:
+            stmt = select(self.model).where(self.model.user_id == user_id)
+
+            if visibility:
+                stmt = stmt.where(self.model.visibility == visibility.value)
+
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    self.model.name.ilike(search_pattern)
+                    | self.model.description.ilike(search_pattern)
+                )
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            endpoint_models = result.scalars().all()
+
+            return [Endpoint.model_validate(endpoint) for endpoint in endpoint_models]
+        except SQLAlchemyError:
+            return []
+
+    def get_public_endpoints(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
+        search: Optional[str] = None,
+        viewer_email: Optional[str] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get all public endpoints with owner usernames and transformed URLs.
+
+        Args:
+            skip: Number of endpoints to skip (pagination)
+            limit: Maximum number of endpoints to return
+            endpoint_type: Optional filter by endpoint type (model or data_source)
+            search: Optional search string to filter by name, description, tags, or owner username
+
+        Returns:
+            List of EndpointPublicResponse objects
+        """
+        try:
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+            )
+
+            if endpoint_type:
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
+
+            # Add search filter if provided
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    or_(
+                        self.model.name.ilike(search_pattern),
+                        self.model.description.ilike(search_pattern),
+                        # Search within tags JSON array by casting to text
+                        cast(self.model.tags, Text).ilike(search_pattern),
+                        # Search by owner username
+                        UserModel.username.ilike(search_pattern),
+                    )
+                )
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                endpoints.append(
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
+                )
+
+            return endpoints
+        except SQLAlchemyError as e:
+            logger.error("Failed to query public endpoints: %s", e)
+            return []
+
+    def get_public_endpoints_by_owner(
+        self,
+        owner_slug: str,
+        skip: int = 0,
+        limit: int = 100,
+        viewer_email: Optional[str] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get all public endpoints for a specific owner.
+
+        Filters public endpoints by owner username.
+        This is more efficient than fetching all endpoints and filtering client-side.
+
+        Args:
+            owner_slug: The username to filter by.
+            skip: Number of endpoints to skip (for pagination).
+            limit: Maximum number of endpoints to return.
+
+        Returns:
+            List of EndpointPublicResponse objects for the given owner.
+        """
+        try:
+            # Build the base query with owner join
+            owner_username_expr = UserModel.username
+
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                    owner_username_expr == owner_slug,
+                )
+            )
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                endpoints.append(
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
+                )
+
+            return endpoints
+        except SQLAlchemyError as e:
+            logger.error("Failed to query endpoints by owner %s: %s", owner_slug, e)
+            return []
+
+    def get_public_endpoint_by_owner_and_slug(
+        self,
+        owner_username: str,
+        slug: str,
+        viewer_email: Optional[str] = None,
+    ) -> Optional[EndpointPublicResponse]:
+        """Get a single public endpoint by owner username and slug.
+
+        Performs a direct lookup using the owner_username (user.username) and
+        endpoint slug. Only returns public, active endpoints.
+
+        Args:
+            owner_username: The username of the endpoint owner
+            slug: The endpoint slug
+
+        Returns:
+            EndpointPublicResponse if found, None otherwise
+        """
+        try:
+            owner_username_col = UserModel.username
+
+            stmt = (
+                self._build_public_select()
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                        self.model.slug == slug.lower(),
+                        owner_username_col == owner_username,
+                    )
+                )
+                .limit(1)
+            )
+
+            result = self.session.execute(stmt)
+            row = result.one_or_none()
+
+            if row is None:
+                return None
+
+            endpoint_model, _username, domain = row
+
+            return self._build_public_response(
+                endpoint_model, owner_username, domain, viewer_email
+            )
+        except SQLAlchemyError as e:
+            logger.error(
+                "Failed to query public endpoint %s/%s: %s",
+                owner_username,
+                slug,
+                e,
+            )
+            return None
+
+    def get_public_endpoints_by_ids(
+        self,
+        endpoint_ids: List[int],
+        viewer_email: Optional[str] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get public endpoints by IDs with owner usernames and transformed URLs.
+
+        This method is optimized for RAG search results - it fetches endpoints
+        by their IDs while preserving the input order (for ranking).
+
+        Args:
+            endpoint_ids: List of endpoint IDs to fetch (order is preserved).
+
+        Returns:
+            List of EndpointPublicResponse objects in the same order as input IDs.
+            Only returns endpoints that are public and active.
+        """
+        if not endpoint_ids:
+            return []
+
+        try:
+            # Fetch all matching endpoints in one query
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.id.in_(endpoint_ids),
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+            )
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            # Build a map of id -> endpoint response
+            id_to_endpoint: dict[int, EndpointPublicResponse] = {}
+            for endpoint_model, username, domain in rows:
+                id_to_endpoint[endpoint_model.id] = self._build_public_response(
+                    endpoint_model, username, domain, viewer_email
+                )
+
+            # Return in the original order (preserves RAG ranking)
+            ordered_endpoints = [
+                id_to_endpoint[eid] for eid in endpoint_ids if eid in id_to_endpoint
+            ]
+
+            return ordered_endpoints
+        except SQLAlchemyError:
+            return []
+
+    def get_guest_accessible_endpoints(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
+        viewer_email: Optional[str] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get all public endpoints that have no policies attached (guest-accessible).
+
+        Guest users can only access endpoints that are:
+        - Public visibility
+        - Active (is_active=True)
+        - Have no policies attached (policies is empty list)
+
+        Args:
+            skip: Number of endpoints to skip (pagination)
+            limit: Maximum number of endpoints to return
+            endpoint_type: Optional filter by endpoint type (model or data_source)
+
+        Returns:
+            List of EndpointPublicResponse objects for guest-accessible endpoints
+        """
+        try:
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                    # Filter for empty policies array (JSONB empty array)
+                    func.jsonb_array_length(self.model.policies) == 0,
+                )
+            )
+
+            if endpoint_type:
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                endpoints.append(
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
+                )
+
+            return endpoints
+        except SQLAlchemyError:
+            return []
+
+    def get_trending_endpoints(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        min_stars: Optional[int] = None,
+        endpoint_type: Optional[EndpointType] = None,
+        viewer_email: Optional[str] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count."""
+        try:
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+            )
+
+            if min_stars is not None:
+                stmt = stmt.where(self.model.stars_count >= min_stars)
+
+            if endpoint_type:
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
+
+            stmt = (
+                stmt.order_by(self.model.stars_count.desc()).offset(skip).limit(limit)
+            )
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                endpoints.append(
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
+                )
+
+            return endpoints
+        except SQLAlchemyError:
+            return []
+
+    def get_public_endpoints_grouped(
+        self,
+        max_per_owner: int = 15,
+        viewer_email: Optional[str] = None,
+    ) -> GroupedEndpointsResponse:
+        """Get public endpoints grouped by owner with a limit per owner.
+
+        This method returns endpoints organized by their owner, with at most
+        max_per_owner endpoints shown per owner. This prevents a single owner
+        with many endpoints from dominating the display (e.g., in Global Directory).
+
+        Uses PostgreSQL window functions for efficient grouping and ranking.
+
+        Args:
+            max_per_owner: Maximum number of endpoints to return per owner (default 15)
+
+        Returns:
+            GroupedEndpointsResponse with groups ordered by total endpoint count (descending)
+        """
+        try:
+            # First, get the count per owner for ALL owners with public/active endpoints
+            owner_username_expr = UserModel.username
+            owner_domain_expr = UserModel.domain
+
+            # Subquery to rank endpoints within each owner
+            row_number = (
+                func.row_number()
+                .over(
+                    partition_by=owner_username_expr,
+                    order_by=self.model.updated_at.desc(),
+                )
+                .label("rn")
+            )
+
+            # Count per owner (using window function)
+            count_per_owner = (
+                func.count().over(partition_by=owner_username_expr).label("owner_count")
+            )
+
+            # Build the main query with ranking
+            stmt = (
+                select(
+                    self.model,
+                    owner_username_expr.label("owner_username"),
+                    owner_domain_expr.label("owner_domain"),
+                    row_number,
+                    count_per_owner,
+                )
+                .join(UserModel, self.model.user_id == UserModel.id)
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
+                )
+            )
+
+            # Wrap in a subquery to filter by row number
+            subq = stmt.subquery()
+
+            # Select from the subquery, filtering to top N per owner
+            final_stmt = (
+                select(subq)
+                .where(subq.c.rn <= max_per_owner)
+                .order_by(subq.c.owner_count.desc(), subq.c.owner_username, subq.c.rn)
+            )
+
+            result = self.session.execute(final_stmt)
+            rows = result.all()
+
+            # Group results by owner
+            owner_groups: dict[str, dict] = {}
+            for row in rows:
+                username = row.owner_username
+                domain = row.owner_domain
+                total = row.owner_count
+
+                if username not in owner_groups:
+                    owner_groups[username] = {
+                        "owner_username": username,
+                        "domain": domain,
+                        "total_count": total,
+                        "endpoints": [],
+                    }
+
+                owner_groups[username]["endpoints"].append(
+                    self._build_public_response(row, username, domain, viewer_email)
+                )
+
+            # Build the response groups
+            groups = []
+            for owner_data in owner_groups.values():
+                groups.append(
+                    EndpointGroupItem(
+                        owner_username=owner_data["owner_username"],
+                        endpoints=owner_data["endpoints"],
+                        total_count=owner_data["total_count"],
+                        has_more=owner_data["total_count"]
+                        > len(owner_data["endpoints"]),
+                    )
+                )
+
+            # Sort by total_count descending (already ordered by query but ensure consistency)
+            groups.sort(key=lambda g: (-g.total_count, g.owner_username))
+
+            return GroupedEndpointsResponse(groups=groups)
+
+        except SQLAlchemyError as e:
+            logger.error("Failed to query grouped public endpoints: %s", e)
+            return GroupedEndpointsResponse(groups=[])
+
+    def get_public_endpoint_owners(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict], int]:
+        """Get distinct owners with public endpoint counts.
+
+        This is an efficient query that returns only owner usernames and their
+        endpoint counts, without fetching full endpoint data. Optimized for
+        CLI directory listing (syft ls).
+
+        Uses a single aggregation query with GROUP BY for efficiency.
+        PostgreSQL will use indexes on (visibility, is_active) for filtering.
+
+        Args:
+            skip: Number of owners to skip (pagination)
+            limit: Maximum number of owners to return
+
+        Returns:
+            Tuple of (list of owner dicts with counts, total owner count)
+            Each dict has: username, endpoint_count, model_count, data_source_count
+        """
+        try:
+            # Build owner username expression
+            owner_username_expr = UserModel.username.label("username")
+
+            # Aggregate query: group by owner, count endpoints by type
+            stmt = (
+                select(
+                    owner_username_expr,
+                    func.count().label("endpoint_count"),
+                    func.count()
+                    .filter(self.model.type == "model")
+                    .label("model_count"),
+                    func.count()
+                    .filter(self.model.type == "data_source")
+                    .label("data_source_count"),
+                )
+                .join(UserModel, self.model.user_id == UserModel.id)
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
+                )
+                .group_by(owner_username_expr)
+                .order_by(func.count().desc(), owner_username_expr)
+            )
+
+            # Get total count first (without pagination)
+            count_subq = stmt.subquery()
+            total_stmt = select(func.count()).select_from(count_subq)
+            total_result = self.session.execute(total_stmt)
+            total_count = total_result.scalar() or 0
+
+            # Apply pagination
+            stmt = stmt.offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            owners = [
+                {
+                    "username": row.username,
+                    "endpoint_count": row.endpoint_count,
+                    "model_count": row.model_count,
+                    "data_source_count": row.data_source_count,
+                }
+                for row in rows
+            ]
+
+            return owners, total_count
+
+        except SQLAlchemyError as e:
+            logger.error("Failed to query public endpoint owners: %s", e)
+            return [], 0
+
+    def create_endpoint(
+        self,
+        endpoint_data: EndpointCreate,
+        owner_id: int,
+    ) -> Optional[Endpoint]:
+        """Create a new endpoint."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        try:
+            endpoint_model = EndpointModel(
+                user_id=owner_id,
+                name=endpoint_data.name,
+                slug=endpoint_data.slug.lower(),
+                description=endpoint_data.description,
+                type=endpoint_data.type.value,
+                visibility=endpoint_data.visibility.value,
+                version=endpoint_data.version,
+                readme=endpoint_data.readme,
+                tags=endpoint_data.tags,
+                contributors=endpoint_data.contributors,
+                policies=[policy.model_dump() for policy in endpoint_data.policies],
+                connect=[conn.model_dump() for conn in endpoint_data.connect],
+                is_active=True,
+            )
+
+            self.session.add(endpoint_model)
+            self.session.commit()
+            self.session.refresh(endpoint_model)
+
+            return Endpoint.model_validate(endpoint_model)
+        except SQLAlchemyError as e:
+            logger.error(f"SQLAlchemy error creating endpoint: {e}")
+            self.session.rollback()
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error creating endpoint: {e}", exc_info=True)
+            self.session.rollback()
+            return None
+
+    def update_endpoint(
+        self, endpoint_id: int, endpoint_data: EndpointUpdate
+    ) -> Optional[Endpoint]:
+        """Update endpoint information."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return None
+
+            # Update fields if provided
+            if endpoint_data.name is not None:
+                endpoint_model.name = endpoint_data.name
+            if endpoint_data.description is not None:
+                endpoint_model.description = endpoint_data.description
+            if endpoint_data.visibility is not None:
+                endpoint_model.visibility = endpoint_data.visibility.value
+            if endpoint_data.version is not None:
+                endpoint_model.version = endpoint_data.version
+            if endpoint_data.readme is not None:
+                endpoint_model.readme = endpoint_data.readme
+            if endpoint_data.contributors is not None:
+                endpoint_model.contributors = endpoint_data.contributors
+            if endpoint_data.tags is not None:
+                endpoint_model.tags = endpoint_data.tags
+            if endpoint_data.policies is not None:
+                endpoint_model.policies = [
+                    policy.model_dump() for policy in endpoint_data.policies
+                ]
+            if endpoint_data.connect is not None:
+                endpoint_model.connect = [
+                    conn.model_dump() for conn in endpoint_data.connect
+                ]
+            # REMOVED is_active update - this should only be done by admin_update_endpoint
+
+            self.session.commit()
+            self.session.refresh(endpoint_model)
+
+            return Endpoint.model_validate(endpoint_model)
+        except SQLAlchemyError:
+            self.session.rollback()
+            return None
+
+    def admin_update_endpoint(
+        self, endpoint_id: int, admin_data: EndpointAdminUpdate
+    ) -> Optional[Endpoint]:
+        """Admin-only update for server-managed fields like is_active and stars_count."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return None
+
+            # Admin can update server-managed fields
+            if admin_data.is_active is not None:
+                endpoint_model.is_active = admin_data.is_active
+            if admin_data.stars_count is not None:
+                endpoint_model.stars_count = admin_data.stars_count
+
+            self.session.commit()
+            self.session.refresh(endpoint_model)
+
+            return Endpoint.model_validate(endpoint_model)
+        except SQLAlchemyError:
+            self.session.rollback()
+            return None
+
+    def delete_endpoint(self, endpoint_id: int) -> bool:
+        """Delete an endpoint (hard delete - removes from database)."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            self.session.delete(endpoint_model)
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def delete_all_user_endpoints(self, user_id: int) -> int:
+        """Delete all endpoints owned by a user (for sync operation).
+
+        This method does NOT commit the transaction - caller must commit.
+        This allows atomic operations when combined with other database changes.
+
+        Args:
+            user_id: The user ID whose endpoints should be deleted
+
+        Returns:
+            Number of endpoints deleted
+        """
+        # First count how many we're deleting (for the response)
+        count_stmt = (
+            select(func.count())
+            .select_from(self.model)
+            .where(self.model.user_id == user_id)
+        )
+        count_result = self.session.execute(count_stmt)
+        deleted_count = count_result.scalar() or 0
+
+        # Bulk delete all user endpoints
+        delete_stmt = delete(self.model).where(self.model.user_id == user_id)
+        self.session.execute(delete_stmt)
+
+        # Note: No commit here - caller manages transaction
+        return deleted_count
+
+    def bulk_create_endpoints(
+        self,
+        endpoints_data: List[dict],
+        user_id: int,
+    ) -> List[Endpoint]:
+        """Create multiple endpoints in a single transaction (for sync operation).
+
+        This method does NOT commit the transaction - caller must commit.
+        This allows atomic operations when combined with other database changes.
+
+        Args:
+            endpoints_data: List of dicts with endpoint data (pre-validated)
+                Each dict should have: name, slug, description, type, visibility,
+                version, readme, tags, contributors, policies, connect
+            user_id: The user ID who owns these endpoints
+
+        Returns:
+            List of created Endpoint objects
+        """
+        created_endpoints = []
+
+        for data in endpoints_data:
+            endpoint_model = EndpointModel(
+                user_id=user_id,
+                name=data["name"],
+                slug=data["slug"].lower(),
+                description=data.get("description", ""),
+                type=data["type"],
+                visibility=data.get("visibility", "public"),
+                version=data.get("version", "0.1.0"),
+                readme=data.get("readme", ""),
+                tags=data.get("tags", []),
+                contributors=data.get("contributors", []),
+                policies=data.get("policies", []),
+                connect=data.get("connect", []),
+                is_active=True,
+            )
+            self.session.add(endpoint_model)
+            created_endpoints.append(endpoint_model)
+
+        # Flush to get IDs assigned (but don't commit)
+        self.session.flush()
+
+        # Convert to schema objects
+        return [Endpoint.model_validate(model) for model in created_endpoints]
+
+    def slug_exists_for_user(
+        self, user_id: int, slug: str, exclude_endpoint_id: Optional[int] = None
+    ) -> bool:
+        """Check if slug exists for a specific user.
+
+        Note: This checks ALL endpoints (active and inactive) because the unique
+        index on (user_id, slug) applies regardless of is_active status.
+        """
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.user_id == user_id,
+                    self.model.slug == slug.lower(),
+                )
+            )
+
+            if exclude_endpoint_id:
+                stmt = stmt.where(self.model.id != exclude_endpoint_id)
+
+            result = self.session.execute(stmt.limit(1))
+            return result.scalar() is not None
+        except SQLAlchemyError:
+            return False
+
+    def increment_stars(self, endpoint_id: int) -> bool:
+        """Increment the star count for a endpoint."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            endpoint_model.stars_count += 1
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def decrement_stars(self, endpoint_id: int) -> bool:
+        """Decrement the star count for a endpoint."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            if endpoint_model.stars_count > 0:
+                endpoint_model.stars_count -= 1
+                self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def create(self, data=None, **kwargs) -> Optional[Endpoint]:
+        """Create a new endpoint with data dict or kwargs (for test compatibility)."""
+        try:
+            if data is not None:
+                kwargs.update(data)
+            endpoint_model = self.model(**kwargs)
+            self.session.add(endpoint_model)
+            self.session.commit()
+            self.session.refresh(endpoint_model)
+            return Endpoint.model_validate(endpoint_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def get_all(
+        self, skip: int = 0, limit: int = 100, filters: Optional[dict] = None
+    ) -> list[Endpoint]:
+        """Get all endpoints with pagination and filtering."""
+        try:
+            endpoint_models = super().get_all(skip=skip, limit=limit, filters=filters)
+            return [
+                Endpoint.model_validate(endpoint_model)
+                for endpoint_model in endpoint_models
+            ]
+        except Exception:
+            return []
+
+    def update(self, endpoint_id: int, data=None, **kwargs) -> Optional[Endpoint]:
+        """Update a endpoint with data dict or kwargs (for test compatibility)."""
+        try:
+            if data is not None:
+                kwargs.update(data)
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return None
+
+            for field, value in kwargs.items():
+                if hasattr(endpoint_model, field):
+                    setattr(endpoint_model, field, value)
+
+            self.session.commit()
+            self.session.refresh(endpoint_model)
+            return Endpoint.model_validate(endpoint_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def delete(self, endpoint_id: int) -> bool:
+        """Delete a endpoint by ID."""
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            self.session.delete(endpoint_model)
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def count(self, filters: Optional[dict] = None) -> int:
+        """Count endpoints with optional filtering."""
+        return super().count(filters)
+
+    def get_by_user_id(self, user_id: int) -> list[Endpoint]:
+        """Get all endpoints by user ID (alias for test compatibility)."""
+        return self.get_user_endpoints(user_id)
+
+    def get_public_endpoints_by_user_id(self, user_id: int) -> list[Endpoint]:
+        """Get public, active endpoints by user ID.
+
+        Pushes visibility + is_active filters into SQL to avoid loading all
+        user endpoints and filtering in Python.
+        """
+        try:
+            stmt = (
+                select(self.model)
+                .where(
+                    self.model.user_id == user_id,
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+                .order_by(self.model.updated_at.desc())
+            )
+            result = self.session.execute(stmt)
+            return [Endpoint.model_validate(m) for m in result.scalars().all()]
+        except SQLAlchemyError:
+            return []
+
+    def get_public_by_user_id(self, user_id: int) -> list[Endpoint]:
+        """Get public endpoints by user ID (alias for test compatibility)."""
+        return self.get_public_endpoints_by_user_id(user_id)
+
+    # ===========================================
+    # RAG INTEGRATION METHODS
+    # ===========================================
+
+    def update_rag_file_id(self, endpoint_id: int, file_id: Optional[str]) -> bool:
+        """Update the RAG file ID for an endpoint.
+
+        Args:
+            endpoint_id: The endpoint ID to update.
+            file_id: The RAG file ID, or None to clear.
+
+        Returns:
+            True if updated successfully, False otherwise.
+        """
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            endpoint_model.rag_file_id = file_id
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def get_rag_file_id(self, endpoint_id: int) -> Optional[str]:
+        """Get the RAG file ID for an endpoint.
+
+        Args:
+            endpoint_id: The endpoint ID.
+
+        Returns:
+            The file ID if set, None otherwise.
+        """
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if endpoint_model:
+                return endpoint_model.rag_file_id
+            return None
+        except SQLAlchemyError:
+            return None
+
+    def get_user_rag_file_ids(self, user_id: int) -> List[tuple[int, str]]:
+        """Get all RAG file IDs for a user's endpoints.
+
+        Args:
+            user_id: The user ID.
+
+        Returns:
+            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
+        """
+        try:
+            stmt = select(self.model.id, self.model.rag_file_id).where(
+                and_(
+                    self.model.user_id == user_id,
+                    self.model.rag_file_id.isnot(None),
+                )
+            )
+            result = self.session.execute(stmt)
+            return [(row[0], row[1]) for row in result.all()]
+        except SQLAlchemyError:
+            return []
+
+    def get_endpoint_model(self, endpoint_id: int) -> Optional[EndpointModel]:
+        """Get the raw endpoint model (for RAG operations).
+
+        Args:
+            endpoint_id: The endpoint ID.
+
+        Returns:
+            The EndpointModel if found, None otherwise.
+        """
+        try:
+            return self.session.get(self.model, endpoint_id)
+        except SQLAlchemyError:
+            return None
+
+    # ===========================================
+    # ENDPOINT HEALTH METHODS
+    # ===========================================
+
+    def get_endpoints_by_slugs_for_health(
+        self,
+        user_id: int,
+        slugs: list[str],
+    ) -> list[EndpointModel]:
+        """Get endpoints matching slugs for health reporting.
+
+        Looks up endpoints by slug, owned by the given user.
+        Does NOT filter by is_active — health reports should work for all
+        endpoints so the health monitor can re-activate them.
+
+        Args:
+            user_id: The user ID to match user-owned endpoints
+            slugs: List of endpoint slugs to look up
+
+        Returns:
+            List of matching EndpointModel objects
+        """
+        try:
+            normalized_slugs = [s.lower() for s in slugs]
+
+            stmt = select(self.model).where(
+                and_(
+                    self.model.slug.in_(normalized_slugs),
+                    self.model.user_id == user_id,
+                )
+            )
+            result = self.session.execute(stmt)
+            return list(result.scalars().all())
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to look up endpoints by slugs for health: {e}")
+            return []
+
+    def bulk_update_health_status(
+        self,
+        updates: list[dict],
+    ) -> int:
+        """Bulk update endpoint health status.
+
+        Each item in updates should contain:
+            - endpoint_id: int
+            - health_status: str ("healthy" or "unhealthy")
+            - health_checked_at: datetime
+            - health_ttl_seconds: int
+
+        Does NOT commit — caller manages the transaction.
+
+        Args:
+            updates: List of dicts with health update data
+
+        Returns:
+            Number of endpoints successfully updated
+        """
+        updated_count = 0
+        for item in updates:
+            try:
+                stmt = (
+                    update(EndpointModel)
+                    .where(EndpointModel.id == item["endpoint_id"])
+                    .values(
+                        health_status=item["health_status"],
+                        health_checked_at=item["health_checked_at"],
+                        health_ttl_seconds=item["health_ttl_seconds"],
+                    )
+                )
+                result = self.session.execute(stmt)
+                if result.rowcount > 0:
+                    updated_count += 1
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"Failed to update health for endpoint {item['endpoint_id']}: {e}"
+                )
+        return updated_count
+
+    def get_by_owner_and_slug_any_state(
+        self,
+        user_id: int,
+        slug: str,
+    ) -> Optional[Endpoint]:
+        """Look up an endpoint by owner + slug ignoring is_active.
+
+        Used by callers that need to operate on endpoints that may currently
+        be marked inactive by the health monitor (e.g. rendering the uptime
+        chart for a down endpoint).
+        """
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.slug == slug.lower(),
+                    self.model.user_id == user_id,
+                )
+            )
+            endpoint_model = self.session.execute(stmt).scalar_one_or_none()
+            if endpoint_model:
+                return Endpoint.model_validate(endpoint_model)
+            return None
+        except SQLAlchemyError:
+            return None
+
+    # ===========================================
+    # ENDPOINT UPTIME / TELEMETRY METHODS
+    # ===========================================
+
+    def upsert_uptime_sample(
+        self,
+        endpoint_id: int,
+        bucket_start: datetime,
+        is_healthy: bool,
+    ) -> None:
+        """Upsert one health-monitor tick into the bucketed uptime table.
+
+        Uses ``INSERT … ON CONFLICT`` on Postgres and a select-then-update
+        fallback on other dialects (SQLite/dev). Does NOT commit — the caller
+        manages the transaction.
+
+        Args:
+            endpoint_id: Endpoint receiving the sample.
+            bucket_start: Truncated UTC bucket boundary
+                (``floor(epoch / bucket_seconds) * bucket_seconds``).
+            is_healthy: Result of the monitor's tier evaluation.
+        """
+        healthy = 1 if is_healthy else 0
+        dialect = self.session.bind.dialect.name if self.session.bind else ""
+
+        try:
+            if dialect == "postgresql":
+                self.session.execute(
+                    text(
+                        """
+                        INSERT INTO endpoint_uptime_samples (
+                            endpoint_id, bucket_start,
+                            total_checks, healthy_checks
+                        )
+                        VALUES (:eid, :bucket, 1, :h)
+                        ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
+                            total_checks   = endpoint_uptime_samples.total_checks + 1,
+                            healthy_checks = endpoint_uptime_samples.healthy_checks
+                                             + EXCLUDED.healthy_checks
+                        """
+                    ),
+                    {"eid": endpoint_id, "bucket": bucket_start, "h": healthy},
+                )
+                return
+
+            # Fallback path (SQLite/dev): SELECT existing, then INSERT or UPDATE.
+            existing = self.session.execute(
+                select(EndpointUptimeSampleModel).where(
+                    and_(
+                        EndpointUptimeSampleModel.endpoint_id == endpoint_id,
+                        EndpointUptimeSampleModel.bucket_start == bucket_start,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing is None:
+                sample = EndpointUptimeSampleModel(
+                    endpoint_id=endpoint_id,
+                    bucket_start=bucket_start,
+                    total_checks=1,
+                    healthy_checks=healthy,
+                )
+                self.session.add(sample)
+                # Flush so successive calls within the same transaction see
+                # this row and take the UPDATE branch instead of inserting a
+                # duplicate (would violate the (endpoint_id, bucket_start) PK).
+                self.session.flush()
+                return
+
+            existing.total_checks += 1
+            existing.healthy_checks += healthy
+        except SQLAlchemyError as e:
+            logger.error(
+                f"Failed to upsert uptime sample for endpoint {endpoint_id} "
+                f"at {bucket_start}: {e}"
+            )
+
+    def get_uptime_samples(
+        self,
+        endpoint_id: int,
+        window_hours: int,
+    ) -> list[EndpointUptimeSampleModel]:
+        """Return ordered uptime samples for an endpoint in a rolling window."""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+        try:
+            stmt = (
+                select(EndpointUptimeSampleModel)
+                .where(
+                    and_(
+                        EndpointUptimeSampleModel.endpoint_id == endpoint_id,
+                        EndpointUptimeSampleModel.bucket_start >= cutoff,
+                    )
+                )
+                .order_by(EndpointUptimeSampleModel.bucket_start.asc())
+            )
+            return list(self.session.execute(stmt).scalars().all())
+        except SQLAlchemyError as e:
+            logger.error(
+                f"Failed to load uptime samples for endpoint {endpoint_id}: {e}"
+            )
+            return []
+
+    def delete_uptime_samples_older_than(self, retention_days: int) -> int:
+        """Delete uptime samples older than the configured retention window.
+
+        Returns the number of rows removed. Does NOT commit — caller manages
+        the transaction.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        try:
+            stmt = delete(EndpointUptimeSampleModel).where(
+                EndpointUptimeSampleModel.bucket_start < cutoff
+            )
+            result = self.session.execute(stmt)
+            return result.rowcount or 0
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to purge old uptime samples: {e}")
+            return 0
+
+
+class EndpointStarRepository(BaseRepository[EndpointStarModel]):
+    """Repository for endpoint star operations."""
+
+    def __init__(self, session: Session):
+        """Initialize repository with database session."""
+        super().__init__(session, EndpointStarModel)
+
+    def star_endpoint(self, user_id: int, endpoint_id: int) -> bool:
+        """Add a star to a endpoint."""
+        try:
+            # Check if already starred
+            if self.is_starred(user_id, endpoint_id):
+                return False
+
+            star_model = EndpointStarModel(user_id=user_id, endpoint_id=endpoint_id)
+
+            self.session.add(star_model)
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def unstar_endpoint(self, user_id: int, endpoint_id: int) -> bool:
+        """Remove a star from a endpoint."""
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.user_id == user_id, self.model.endpoint_id == endpoint_id
+                )
+            )
+            result = self.session.execute(stmt)
+            star = result.scalar_one_or_none()
+
+            if star:
+                self.session.delete(star)
+                self.session.commit()
+                return True
+            return False
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def is_starred(self, user_id: int, endpoint_id: int) -> bool:
+        """Check if user has starred a endpoint."""
+        return self.exists(user_id=user_id, endpoint_id=endpoint_id)
+
+    def get_user_starred_endpoints(
+        self, user_id: int, skip: int = 0, limit: int = 10
+    ) -> List[int]:
+        """Get list of endpoint IDs starred by a user."""
+        try:
+            stmt = (
+                select(self.model.endpoint_id)
+                .where(self.model.user_id == user_id)
+                .order_by(self.model.starred_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+
+            result = self.session.execute(stmt)
+            return result.scalars().all()
+        except SQLAlchemyError:
+            return []
+
+    def get_endpoint_stargazers(
+        self, endpoint_id: int, skip: int = 0, limit: int = 10
+    ) -> List[int]:
+        """Get list of user IDs who starred a endpoint."""
+        try:
+            stmt = (
+                select(self.model.user_id)
+                .where(self.model.endpoint_id == endpoint_id)
+                .order_by(self.model.starred_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+
+            result = self.session.execute(stmt)
+            return result.scalars().all()
+        except SQLAlchemyError:
+            return []

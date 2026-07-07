@@ -1,0 +1,36 @@
+meta:
+  id: anthropic
+  name: "Anthropic"
+  description: "Configure Anthropic API access with model selection"
+  category: ai
+  tags: [anthropic, claude, ai, llm]
+
+steps:
+  - id: api_key
+    type: prompt
+    name: "Enter Anthropic API Key"
+    required: true
+    prompt:
+      message: "Enter your Anthropic API key"
+      secret: true
+      validate:
+        pattern: "^sk-ant-"
+        message: "Anthropic API keys start with 'sk-ant-'"
+    outputs:
+      ANTHROPIC_API_KEY: "{{value}}"
+
+  - id: model
+    type: select
+    name: "Select Model"
+    required: true
+    env_key: ANTHROPIC_MODEL
+    select:
+      message: "Choose the default model"
+      options:
+        - value: "claude-sonnet-4-20250514"
+          label: "Claude Sonnet 4 (recommended)"
+        - value: "claude-opus-4-20250514"
+          label: "Claude Opus 4"
+        - value: "claude-3-5-haiku-20241022"
+          label: "Claude 3.5 Haiku (faster, cheaper)"
+      default: "claude-sonnet-4-20250514"

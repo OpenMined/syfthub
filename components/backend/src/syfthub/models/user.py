@@ -1,0 +1,104 @@
+"""User database model."""
+
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import Boolean, DateTime, Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from syfthub.models.base import BaseModel, TimestampMixin
+
+if TYPE_CHECKING:
+    from syfthub.models.collective import CollectiveModel
+    from syfthub.models.endpoint import EndpointModel
+    from syfthub.models.user_aggregator import UserAggregatorModel
+
+
+class UserModel(BaseModel, TimestampMixin):
+    """User database model."""
+
+    __tablename__ = "users"
+
+    # User fields
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    full_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+
+    # OAuth fields
+    auth_provider: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="local"
+    )
+    google_id: Mapped[Optional[str]] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
+
+    # MPP wallet fields (Tempo blockchain)
+    wallet_address: Mapped[Optional[str]] = mapped_column(
+        String(42), nullable=True, default=None
+    )
+    wallet_private_key: Mapped[Optional[str]] = mapped_column(
+        String(66), nullable=True, default=None
+    )
+
+    # Domain with protocol for dynamic endpoint URL construction
+    domain: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+
+    # Custom aggregator URL for RAG/chat workflows
+    aggregator_url: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+
+    # Public profile bio (Markdown). Surfaced on /:username public profile page.
+    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+
+    # Whether the user's email is shown on their public profile page.
+    is_email_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # Timestamp of the user's last successful login (password or Google sign-in).
+    # Null until the user logs in for the first time. Used by the admin
+    # user-overview dashboard for last-login recency bucketing.
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    # X25519 public key for NATS tunnel E2E encryption (base64url-encoded, 44 chars)
+    # Registered by the space on startup via PUT /api/v1/nats/encryption-key
+    encryption_public_key: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+
+    # Relationships
+    endpoints: Mapped[List["EndpointModel"]] = relationship(
+        "EndpointModel", back_populates="user", cascade="all, delete-orphan"
+    )
+    aggregators: Mapped[List["UserAggregatorModel"]] = relationship(
+        "UserAggregatorModel", back_populates="user", cascade="all, delete-orphan"
+    )
+    collectives: Mapped[List["CollectiveModel"]] = relationship(
+        "CollectiveModel", back_populates="owner", cascade="all, delete-orphan"
+    )
+
+    # Indexes for performance
+    __table_args__ = (
+        Index("idx_users_username", "username"),
+        Index("idx_users_email", "email"),
+        Index("idx_users_role", "role"),
+        Index("idx_users_is_active", "is_active"),
+        Index("idx_users_google_id", "google_id"),
+        Index("idx_users_last_login_at", "last_login_at"),
+    )
+
+    def __repr__(self) -> str:
+        """String representation of User."""
+        return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"

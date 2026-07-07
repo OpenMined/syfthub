@@ -1,0 +1,627 @@
+"""Endpoint endpoints with authentication and visibility controls."""
+
+from typing import Annotated, Optional
+
+from fastapi import APIRouter, Depends, Query, status
+
+from syfthub.auth.db_dependencies import (
+    get_current_active_user,
+    get_optional_current_user,
+    require_admin,
+)
+from syfthub.database.dependencies import (
+    get_endpoint_service,
+)
+from syfthub.schemas.endpoint import (
+    EndpointAdminUpdate,
+    EndpointCreate,
+    EndpointHealthRequest,
+    EndpointHealthResponse,
+    EndpointPublicResponse,
+    EndpointResponse,
+    EndpointType,
+    EndpointUpdate,
+    EndpointUptimeResponse,
+    EndpointVisibility,
+    GroupedEndpointsResponse,
+    OwnersListResponse,
+    SyncEndpointsRequest,
+    SyncEndpointsResponse,
+)
+from syfthub.schemas.search import EndpointSearchRequest, EndpointSearchResponse
+from syfthub.schemas.user import User
+from syfthub.services.endpoint_service import EndpointService
+
+router = APIRouter()
+
+
+@router.post("", response_model=EndpointResponse, status_code=status.HTTP_201_CREATED)
+async def create_endpoint(
+    endpoint_data: EndpointCreate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointResponse:
+    """Create a new endpoint for the current user."""
+    return endpoint_service.create_endpoint(
+        endpoint_data=endpoint_data,
+        owner_id=current_user.id,
+        current_user=current_user,
+    )
+
+
+@router.get("", response_model=list[EndpointResponse])
+async def list_my_endpoints(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    visibility: Optional[EndpointVisibility] = None,
+    search: Optional[str] = None,
+) -> list[EndpointResponse]:
+    """List current user's endpoints."""
+    return endpoint_service.list_user_endpoints(
+        current_user, skip=skip, limit=limit, visibility=visibility, search=search
+    )
+
+
+@router.get("/public", response_model=list[EndpointPublicResponse])
+async def list_public_endpoints(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
+    search: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Search by name, description, or tags",
+    ),
+) -> list[EndpointPublicResponse]:
+    """List all public endpoints with optional search filtering."""
+    return endpoint_service.list_public_endpoints(
+        skip=skip,
+        limit=limit,
+        endpoint_type=endpoint_type,
+        search=search,
+        current_user=current_user,
+    )
+
+
+@router.get(
+    "/public/grouped",
+    response_model=GroupedEndpointsResponse,
+    summary="List Public Endpoints Grouped by Owner",
+    description="""
+List public endpoints grouped by their owner.
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This endpoint is designed for the Global Directory display, where showing
+endpoints grouped by owner provides a better representation of the network's
+diversity. It prevents a single owner with many endpoints from dominating
+the entire listing.
+
+**Response Format:**
+Returns a list of groups, where each group contains:
+- `owner_username`: The username of the endpoint owner
+- `endpoints`: List of endpoints belonging to this owner (limited to `max_per_owner`)
+- `total_count`: Total number of endpoints this owner has (may be more than shown)
+- `has_more`: True if the owner has more endpoints than displayed
+
+**Ordering:**
+- Groups are ordered by total endpoint count (descending)
+- Within each group, endpoints are ordered by `updated_at` (most recent first)
+""",
+)
+async def list_public_endpoints_grouped(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    max_per_owner: int = Query(
+        15, ge=1, le=50, description="Maximum endpoints to return per owner"
+    ),
+) -> GroupedEndpointsResponse:
+    """List public endpoints grouped by owner with a limit per owner.
+
+    This provides a balanced view across multiple owners rather than having
+    a single owner dominate the listing.
+    """
+    return endpoint_service.list_public_endpoints_grouped(
+        max_per_owner=max_per_owner, current_user=current_user
+    )
+
+
+@router.get(
+    "/public/owners",
+    response_model=OwnersListResponse,
+    summary="List Endpoint Owners",
+    description="""
+List all owners that have public endpoints, with endpoint counts.
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This is a lightweight endpoint designed for directory browsing (e.g., CLI `syft ls`).
+It returns only owner usernames and aggregated counts, NOT full endpoint data.
+This prevents performance issues when a single owner has hundreds of endpoints.
+
+**Response Format:**
+Returns a list of owners, where each owner has:
+- `username`: The username
+- `endpoint_count`: Total number of public endpoints
+- `model_count`: Number of model endpoints
+- `data_source_count`: Number of data source endpoints
+
+**Ordering:**
+- Owners are ordered by total endpoint count (descending)
+- Then alphabetically by username
+
+**Use with:**
+- `GET /endpoints/public/by-owner/{owner_slug}` to get endpoints for a specific owner
+- `GET /endpoints/public` to get full endpoint listings
+""",
+)
+async def list_public_endpoint_owners(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0, description="Number of owners to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum owners to return"),
+) -> OwnersListResponse:
+    """List owners with public endpoints and their endpoint counts.
+
+    Efficient endpoint for directory browsing - returns only owner names
+    and counts, not full endpoint data.
+    """
+    return endpoint_service.list_public_endpoint_owners(skip=skip, limit=limit)
+
+
+@router.get(
+    "/public/by-owner/{owner_slug}",
+    response_model=list[EndpointPublicResponse],
+    summary="List Public Endpoints by Owner",
+    description="""
+List all public endpoints for a specific owner.
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This endpoint efficiently fetches all public endpoints belonging to a specific
+owner, without having to fetch and filter all endpoints. Designed for CLI
+commands like `syft ls <username>`.
+
+**Response Format:**
+Returns a list of EndpointPublicResponse objects containing:
+- name, slug, description, type
+- version, stars_count, tags
+- owner_username, connect URLs
+- created_at, updated_at
+
+**Ordering:**
+- Endpoints are ordered by `updated_at` (most recent first)
+
+**Use with:**
+- `GET /endpoints/public/owners` to list all owners first
+""",
+)
+async def list_public_endpoints_by_owner(
+    owner_slug: str,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    skip: int = Query(0, ge=0, description="Number of endpoints to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum endpoints to return"),
+) -> list[EndpointPublicResponse]:
+    """List public endpoints for a specific owner.
+
+    Returns all public, active endpoints belonging to the given user.
+    """
+    return endpoint_service.list_public_endpoints_by_owner(
+        owner_slug=owner_slug, skip=skip, limit=limit, current_user=current_user
+    )
+
+
+@router.get(
+    "/public/{owner_username}/{slug}",
+    response_model=EndpointPublicResponse,
+    summary="Get Public Endpoint by Owner and Slug",
+    description="""
+Get a single public endpoint by its owner username and slug.
+
+**No Authentication Required** - This endpoint is public.
+
+Uses the GitHub-style `owner/slug` path to look up an endpoint directly,
+without requiring pagination or search.
+""",
+    responses={404: {"description": "Endpoint not found"}},
+)
+async def get_public_endpoint_by_path(
+    owner_username: str,
+    slug: str,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+) -> EndpointPublicResponse:
+    """Get a single public endpoint by owner username and slug."""
+    return endpoint_service.get_public_endpoint_by_path(
+        owner_username, slug, current_user=current_user
+    )
+
+
+@router.get("/trending", response_model=list[EndpointPublicResponse])
+async def list_trending_endpoints(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    min_stars: Optional[int] = Query(None, ge=0),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
+) -> list[EndpointPublicResponse]:
+    """List trending public endpoints."""
+    return endpoint_service.list_trending_endpoints(
+        skip=skip,
+        limit=limit,
+        min_stars=min_stars,
+        endpoint_type=endpoint_type,
+        current_user=current_user,
+    )
+
+
+@router.get(
+    "/guest-accessible",
+    response_model=list[EndpointPublicResponse],
+    summary="List Guest-Accessible Endpoints",
+    description="""
+List endpoints that are accessible to guest (unauthenticated) users.
+
+**No Authentication Required** - This endpoint is public.
+
+**Filtering Criteria:**
+Guest-accessible endpoints must meet ALL of the following criteria:
+- **Public visibility**: The endpoint's visibility is set to "public"
+- **Active**: The endpoint is active (not disabled or deleted)
+- **No policies**: The endpoint has NO policies attached (policies array is empty)
+
+**Use Cases:**
+- Allows unauthenticated users to discover free, policy-free endpoints
+- Used in conjunction with `/api/v1/token/guest` for guest access flow
+- Ensures guests can only see endpoints they are actually allowed to use
+
+**Note:**
+Endpoints with any policies attached (rate limits, authentication requirements, etc.)
+are NOT included in this list, even if they are public. This ensures guests only see
+endpoints they can actually use without additional authorization.
+""",
+)
+async def list_guest_accessible_endpoints(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
+) -> list[EndpointPublicResponse]:
+    """List endpoints accessible to guest (unauthenticated) users.
+
+    Returns only public, active endpoints that have no policies attached.
+    This ensures guests can only discover and use truly free endpoints.
+    """
+    return endpoint_service.list_guest_accessible_endpoints(
+        skip=skip,
+        limit=limit,
+        endpoint_type=endpoint_type,
+        current_user=current_user,
+    )
+
+
+@router.post(
+    "/search",
+    response_model=EndpointSearchResponse,
+    summary="Semantic Search Endpoints",
+    description="""
+Search for public endpoints using natural language queries.
+
+This endpoint uses semantic search (RAG) to find the most relevant endpoints
+based on their name, description, readme, and tags. Results are ordered by
+relevance.
+
+**Features:**
+- Natural language queries (e.g., "machine learning model for text classification")
+- Returns endpoints in order of semantic relevance
+- Filters by endpoint type (model or data_source)
+- Returns up to 50 results per query
+
+**Notes:**
+- Only searches public, active endpoints
+- Returns the same endpoint format as `/endpoints/public`
+- If RAG is not configured, returns empty results
+""",
+)
+async def search_endpoints(
+    search_request: EndpointSearchRequest,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+) -> EndpointSearchResponse:
+    """Search endpoints using semantic search (RAG)."""
+    return endpoint_service.search_endpoints(
+        query=search_request.query,
+        top_k=search_request.top_k,
+        endpoint_type=search_request.type,
+        current_user=current_user,
+    )
+
+
+@router.post(
+    "/sync",
+    response_model=SyncEndpointsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "Sync completed successfully",
+            "model": SyncEndpointsResponse,
+        },
+        400: {
+            "description": "Validation error - batch contains invalid endpoints",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "Batch validation failed with 2 error(s)",
+                            "errors": [
+                                {
+                                    "index": 0,
+                                    "field": "slug",
+                                    "error": "'api' is a reserved slug",
+                                },
+                                {
+                                    "index": 2,
+                                    "field": "slug",
+                                    "error": "Duplicate slug 'my-model' in batch",
+                                },
+                            ],
+                        }
+                    }
+                }
+            },
+        },
+        500: {
+            "description": "Internal server error - sync failed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "SYNC_FAILED",
+                            "message": "Failed to sync endpoints. Transaction rolled back.",
+                        }
+                    }
+                }
+            },
+        },
+    },
+    summary="Sync User Endpoints",
+    description="""
+Synchronize user's endpoints with the provided list.
+
+**This is a DESTRUCTIVE operation** that:
+1. Deletes ALL existing endpoints owned by the current user
+2. Creates ALL endpoints from the provided list
+3. Is ATOMIC: either all endpoints sync successfully, or none do
+
+**Important Notes:**
+- Stars on existing endpoints will be lost (reset to 0)
+- Endpoint IDs will change (new IDs assigned)
+- Maximum 100 endpoints per sync request
+
+**Validation:**
+- All endpoints are validated BEFORE any database changes
+- If ANY endpoint fails validation, the entire batch is rejected
+- All validation errors are returned together (not just the first)
+
+**Empty Payload:**
+- Sending an empty list `{"endpoints": []}` will delete ALL user endpoints
+""",
+)
+async def sync_user_endpoints(
+    sync_request: SyncEndpointsRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> SyncEndpointsResponse:
+    """Sync user's endpoints with provided list (atomic operation)."""
+    return endpoint_service.sync_user_endpoints(
+        endpoints_data=sync_request.endpoints,
+        current_user=current_user,
+    )
+
+
+@router.post(
+    "/health",
+    response_model=EndpointHealthResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Report Endpoint Health Status",
+    description="""
+Report per-endpoint health status from the client.
+
+**Authentication Required** - Bearer token (JWT or API token).
+
+**Behavior:**
+- Matches endpoint slugs against the user's own endpoints
+- Updates per-endpoint health fields (health_status, health_checked_at, health_ttl_seconds)
+- Also updates the owner's domain (used for endpoint URL construction)
+- Slugs that don't match any accessible endpoint are counted as 'ignored'
+- TTL is capped at the server's maximum health-report TTL
+
+**Notes:**
+- Endpoints without a fresh per-endpoint health report (none sent, or the
+  report has expired) are treated as unhealthy by the health monitor.
+""",
+)
+async def report_endpoint_health(
+    health_data: EndpointHealthRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointHealthResponse:
+    """Report per-endpoint health status from client."""
+    return endpoint_service.report_endpoint_health(
+        endpoints_health=health_data.endpoints,
+        url=health_data.url,
+        current_user=current_user,
+        ttl_seconds=health_data.ttl_seconds,
+    )
+
+
+@router.get(
+    "/{owner_username}/{slug}/uptime",
+    response_model=EndpointUptimeResponse,
+    summary="Get Endpoint Uptime Series",
+    description="""
+Return a bucketed uptime + latency time series for one endpoint.
+
+Each bucket aggregates the health monitor's per-cycle decisions over the
+configured ``uptime_bucket_seconds`` window (default 30 minutes, matching
+``health_max_ttl_seconds``). For each bucket the response includes:
+
+- ``uptime_pct`` — percentage of monitor cycles in which the endpoint was healthy
+- ``avg_latency_ms`` / ``min_latency_ms`` / ``max_latency_ms`` — derived from
+  ``EndpointHealthItem.latency_ms`` reported by the SDK alongside health status
+- ``samples`` / ``healthy_samples`` — raw counters for client-side aggregation
+
+Public endpoints are readable by anyone, including unauthenticated viewers.
+INTERNAL / PRIVATE endpoints require the viewer to be the owner.
+""",
+    responses={404: {"description": "Endpoint not found"}},
+)
+async def get_endpoint_uptime(
+    owner_username: str,
+    slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    window_hours: int = Query(
+        24,
+        ge=1,
+        le=2160,
+        description=(
+            "Rolling time window in hours. Max 2160 (90 days), matching "
+            "``settings.uptime_retention_days``."
+        ),
+    ),
+) -> EndpointUptimeResponse:
+    """Get bucketed uptime + latency time series for one endpoint."""
+    return endpoint_service.get_endpoint_uptime(
+        owner_username=owner_username,
+        slug=slug,
+        window_hours=window_hours,
+        current_user=current_user,
+    )
+
+
+@router.get("/{endpoint_id}", response_model=EndpointResponse)
+async def get_endpoint(
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointResponse:
+    """Get a specific endpoint by ID."""
+    return endpoint_service.get_endpoint(endpoint_id, current_user)
+
+
+@router.patch("/{endpoint_id}", response_model=EndpointResponse)
+async def update_endpoint(
+    endpoint_id: int,
+    endpoint_data: EndpointUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointResponse:
+    """Update a endpoint."""
+    return endpoint_service.update_endpoint(endpoint_id, endpoint_data, current_user)
+
+
+@router.get("/{endpoint_slug}/exists", response_model=bool)
+async def endpoint_exists_for_user(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> bool:
+    """Check if endpoint exists for user."""
+    return endpoint_service.endpoint_exists_for_user(endpoint_slug, current_user)
+
+
+@router.patch("/slug/{endpoint_slug}", response_model=EndpointResponse)
+async def update_endpoint_by_slug(
+    endpoint_slug: str,
+    endpoint_data: EndpointUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointResponse:
+    """Update a endpoint by slug."""
+    return endpoint_service.update_endpoint_by_slug(
+        endpoint_slug, endpoint_data, current_user
+    )
+
+
+@router.delete("/slug/{endpoint_slug}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_endpoint_by_slug(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> None:
+    """Delete an endpoint by slug."""
+    endpoint_service.delete_endpoint_by_slug(endpoint_slug, current_user)
+
+
+@router.delete("/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_endpoint(
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> None:
+    """Delete a endpoint."""
+    endpoint_service.delete_endpoint(endpoint_id, current_user)
+
+
+# Admin-only endpoints
+@router.patch("/{endpoint_id}/admin", response_model=EndpointResponse)
+async def admin_update_endpoint(
+    endpoint_id: int,
+    admin_data: EndpointAdminUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    _: Annotated[bool, Depends(require_admin)],
+) -> EndpointResponse:
+    """Admin-only endpoint updates (is_active, stars_count override)."""
+    return endpoint_service.admin_update_endpoint(endpoint_id, admin_data, current_user)
+
+
+# Star management endpoints
+@router.post("/{endpoint_id}/star", status_code=status.HTTP_201_CREATED)
+async def star_endpoint(
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> dict[str, bool]:
+    """Star a endpoint."""
+    success = endpoint_service.star_endpoint(endpoint_id, current_user)
+    return {"starred": success}
+
+
+@router.delete("/{endpoint_id}/star", status_code=status.HTTP_204_NO_CONTENT)
+async def unstar_endpoint(
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> None:
+    """Unstar a endpoint."""
+    endpoint_service.unstar_endpoint(endpoint_id, current_user)
+
+
+@router.get("/{endpoint_id}/starred")
+async def check_endpoint_starred(
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> dict[str, bool]:
+    """Check if current user has starred a endpoint."""
+    starred = endpoint_service.is_endpoint_starred(endpoint_id, current_user)
+    return {"starred": starred}

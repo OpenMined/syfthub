@@ -1,0 +1,688 @@
+"""Client for interacting with SyftAI-Space model endpoints."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any
+
+import httpx
+
+from aggregator.clients._policy_meta import extract_policy_metadata
+from aggregator.clients.mpp_payment import handle_mpp_payment
+from aggregator.observability import get_correlation_id, get_logger
+from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
+from aggregator.schemas.internal import GenerationResult
+from aggregator.schemas.requests import Message
+
+if TYPE_CHECKING:
+    from aggregator.clients.error_reporter import ErrorReporter
+
+logger = get_logger(__name__)
+
+# Retry configuration for transient upstream failures (e.g. HTTP 500)
+MAX_RETRIES = 2
+RETRY_BASE_DELAY = 1.0  # seconds
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+
+
+class ModelClientError(Exception):
+    """Error from model endpoint."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        policy_metadata: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.policy_metadata = policy_metadata
+
+
+class ModelClient:
+    """Client for calling SyftAI-Space model endpoints.
+
+    This client is adapted to work with SyftAI-Space's unified endpoint API:
+    POST /api/v1/endpoints/{slug}/query
+
+    The endpoint must be configured with response_type that includes "summary"
+    (either "summary" or "both") to return LLM-generated content.
+    """
+
+    def __init__(
+        self,
+        timeout: float = 120.0,
+        error_reporter: ErrorReporter | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ):
+        self.timeout = httpx.Timeout(timeout)
+        self.error_reporter = error_reporter
+        self.http_client = http_client
+
+    async def chat(
+        self,
+        url: str,
+        slug: str,
+        messages: list[Message],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        tenant_name: str | None = None,
+        authorization_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
+    ) -> GenerationResult:
+        """
+        Send messages to a SyftAI-Space model endpoint and get a response.
+
+        User identity is derived from the satellite token by SyftAI-Space.
+
+        Args:
+            url: Base URL of the SyftAI-Space instance
+            slug: Endpoint slug for the API path
+            messages: List of conversation messages
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
+            tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
+
+        Returns:
+            GenerationResult with response text and metadata
+
+        Raises:
+            ModelClientError: If the request fails
+        """
+        start_time = time.perf_counter()
+
+        # Build SyftAI-Space endpoint URL
+        chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
+
+        # Convert messages to SyftAI-Space format
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        # Build SyftAI-Space compatible request body
+        # User identity is derived from the satellite token, not the request body
+        request_data: dict[str, Any] = {
+            "messages": formatted_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,
+            "stop_sequences": [],  # Don't stop on newlines - allow complete responses
+        }
+
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
+
+        # Build headers with correlation ID for request tracing
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.MODEL_QUERY_STARTED,
+            chat_url=chat_url,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        last_error: ModelClientError | None = None
+
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            for attempt in range(1 + MAX_RETRIES):
+                try:
+                    response = await client.post(
+                        chat_url,
+                        json=request_data,
+                        headers=headers,
+                        timeout=self.timeout,
+                    )
+
+                    # Handle MPP 402 Payment Required
+                    if response.status_code == 402 and user_token and syfthub_url:
+                        try:
+                            x_payment = await handle_mpp_payment(
+                                response=response,
+                                syfthub_url=syfthub_url,
+                                user_token=user_token,
+                                endpoint_slug=slug,
+                                http_client=client,
+                            )
+                            if x_payment:
+                                # Retry with X-Payment header
+                                retry_headers = {**headers, "X-Payment": x_payment}
+                                response = await client.post(
+                                    chat_url,
+                                    json=request_data,
+                                    headers=retry_headers,
+                                )
+                        except Exception as pay_err:
+                            pay_policy_metadata = extract_policy_metadata(response)
+                            error_detail = str(pay_err).lower()
+                            if "insufficient" in error_detail:
+                                raise ModelClientError(
+                                    "Payment failed: insufficient wallet balance",
+                                    status_code=402,
+                                    policy_metadata=pay_policy_metadata,
+                                ) from pay_err
+                            elif "timeout" in error_detail or "timed out" in error_detail:
+                                raise ModelClientError(
+                                    "Payment failed: blockchain timeout",
+                                    status_code=504,
+                                    policy_metadata=pay_policy_metadata,
+                                ) from pay_err
+                            else:
+                                raise ModelClientError(
+                                    f"Payment failed: {pay_err}",
+                                    status_code=402,
+                                    policy_metadata=pay_policy_metadata,
+                                ) from pay_err
+
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+                    if response.status_code == 403:
+                        error_detail = self._extract_error_detail(response)
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=403,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model access denied: {error_detail}",
+                            endpoint=chat_url,
+                            status_code=403,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        raise ModelClientError(
+                            f"Model access denied: {error_detail}",
+                            status_code=403,
+                            policy_metadata=extract_policy_metadata(response),
+                        )
+
+                    if response.status_code != 200:
+                        error_detail = self._extract_error_detail(response)
+
+                        # Detect HTML error pages (e.g. ngrok offline page)
+                        # and use a friendly message for the user-facing error
+                        is_html = self._is_html_error_page(error_detail)
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if is_html
+                            else f"Model request failed: HTTP {response.status_code} - {error_detail}"
+                        )
+
+                        # Retry on transient upstream errors
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            delay = RETRY_BASE_DELAY * (2**attempt)
+                            logger.warning(
+                                LogEvents.MODEL_QUERY_FAILED,
+                                status_code=response.status_code,
+                                error=error_detail,
+                                latency_ms=latency_ms,
+                                retry_attempt=attempt + 1,
+                                retry_max=MAX_RETRIES,
+                                retry_delay=delay,
+                            )
+                            last_error = ModelClientError(
+                                user_message,
+                                status_code=response.status_code,
+                                policy_metadata=extract_policy_metadata(response),
+                            )
+                            await asyncio.sleep(delay)
+                            start_time = time.perf_counter()
+                            continue
+
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=response.status_code,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                            endpoint=chat_url,
+                            status_code=response.status_code,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        raise ModelClientError(
+                            user_message,
+                            status_code=response.status_code,
+                            policy_metadata=extract_policy_metadata(response),
+                        )
+
+                    try:
+                        data = response.json()
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=200,
+                            error=f"Invalid JSON response: {e}",
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model returned invalid JSON: {e}",
+                            endpoint=chat_url,
+                            status_code=200,
+                            error_detail=str(e),
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                            error_type="JSONDecodeError",
+                        )
+                        raise ModelClientError(
+                            f"Model returned invalid JSON: {e}",
+                            status_code=200,
+                        ) from e
+
+                    response_text = self._extract_syftai_response(data)
+                    usage = self._extract_usage(data)
+
+                    logger.info(
+                        LogEvents.MODEL_QUERY_COMPLETED,
+                        latency_ms=latency_ms,
+                        usage=usage,
+                    )
+
+                    return GenerationResult(
+                        response=response_text,
+                        latency_ms=latency_ms,
+                        usage=usage,
+                        policy_metadata=data.get("policy_metadata"),
+                    )
+
+                except ModelClientError:
+                    raise
+                except httpx.TimeoutException as e:
+                    logger.warning(LogEvents.CHAT_GENERATION_TIMEOUT, chat_url=chat_url)
+                    raise ModelClientError("Model request timed out") from e
+                except httpx.RequestError as e:
+                    logger.warning(LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e))
+                    raise ModelClientError(
+                        f"Cannot reach model at {chat_url}: {e}. "
+                        "Check that the endpoint's public URL is correct in Settings."
+                    ) from e
+
+            # All retries exhausted
+            raise last_error or ModelClientError("Model request failed after retries")
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
+
+    async def chat_stream(
+        self,
+        url: str,
+        slug: str,
+        messages: list[Message],
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        tenant_name: str | None = None,
+        authorization_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Send messages to a SyftAI-Space model endpoint and stream the response.
+
+        Note: SyftAI-Space streaming may not be fully implemented. This method
+        attempts to handle both streaming and non-streaming responses gracefully.
+
+        User identity is derived from the satellite token by SyftAI-Space.
+
+        Args:
+            url: Base URL of the SyftAI-Space instance
+            slug: Endpoint slug for the API path
+            messages: List of conversation messages
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
+            tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
+
+        Yields:
+            Response text chunks as they arrive
+        """
+        # Build SyftAI-Space endpoint URL
+        chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
+
+        # Convert messages to SyftAI-Space format
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+
+        # Build SyftAI-Space compatible request body
+        # User identity is derived from the satellite token, not the request body
+        request_data: dict[str, Any] = {
+            "messages": formatted_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,  # Request streaming
+            "stop_sequences": [],  # Don't stop on newlines - allow complete responses
+        }
+
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
+
+        # Build headers with correlation ID for request tracing
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.SSE_STREAM_STARTED,
+            chat_url=chat_url,
+            max_tokens=max_tokens,
+        )
+
+        # For streaming, we need to handle 402 before opening the stream.
+        # First make a non-streaming probe if MPP is available, then open the real stream.
+        extra_headers: dict[str, str] = {}
+        if user_token and syfthub_url:
+            # Make a quick non-streaming request to check for 402
+            probe_client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+            try:
+                probe_data = {**request_data, "stream": False}
+                probe_response = await probe_client.post(chat_url, json=probe_data, headers=headers)
+                if probe_response.status_code == 402:
+                    try:
+                        x_payment = await handle_mpp_payment(
+                            response=probe_response,
+                            syfthub_url=syfthub_url,
+                            user_token=user_token,
+                            endpoint_slug=slug,
+                            http_client=probe_client,
+                        )
+                        if x_payment:
+                            extra_headers["X-Payment"] = x_payment
+                    except Exception as pay_err:
+                        error_detail = str(pay_err).lower()
+                        if "insufficient" in error_detail:
+                            raise ModelClientError(
+                                "Payment failed: insufficient wallet balance",
+                                status_code=402,
+                            ) from pay_err
+                        elif "timeout" in error_detail or "timed out" in error_detail:
+                            raise ModelClientError(
+                                "Payment failed: blockchain timeout",
+                                status_code=504,
+                            ) from pay_err
+                        else:
+                            raise ModelClientError(
+                                f"Payment failed: {pay_err}",
+                                status_code=402,
+                            ) from pay_err
+            finally:
+                if not self.http_client:
+                    await probe_client.aclose()
+
+        stream_headers = {**headers, **extra_headers}
+
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            try:
+                async with client.stream(
+                    "POST",
+                    chat_url,
+                    json=request_data,
+                    headers=stream_headers,
+                    timeout=self.timeout,
+                ) as response:
+                    if response.status_code == 403:
+                        error_text = await response.aread()
+                        error_str = (
+                            error_text[:200].decode("utf-8", errors="replace")
+                            if isinstance(error_text, bytes)
+                            else str(error_text)[:200]
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.SSE_STREAM_FAILED,
+                            message=f"Model access denied: {error_str}",
+                            endpoint=chat_url,
+                            status_code=403,
+                            error_detail=error_str,
+                            request_data=request_data,
+                        )
+                        raise ModelClientError(
+                            f"Model access denied: {error_str}",
+                            status_code=403,
+                        )
+
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        error_str = (
+                            error_text[:200].decode("utf-8", errors="replace")
+                            if isinstance(error_text, bytes)
+                            else str(error_text)[:200]
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.SSE_STREAM_FAILED,
+                            message=f"Model stream failed: HTTP {response.status_code} - {error_str}",
+                            endpoint=chat_url,
+                            status_code=response.status_code,
+                            error_detail=error_str,
+                            request_data=request_data,
+                        )
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if self._is_html_error_page(error_str)
+                            else f"Model stream failed: HTTP {response.status_code} - {error_str}"
+                        )
+                        raise ModelClientError(
+                            user_message,
+                            status_code=response.status_code,
+                        )
+
+                    # Check content type to determine if we got streaming or non-streaming
+                    content_type = response.headers.get("content-type", "")
+
+                    if "text/event-stream" in content_type:
+                        # Handle SSE streaming
+                        async for line in response.aiter_lines():
+                            chunk = self._parse_sse_line(line)
+                            if chunk:
+                                yield chunk
+                    else:
+                        # SyftAI-Space returned non-streaming response
+                        # Read the full response and yield the content
+                        body = await response.aread()
+                        try:
+                            data = json.loads(body)
+                            response_text = self._extract_syftai_response(data)
+                            if response_text:
+                                yield response_text
+                        except json.JSONDecodeError:
+                            # Plain text response
+                            yield body.decode("utf-8")
+
+            except httpx.TimeoutException as e:
+                logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error="timeout")
+                raise ModelClientError("Model stream timed out") from e
+            except httpx.RequestError as e:
+                logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e))
+                raise ModelClientError(
+                    f"Cannot reach model at {chat_url}: {e}. "
+                    "Check that the endpoint's public URL is correct in Settings."
+                ) from e
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
+
+    def _report_upstream_error(
+        self,
+        *,
+        event: str,
+        message: str,
+        endpoint: str,
+        status_code: int,
+        error_detail: str,
+        latency_ms: int | None = None,
+        request_data: dict[str, Any] | None = None,
+        error_type: str = "UpstreamError",
+    ) -> None:
+        """Report an upstream SyftAI-Space error to the backend for DB persistence."""
+        if not self.error_reporter:
+            return
+
+        context: dict[str, Any] = {"upstream_status_code": status_code}
+        if latency_ms is not None:
+            context["latency_ms"] = latency_ms
+
+        self.error_reporter.report(
+            event=event,
+            message=message,
+            level="ERROR" if status_code >= 500 else "WARNING",
+            endpoint=endpoint,
+            method="POST",
+            error_type=error_type,
+            error_code=str(status_code),
+            context=context,
+            request_data=request_data,
+            response_data={"detail": error_detail},
+        )
+
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(slug: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The model endpoint '{slug}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
+        )
+
+    def _extract_error_detail(self, response: httpx.Response) -> str:
+        """Extract error detail from response."""
+        try:
+            data = response.json()
+            return str(data.get("detail", response.text[:200]))
+        except Exception:
+            return response.text[:200]
+
+    def _extract_syftai_response(self, data: dict[str, Any]) -> str:
+        """Extract response text from SyftAI-Space QueryEndpointResponse.
+
+        SyftAI-Space returns:
+        {
+            "summary": {
+                "id": str,
+                "model": str,
+                "message": {"role": "assistant", "content": str, "tokens": int},
+                "finish_reason": str,
+                "usage": {...},
+                "provider_info": {...}
+            } | null,
+            "references": {...} | null,
+            "cost": float,
+            "currency": str
+        }
+
+        We extract from summary.message.content.
+        """
+        # Extract summary from SyftAI-Space response
+        summary = data.get("summary")
+        if not summary:
+            logger.debug("No summary in SyftAI-Space response")
+            return ""
+
+        # Extract message content
+        message = summary.get("message", {})
+        if isinstance(message, dict):
+            return str(message.get("content", ""))
+        if isinstance(message, str):
+            return message
+
+        return ""
+
+    def _extract_usage(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Extract token usage from SyftAI-Space response."""
+        summary = data.get("summary")
+        if not summary:
+            return None
+
+        usage = summary.get("usage")
+        if usage:
+            return {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        return None
+
+    def _parse_sse_line(self, line: str) -> str | None:
+        """Parse a Server-Sent Events line to extract content."""
+        line = line.strip()
+
+        if not line:
+            return None
+
+        # Handle "data: " prefix
+        if line.startswith("data: "):
+            data = line[6:]
+
+            # Check for stream end
+            if data == "[DONE]":
+                return None
+
+            try:
+                parsed = json.loads(data)
+
+                # SyftAI-Space streaming format (if implemented)
+                if "summary" in parsed:
+                    summary = parsed["summary"]
+                    if summary:
+                        message = summary.get("message", {})
+                        if isinstance(message, dict):
+                            content = message.get("content")
+                            return str(content) if content is not None else None
+
+                # OpenAI-style delta (for compatibility)
+                if "choices" in parsed:
+                    choices = parsed["choices"]
+                    if choices and isinstance(choices, list) and len(choices) > 0:
+                        first_choice = choices[0]
+                        if isinstance(first_choice, dict):
+                            delta = first_choice.get("delta", {})
+                            if isinstance(delta, dict):
+                                content = delta.get("content")
+                                return str(content) if content is not None else None
+
+                # Simple content field
+                if "content" in parsed:
+                    return str(parsed["content"])
+
+                if "text" in parsed:
+                    return str(parsed["text"])
+
+            except json.JSONDecodeError:
+                # Plain text data
+                return data
+
+        return None

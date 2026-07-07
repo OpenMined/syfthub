@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    /* Base Options: */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "target": "esnext",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Strictness */
+    "strict": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "checkJs": false,
+    "useDefineForClassFields": true,
+
+    /* Bundled projects */
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "incremental": true,
+
+    /* Path Aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "~/*": ["./*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "Homepagelayoutdesign"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

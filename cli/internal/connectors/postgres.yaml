@@ -1,0 +1,20 @@
+meta:
+  id: postgres
+  name: "PostgreSQL"
+  description: "Configure PostgreSQL database connection"
+  category: database
+  tags: [postgres, postgresql, database, sql]
+
+steps:
+  - id: connection_string
+    type: prompt
+    name: "Database Connection String"
+    required: true
+    prompt:
+      message: "Enter PostgreSQL connection string (e.g., postgresql://user:pass@host:5432/dbname)"
+      secret: true
+      validate:
+        pattern: "^postgres(ql)?://"
+        message: "Connection string should start with postgresql:// or postgres://"
+    outputs:
+      DATABASE_URL: "{{value}}"

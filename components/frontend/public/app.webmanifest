@@ -1,0 +1,31 @@
+{
+  "lang": "en-EN",
+  "name": "SyftHub",
+  "short_name": "SyftHub",
+  "description": "Privacy-first AI platform powered by OpenMined",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#000",
+  "background_color": "#000",
+  "icons": [
+    {
+      "src": "/favicon/openmined-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon/favicon-192.webp",
+      "sizes": "192x192",
+      "type": "image/webp",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon/favicon-512.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,263 @@
+import { useEffect } from 'react';
+
+import type { RegisterFormValues } from '@/lib/schemas';
+import type { CredentialResponse } from '@react-oauth/google';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { GoogleLogin } from '@react-oauth/google';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import User from 'lucide-react/dist/esm/icons/user';
+import { Controller, useForm } from 'react-hook-form';
+
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
+import { useAuth } from '@/context/auth-context';
+import { registerSchema } from '@/lib/schemas';
+import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
+import { getPasswordStrengthInfo } from '@/lib/validation';
+import { useModalStore } from '@/stores/modal-store';
+
+import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
+
+const googleOAuthEnabled = isGoogleOAuthEnabled();
+
+interface RegisterModalProperties {
+  isOpen: boolean;
+  onClose: () => void;
+  onSwitchToLogin: () => void;
+}
+
+export function RegisterModal({
+  isOpen,
+  onClose,
+  onSwitchToLogin
+}: Readonly<RegisterModalProperties>) {
+  const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
+  const { openVerifyOtp } = useModalStore();
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    control,
+    formState: { errors }
+  } = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      termsAccepted: false
+    }
+  });
+
+  const passwordValue = watch('password');
+  const passwordStrength = getPasswordStrengthInfo(passwordValue);
+
+  const onSubmit = async (data: RegisterFormValues) => {
+    try {
+      const result = await authRegister({
+        name: data.name.trim(),
+        email: data.email.trim(),
+        password: data.password
+      });
+
+      if (result.requiresEmailVerification) {
+        // Switch to OTP verification modal with the user's email
+        openVerifyOtp(data.email.trim());
+      } else {
+        onClose();
+      }
+    } catch {
+      // Error is handled by auth context
+    }
+  };
+
+  // Reset form when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      reset();
+      clearError();
+    }
+  }, [isOpen, reset, clearError]);
+
+  // Clear auth error when user starts typing
+  const handleInputChange = () => {
+    if (error) {
+      clearError();
+    }
+  };
+
+  // Determine submit button text based on state
+  const getSubmitButtonText = () => {
+    if (isLoading) return 'Creating Account…';
+    return 'Create Account';
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title='Create your account'
+      description='Join SyftHub and start building privacy-first AI'
+      size='lg'
+    >
+      <div className='relative space-y-4'>
+        {isLoading && <AuthLoadingOverlay />}
+
+        {/* Global Error */}
+        {error ? <AuthErrorAlert error={error} onDismiss={clearError} /> : null}
+
+        {/* Registration Form */}
+        <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
+          <Input
+            type='text'
+            label='Full Name'
+            placeholder='John Doe…'
+            {...register('name', { onChange: handleInputChange })}
+            error={errors.name?.message}
+            leftIcon={<User className='h-4 w-4' />}
+            isRequired
+            disabled={isLoading}
+            autoComplete='name'
+          />
+
+          <Input
+            type='email'
+            label='Email'
+            placeholder='name@company.com…'
+            {...register('email', {
+              onChange: handleInputChange
+            })}
+            error={errors.email?.message}
+            leftIcon={<Mail className='h-4 w-4' />}
+            isRequired
+            disabled={isLoading}
+            autoComplete='email'
+            spellCheck={false}
+          />
+
+          <div className='space-y-2'>
+            <Input
+              type='password'
+              label='Password'
+              placeholder='Create a secure password…'
+              {...register('password', { onChange: handleInputChange })}
+              error={errors.password?.message}
+              isRequired
+              disabled={isLoading}
+              autoComplete='new-password'
+            />
+
+            {/* Password Strength Indicator */}
+            {passwordValue ? (
+              <div className='flex items-center gap-2'>
+                <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
+                  <div
+                    className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
+                    style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
+                  />
+                </div>
+                <span className='font-inter text-muted-foreground min-w-0 text-xs'>
+                  {passwordStrength.label}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <Input
+            type='password'
+            label='Confirm Password'
+            placeholder='Confirm your password…'
+            {...register('confirmPassword', { onChange: handleInputChange })}
+            error={errors.confirmPassword?.message}
+            isRequired
+            disabled={isLoading}
+            autoComplete='new-password'
+          />
+
+          <div className='space-y-2 text-sm'>
+            <label htmlFor='terms-agreement' className='flex cursor-pointer items-start space-x-2'>
+              <Controller
+                name='termsAccepted'
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id='terms-agreement'
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isLoading}
+                    className='mt-0.5'
+                  />
+                )}
+              />
+              <span className='font-inter text-muted-foreground text-xs leading-relaxed'>
+                I agree to the <span className='text-foreground font-medium'>Terms of Service</span>{' '}
+                and <span className='text-foreground font-medium'>Privacy Policy</span>
+              </span>
+            </label>
+            {errors.termsAccepted && (
+              <p className='font-inter text-xs text-red-500'>{errors.termsAccepted.message}</p>
+            )}
+          </div>
+
+          <Button type='submit' size='lg' className='font-inter w-full' disabled={isLoading}>
+            {getSubmitButtonText()}
+          </Button>
+        </form>
+
+        {/* Google OAuth - only shown if configured */}
+        {googleOAuthEnabled && (
+          <>
+            <div className='relative my-4'>
+              <div className='absolute inset-0 flex items-center'>
+                <span className='border-border w-full border-t' />
+              </div>
+              <div className='relative flex justify-center text-xs uppercase'>
+                <span className='bg-background text-muted-foreground px-2'>Or continue with</span>
+              </div>
+            </div>
+
+            <div className='flex justify-center'>
+              <GoogleLogin
+                onSuccess={(credentialResponse: CredentialResponse) => {
+                  if (credentialResponse.credential) {
+                    void loginWithGoogle(credentialResponse.credential).then(() => {
+                      onClose();
+                    });
+                  }
+                }}
+                onError={() => {
+                  clearError();
+                }}
+                theme='outline'
+                size='large'
+                width='100%'
+                text='signup_with'
+              />
+            </div>
+          </>
+        )}
+
+        {/* Switch to Login */}
+        <div className='border-border border-t pt-4 text-center text-sm'>
+          <p className='font-inter text-muted-foreground'>
+            Already have an account?{' '}
+            <button
+              type='button'
+              onClick={onSwitchToLogin}
+              className='text-foreground hover:text-secondary font-medium underline'
+              disabled={isLoading}
+            >
+              Sign in
+            </button>
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}

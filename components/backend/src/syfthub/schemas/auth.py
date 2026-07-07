@@ -1,0 +1,227 @@
+"""Authentication schemas."""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Dict, Optional, Union
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from syfthub.core.config import settings
+
+
+class UserRole(str, Enum):
+    """User roles for role-based access control."""
+
+    ADMIN = "admin"
+    USER = "user"
+    GUEST = "guest"
+
+
+class AuthProvider(str, Enum):
+    """Authentication provider types."""
+
+    LOCAL = "local"
+    GOOGLE = "google"
+
+
+def _validate_password_strength(v: str) -> str:
+    """Validate password meets strength requirements."""
+    if len(v) < settings.password_min_length:
+        msg = (
+            f"Password must be at least {settings.password_min_length} characters long"
+        )
+        raise ValueError(msg)
+    if not any(c.isdigit() for c in v):
+        msg = "Password must contain at least one digit"
+        raise ValueError(msg)
+    if not any(c.isalpha() for c in v):
+        msg = "Password must contain at least one letter"
+        raise ValueError(msg)
+    return v
+
+
+class Token(BaseModel):
+    """Token response schema."""
+
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="JWT refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+
+
+class TokenData(BaseModel):
+    """Token data schema for JWT payload."""
+
+    username: Optional[str] = None
+    user_id: Optional[int] = None
+    role: Optional[UserRole] = None
+
+
+class UserLogin(BaseModel):
+    """User login schema."""
+
+    username: str = Field(
+        ..., min_length=1, max_length=50, description="Username or email"
+    )
+    password: str = Field(..., min_length=1, description="User password")
+
+
+class UserRegister(BaseModel):
+    """User registration schema."""
+
+    username: str = Field(
+        ..., min_length=3, max_length=50, description="Unique username"
+    )
+    email: EmailStr = Field(..., description="User email address")
+    full_name: str = Field(
+        ..., min_length=1, max_length=100, description="User's full name"
+    )
+    password: str = Field(..., description="User password")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password requirements."""
+        return _validate_password_strength(v)
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        """Validate username requirements."""
+        if not v.replace("_", "").replace("-", "").isalnum():
+            msg = "Username can only contain letters, numbers, underscores, and hyphens"
+            raise ValueError(msg)
+        return v.lower()
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request schema."""
+
+    refresh_token: str = Field(..., description="Valid refresh token")
+
+
+class PasswordChange(BaseModel):
+    """Password change schema."""
+
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., description="New password")
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password requirements."""
+        return _validate_password_strength(v)
+
+
+class AuthResponse(BaseModel):
+    """Authentication response with user info and tokens."""
+
+    user: Dict[str, Union[str, int, bool, None]] = Field(
+        ..., description="User information"
+    )
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="JWT refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+
+
+class RegistrationResponse(BaseModel):
+    """Registration response with conditional token delivery.
+
+    When email verification is required, tokens are null and
+    requires_email_verification is True. The client must verify
+    the OTP before receiving tokens.
+    """
+
+    user: Dict[str, Union[str, int, bool, None]] = Field(
+        ..., description="User information"
+    )
+    access_token: Optional[str] = Field(
+        None, description="JWT access token (null when verification required)"
+    )
+    refresh_token: Optional[str] = Field(
+        None, description="JWT refresh token (null when verification required)"
+    )
+    token_type: str = Field(default="bearer", description="Token type")
+    requires_email_verification: bool = Field(
+        default=False,
+        description="Whether the user must verify their email before receiving tokens",
+    )
+
+
+class VerifyOTPRequest(BaseModel):
+    """Request to verify an OTP code."""
+
+    email: EmailStr = Field(..., description="Email address that received the OTP")
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code",
+    )
+
+
+class ResendOTPRequest(BaseModel):
+    """Request to resend an OTP code."""
+
+    email: EmailStr = Field(..., description="Email address to resend the OTP to")
+
+
+class PasswordResetRequest(BaseModel):
+    """Request to initiate password reset."""
+
+    email: EmailStr = Field(..., description="Email address for password reset")
+
+
+class PasswordResetConfirm(BaseModel):
+    """Request to confirm password reset with OTP and new password."""
+
+    email: EmailStr = Field(..., description="Email address for password reset")
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code",
+    )
+    new_password: str = Field(..., description="New password")
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password requirements."""
+        if len(v) < settings.password_min_length:
+            msg = f"Password must be at least {settings.password_min_length} characters long"
+            raise ValueError(msg)
+
+        if not any(c.isdigit() for c in v):
+            msg = "Password must contain at least one digit"
+            raise ValueError(msg)
+
+        if not any(c.isalpha() for c in v):
+            msg = "Password must contain at least one letter"
+            raise ValueError(msg)
+
+        return v
+
+
+class AuthConfigResponse(BaseModel):
+    """Platform authentication configuration (public, no auth required)."""
+
+    require_email_verification: bool = Field(
+        ..., description="Whether registration requires email OTP verification"
+    )
+    smtp_configured: bool = Field(..., description="Whether SMTP email is configured")
+    password_reset_enabled: bool = Field(
+        ..., description="Whether password reset via email is available"
+    )
+
+
+class GoogleAuthRequest(BaseModel):
+    """Google OAuth authentication request schema."""
+
+    credential: str = Field(
+        ...,
+        min_length=1,
+        description="Google ID token (JWT) received from Google Sign-In",
+    )

@@ -1,0 +1,745 @@
+"""Main FastAPI application."""
+
+import asyncio
+import contextlib
+import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated, Any, Optional, Union
+
+import httpx
+import markdown
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+
+from syfthub import __version__
+from syfthub.api.router import api_router
+from syfthub.auth.db_dependencies import get_optional_current_user
+from syfthub.auth.keys import key_manager
+from syfthub.core.config import settings
+from syfthub.core.html_sanitizer import sanitize_readme_html
+from syfthub.core.redis_client import close_redis_client
+from syfthub.core.ssrf_protection import validate_domain_for_ssrf
+from syfthub.core.url_builder import (
+    build_connection_url,
+    get_first_enabled_connection,
+    transform_connection_urls,
+)
+from syfthub.database.connection import create_tables
+from syfthub.database.dependencies import (
+    get_endpoint_repository,
+    get_user_repository,
+)
+from syfthub.jobs.health_monitor import EndpointHealthMonitor
+from syfthub.jobs.otp_cleanup import OTPCleanupJob
+from syfthub.observability import (
+    CorrelationIDMiddleware,
+    RequestLoggingMiddleware,
+    configure_logging,
+    get_logger,
+)
+from syfthub.observability.handlers import register_exception_handlers
+from syfthub.repositories.endpoint import EndpointRepository
+from syfthub.repositories.user import UserRepository
+from syfthub.schemas.auth import UserRole
+from syfthub.schemas.endpoint import (
+    Endpoint,
+    EndpointPublicResponse,
+    EndpointResponse,
+    EndpointType,
+    EndpointVisibility,
+)
+from syfthub.schemas.user import User
+
+# Configure structured logging
+configure_logging(
+    log_level=settings.log_level,
+    log_format=settings.log_format if not settings.debug else "console",
+    development_mode=settings.debug,
+)
+
+# Setup Jinja2 templates
+templates_dir = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
+
+# Timeout configuration for endpoint proxying (in seconds)
+PROXY_TIMEOUT_DATA_SOURCE = 30.0
+PROXY_TIMEOUT_MODEL = 120.0
+
+
+def build_invocation_url(
+    owner: User,
+    connections: list[dict[str, Any]],
+    endpoint_slug: str,
+    endpoint_path: str,
+) -> str:
+    """Build the invocation URL from owner domain and connection config.
+
+    Args:
+        owner: The endpoint owner
+        connections: List of connection configurations from the endpoint
+        endpoint_slug: The endpoint's slug for building the query path
+        endpoint_path: Path identifier for error messages (e.g., "owner/endpoint")
+
+    Returns:
+        The full query URL for invoking the endpoint
+
+    Raises:
+        HTTPException: If no domain or connections are configured
+    """
+    # Check owner has a domain configured
+    domain = getattr(owner, "domain", None)
+    if not domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Owner of endpoint '{endpoint_path}' has no domain configured",
+        )
+
+    if not connections:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Endpoint '{endpoint_path}' has no connections configured",
+        )
+
+    # Get the first enabled connection
+    connection = get_first_enabled_connection(connections)
+    if not connection:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No enabled connection found for endpoint '{endpoint_path}'",
+        )
+
+    # Get connection type and path from config
+    connection_type = connection.get("type", "rest_api")
+    config = connection.get("config", {})
+    path_suffix = config.get("url", "") or config.get("path", "")
+
+    # Build the base URL from domain and path
+    base_url = build_connection_url(domain, connection_type, path_suffix)
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not build URL for endpoint '{endpoint_path}'",
+        )
+
+    # Append the SyftAI-Space query pattern
+    return f"{base_url.rstrip('/')}/api/v1/endpoints/{endpoint_slug}/query"
+
+
+# Local helper functions to avoid circular imports
+def can_access_endpoint(endpoint: Endpoint, current_user: Optional[User]) -> bool:
+    """Check if user can access a endpoint based on visibility."""
+    if endpoint.visibility == EndpointVisibility.PUBLIC:
+        return True
+
+    if current_user is None:
+        return False
+
+    # Owner can always access
+    if current_user.id == endpoint.user_id:
+        return True
+
+    # Any authenticated user can access INTERNAL user-owned endpoints
+    if endpoint.visibility == EndpointVisibility.INTERNAL:
+        return True
+
+    # Admin can access everything
+    return current_user.role == UserRole.ADMIN
+
+
+def resolve_owner(owner_slug: str, user_repo: UserRepository) -> Optional[User]:
+    """Resolve an owner slug to a user."""
+    return user_repo.get_by_username(owner_slug.lower())
+
+
+def get_owner_endpoints(
+    owner: User, endpoint_repo: EndpointRepository
+) -> list[Endpoint]:
+    """Get endpoints for an owner."""
+    return endpoint_repo.get_user_endpoints(owner.id)
+
+
+def get_endpoint_by_owner_and_slug(
+    owner: User,
+    slug: str,
+    endpoint_repo: EndpointRepository,
+) -> Optional[Endpoint]:
+    """Get endpoint by owner and slug."""
+    return endpoint_repo.get_by_user_and_slug(owner.id, slug)
+
+
+def get_owner_username(owner: User) -> str:
+    """Return the public username for an owner."""
+    return owner.username
+
+
+def is_browser_request(request: Request) -> bool:
+    """Check if request is from a browser (wants HTML) vs API client (wants JSON)."""
+    accept_header = request.headers.get("accept", "")
+    user_agent = request.headers.get("user-agent", "")
+
+    # Check if client specifically wants HTML
+    if "text/html" in accept_header:
+        return True
+
+    # Check if it's a browser user agent
+    browser_indicators = ["Mozilla", "Chrome", "Safari", "Firefox", "Edge"]
+    return any(indicator in user_agent for indicator in browser_indicators)
+
+
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application lifecycle."""
+    # Startup
+    logger.info(f"Starting Syfthub API v{__version__}")
+
+    # Initialize database
+    logger.info("Initializing database...")
+    create_tables()
+    logger.info("Database initialized successfully.")
+
+    # Initialize RSA Key Manager for Identity Provider
+    logger.info("Initializing RSA Key Manager for Identity Provider...")
+    try:
+        key_manager.initialize()
+        if key_manager.is_configured:
+            logger.info(
+                f"RSA keys loaded successfully. Key ID: {key_manager.current_key_id}"
+            )
+        else:
+            logger.warning(
+                "RSA keys not configured. Satellite token endpoints will be unavailable."
+            )
+    except Exception as e:
+        logger.error(f"Failed to initialize RSA Key Manager: {e}")
+        logger.warning("Satellite token endpoints will be unavailable.")
+
+    # Initialize Endpoint Health Monitor
+    health_monitor: Optional[EndpointHealthMonitor] = None
+    health_monitor_task: Optional[asyncio.Task[None]] = None
+
+    if settings.health_check_enabled:
+        logger.info("Initializing Endpoint Health Monitor...")
+        health_monitor = EndpointHealthMonitor(settings)
+        health_monitor_task = asyncio.create_task(health_monitor.start())
+        logger.info(
+            f"Endpoint Health Monitor started "
+            f"(interval: {settings.health_check_interval_seconds}s)"
+        )
+    else:
+        logger.info("Endpoint Health Monitor is disabled")
+
+    # Initialize OTP Cleanup Job
+    otp_cleanup = OTPCleanupJob(settings)
+    otp_cleanup_task = asyncio.create_task(otp_cleanup.start())
+
+    # Create shared httpx client for outbound requests
+    _app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+    )
+    logger.info("Shared HTTP client initialized")
+
+    yield
+
+    # Close shared httpx client
+    await _app.state.http_client.aclose()
+
+    # Shutdown
+    # Close shared httpx client
+    await _app.state.http_client.aclose()
+    logger.info("Shared HTTP client closed")
+
+    if health_monitor and health_monitor_task:
+        logger.info("Stopping Endpoint Health Monitor...")
+        await health_monitor.stop()
+        health_monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await health_monitor_task
+        logger.info("Endpoint Health Monitor stopped")
+
+    logger.info("Stopping OTP Cleanup Job...")
+    await otp_cleanup.stop()
+    otp_cleanup_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await otp_cleanup_task
+    logger.info("OTP Cleanup Job stopped")
+
+    # Close Redis connection
+    logger.info("Closing Redis connection...")
+    await close_redis_client()
+    logger.info("Redis connection closed")
+
+    logger.info("Shutting down Syfthub API")
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=__version__,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    lifespan=lifespan,
+    # Disable automatic trailing slash redirects to avoid redirect issues
+    # when running behind a reverse proxy (nginx) on a different port
+    redirect_slashes=False,
+)
+
+# Configure CORS
+if "*" in settings.cors_origins:
+    logger.warning(
+        "CORS configured with wildcard origin and credentials enabled. "
+        "This is insecure for production. Set CORS_ORIGINS to specific origins."
+    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add observability middleware (order matters - CorrelationID must be first to process)
+# Middleware executes in reverse order of addition, so add RequestLogging first
+app.add_middleware(
+    RequestLoggingMiddleware,
+    exclude_paths={"/health", "/ready", "/metrics", "/docs", "/openapi.json", "/redoc"},
+)
+app.add_middleware(CorrelationIDMiddleware)
+
+# Register global exception handlers for error capture
+register_exception_handlers(app)
+
+# Include API routes
+app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint."""
+    return {
+        "message": "Welcome to Syfthub API",
+        "version": __version__,
+        "docs": "/docs",
+    }
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "healthy", "version": __version__}
+
+
+# ===========================================
+# IDENTITY PROVIDER (IdP) ENDPOINTS
+# ===========================================
+
+
+@app.get("/.well-known/jwks.json")
+async def get_jwks() -> JSONResponse:
+    """Get JSON Web Key Set (JWKS) for token verification.
+
+    This endpoint exposes the Hub's public RSA keys in standard JWKS format.
+    Satellite services (like SyftAI Space) fetch and cache these keys to
+    verify tokens locally without calling the Hub for every request.
+
+    No authentication required (FR-01).
+
+    Returns:
+        JSONResponse: JWKS containing public keys with Cache-Control headers
+
+    Raises:
+        HTTPException: 503 if keys are not configured
+    """
+    if not key_manager.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Identity Provider not configured. RSA keys are unavailable.",
+        )
+
+    jwks = key_manager.get_jwks()
+
+    # Return with cache headers for satellite services
+    return JSONResponse(
+        content=jwks,
+        headers={
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            "Content-Type": "application/json",
+        },
+    )
+
+
+# Special routes for GitHub-like URLs (must be last to avoid conflicts)
+@app.get("/{owner_slug}", response_model=list[EndpointPublicResponse])
+async def list_owner_public_endpoints(
+    owner_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+) -> list[EndpointPublicResponse]:
+    """List an owner's public endpoints."""
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"'{owner_slug}' not found"
+        )
+
+    # Get owner's endpoints
+    owner_endpoints = get_owner_endpoints(owner, endpoint_repo)
+
+    # Filter to only show endpoints the current user can access
+    accessible_endpoints = []
+    for endpoint in owner_endpoints:
+        if not endpoint.is_active:
+            continue
+
+        # Check access permissions
+        if can_access_endpoint(endpoint, current_user):
+            # For public listing, show different levels based on access
+            if endpoint.visibility == EndpointVisibility.PUBLIC:
+                accessible_endpoints.append(endpoint)
+            elif current_user and current_user.id == endpoint.user_id:
+                # Allow the owner to see their own endpoints in public listing
+                accessible_endpoints.append(endpoint)
+
+    # Sort by most recent first
+    accessible_endpoints.sort(key=lambda ds: ds.updated_at, reverse=True)
+
+    # Apply pagination
+    accessible_endpoints = accessible_endpoints[skip : skip + limit]
+
+    # Build response with owner_username and transformed URLs
+    # Get owner's domain for URL transformation
+    owner_domain = getattr(owner, "domain", None)
+
+    response_list = []
+    for ds in accessible_endpoints:
+        ds_dict = ds.model_dump()
+
+        # Transform connection URLs using owner's domain
+        if ds_dict.get("connect"):
+            ds_dict["connect"] = transform_connection_urls(
+                owner_domain,
+                ds_dict["connect"],
+            )
+
+        # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
+        ds_dict["contributors_count"] = len(ds_dict.pop("contributors", []) or [])
+
+        ds_dict["owner_username"] = get_owner_username(owner)
+        response_list.append(EndpointPublicResponse.model_validate(ds_dict))
+
+    return response_list
+
+
+@app.get("/{owner_slug}/{endpoint_slug}", response_model=None)
+async def get_owner_endpoint(
+    request: Request,
+    owner_slug: str,
+    endpoint_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> Union[HTMLResponse, EndpointResponse, EndpointPublicResponse]:
+    """Get a specific endpoint by owner and slug."""
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Get endpoint by owner and slug
+    endpoint = get_endpoint_by_owner_and_slug(
+        owner, endpoint_slug.lower(), endpoint_repo
+    )
+    if not endpoint or not endpoint.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Check access permissions
+    if not can_access_endpoint(endpoint, current_user):
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to access this endpoint",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            # Return 404 for private endpoints to hide existence (like GitHub)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Owner or endpoint not found",
+            )
+
+    # Return full details if user is owner/admin, public details otherwise
+    can_see_full_details = bool(
+        current_user
+        and (current_user.role == UserRole.ADMIN or current_user.id == endpoint.user_id)
+    )
+
+    # Check if this is a browser request (wants HTML) or API request (wants JSON)
+    if is_browser_request(request):
+        # Render HTML template for browsers
+        owner_name = owner.username
+
+        # Convert README markdown to HTML and sanitize to prevent XSS
+        readme_html = ""
+        if endpoint.readme and endpoint.readme.strip():
+            raw_html = markdown.markdown(
+                endpoint.readme, extensions=["codehilite", "fenced_code"]
+            )
+            # Sanitize HTML to remove potentially dangerous tags/attributes
+            readme_html = sanitize_readme_html(raw_html)
+
+        return templates.TemplateResponse(
+            request,
+            "endpoint.html",
+            {
+                "endpoint": endpoint,
+                "owner_name": owner_name,
+                "owner_slug": owner_slug,
+                "readme_html": readme_html,
+                "can_see_full_details": can_see_full_details,
+            },
+        )
+    else:
+        # Return JSON for API clients with transformed URLs
+        # Get owner's domain for URL transformation
+        owner_domain = getattr(owner, "domain", None)
+        endpoint_dict = endpoint.model_dump()
+
+        # Transform connection URLs using owner's domain
+        if endpoint_dict.get("connect"):
+            endpoint_dict["connect"] = transform_connection_urls(
+                owner_domain,
+                endpoint_dict["connect"],
+            )
+
+        if can_see_full_details:
+            return EndpointResponse.model_validate(endpoint_dict)
+        else:
+            # Build public response with owner_username
+            # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
+            endpoint_dict["contributors_count"] = len(
+                endpoint_dict.pop("contributors", []) or []
+            )
+
+            endpoint_dict["owner_username"] = get_owner_username(owner)
+            return EndpointPublicResponse.model_validate(endpoint_dict)
+
+
+@app.post("/{owner_slug}/{endpoint_slug}", response_model=None)
+async def invoke_owner_endpoint(
+    request: Request,
+    owner_slug: str,
+    endpoint_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> JSONResponse:
+    """Invoke a specific endpoint by owner and slug.
+
+    This endpoint handles POST requests to /{owner_slug}/{endpoint_slug} for
+    invoking/executing the endpoint's functionality.
+    """
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Get endpoint by owner and slug
+    endpoint = get_endpoint_by_owner_and_slug(
+        owner, endpoint_slug.lower(), endpoint_repo
+    )
+    if not endpoint or not endpoint.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Check access permissions
+    if not can_access_endpoint(endpoint, current_user):
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to access this endpoint",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            # Return 404 for private endpoints to hide existence (like GitHub)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Owner or endpoint not found",
+            )
+
+    # Build invocation URL from owner's domain and connection config
+    endpoint_path = f"{owner_slug}/{endpoint_slug}"
+
+    # Convert Connection objects to dicts for the helper function
+    connections_data = [
+        conn.model_dump() if hasattr(conn, "model_dump") else dict(conn)
+        for conn in endpoint.connect
+    ]
+
+    # Build the full query URL using owner's domain
+    query_url = build_invocation_url(
+        owner, connections_data, endpoint_slug, endpoint_path
+    )
+
+    # SSRF Protection: Validate owner's domain before making requests
+    # This is placed after build_invocation_url to ensure connection validation
+    # happens first (no connections, no domain errors returned before SSRF check)
+    owner_domain = getattr(owner, "domain", None)
+    if owner_domain:
+        validate_domain_for_ssrf(owner_domain)
+
+    # Get the request body
+    try:
+        request_body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON request body",
+        ) from None
+
+    # Set timeout based on endpoint type
+    timeout = (
+        PROXY_TIMEOUT_DATA_SOURCE
+        if endpoint.type == EndpointType.DATA_SOURCE
+        else PROXY_TIMEOUT_MODEL
+    )
+
+    # Prepare headers for the proxied request
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+
+    # Forward X-Tenant-Name header if present (for multi-tenancy)
+    tenant_header = request.headers.get("X-Tenant-Name")
+    if tenant_header:
+        headers["X-Tenant-Name"] = tenant_header
+
+    # Make the proxied request to the target endpoint
+    start_time = time.perf_counter()
+
+    try:
+        # Use the lifespan-scoped client when available (production), fall back
+        # to a per-request client for tests that don't run the lifespan.
+        shared_client = getattr(request.app.state, "http_client", None)
+        if shared_client is not None:
+            response = await shared_client.post(
+                query_url,
+                json=request_body,
+                headers=headers,
+                timeout=timeout,
+            )
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    query_url,
+                    json=request_body,
+                    headers=headers,
+                )
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Handle different response status codes
+        if response.status_code == 200:
+            # Success - return the response from the target endpoint
+            try:
+                response_data = response.json()
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=response_data,
+                    headers={"X-Proxy-Latency-Ms": str(latency_ms)},
+                )
+            except Exception:
+                # Response is not JSON, return as-is
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={"raw_response": response.text},
+                    headers={"X-Proxy-Latency-Ms": str(latency_ms)},
+                )
+
+        elif response.status_code == 403:
+            # Access denied by target endpoint
+            try:
+                error_detail = response.json().get("detail", "Access denied")
+            except Exception:
+                error_detail = response.text[:200] or "Access denied"
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Target endpoint denied access: {error_detail}",
+            )
+
+        else:
+            # Other error from target endpoint
+            try:
+                error_data = response.json()
+                error_detail = error_data.get("detail", str(error_data))
+            except Exception:
+                error_detail = response.text[:200] or f"HTTP {response.status_code}"
+
+            logger.warning(
+                "Target endpoint error (status=%s): %s",
+                response.status_code,
+                error_detail,
+            )
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Target endpoint returned an error",
+            )
+
+    except httpx.TimeoutException:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Request to target endpoint timed out after {timeout}s",
+        ) from None
+
+    except httpx.RequestError as e:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.warning("Failed to connect to target endpoint: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to connect to target endpoint",
+        ) from None
+
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error during proxy request: {e}",
+        ) from None
+
+
+def main() -> None:
+    """Entry point for running the server via script."""
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        reload=settings.reload,
+        workers=settings.workers,
+        log_level=settings.log_level.lower(),
+    )
+
+
+if __name__ == "__main__":
+    main()

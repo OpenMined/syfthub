@@ -1,0 +1,11 @@
+# SyftHub Staging Override
+# Lowers resource limits for the staging VM (2 CPUs available).
+# Used via: COMPOSE_OVERRIDE=docker-compose.staging.yml ./deploy.sh
+
+services:
+  aggregator:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G

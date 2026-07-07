@@ -1,0 +1,218 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# unittest.mock artifacts
+MagicMock/
+
+# C extensions
+*.so
+
+# LLM / AI tooling
+.interface-design/
+CLAUDE.md
+.claude/
+.serena/
+.gitnexus/
+.playwright-mcp/
+.worktrees/
+
+# Distribution / packaging
+.Python
+build/
+!components/frontend/src/components/build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Python lib directories (but not frontend/src/lib/)
+/lib/
+lib64/
+!components/frontend/src/lib/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+!cli/syft.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+.pdm-python
+.pdm-build/
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# uv
+
+# ruff
+.ruff_cache/
+
+# Local data directory
+data/
+backend/data/
+
+# RSA keys (auto-generated for multi-worker support)
+# These should NEVER be committed to version control
+**/rsa_keys/
+*.pem
+
+# Backend-specific ignores
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.venv/
+backend/.env
+backend/*.db
+backend/syfthub.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env*.local
+frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
+frontend/coverage/
+frontend/.nyc_output/
+frontend/.eslintcache
+frontend/.next/
+frontend/.nuxt/
+frontend/out/
+frontend/storybook-static/
+frontend/tsconfig.tsbuildinfo
+
+# Marketplace
+components/marketplace/marketplace
+
+# Root-level Node (dev tooling, not part of the project)
+node_modules/
+package-lock.json
+package.json

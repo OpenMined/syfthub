@@ -1,0 +1,155 @@
+"""Request schemas for the aggregator API."""
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class EndpointRef(BaseModel):
+    """Reference to a SyftAI-Space endpoint with connection details.
+
+    The aggregator uses these details to construct the proper API call:
+    - URL: {url}/api/v1/endpoints/{slug}/query
+    - Header: X-Tenant-Name: {tenant_name} (if provided)
+    - Header: Authorization: Bearer {token} (from endpoint_tokens mapping)
+    """
+
+    url: str = Field(
+        ...,
+        description="Base URL of the SyftAI-Space instance (e.g., 'http://localhost:8080')",
+    )
+    slug: str = Field(
+        ...,
+        description="Endpoint slug for the SyftAI-Space API path",
+    )
+    name: str = Field(
+        default="",
+        description="Display name for attribution/logging",
+    )
+    tenant_name: str | None = Field(
+        default=None,
+        description="Tenant name for X-Tenant-Name header (required when multi-tenancy is enabled)",
+    )
+    owner_username: str | None = Field(
+        default=None,
+        description="Owner's username - used to lookup satellite token from endpoint_tokens",
+    )
+    query_override: str | None = Field(
+        default=None,
+        description="If set, use this as the retrieval query instead of the request prompt (e.g. a URL for url_fetcher).",
+    )
+
+
+class ChatRequest(BaseModel):
+    """Request to the aggregator chat endpoint.
+
+    This schema is designed for stateless operation - all required information
+    for accessing SyftAI-Space endpoints must be provided in each request.
+
+    Authentication:
+        The endpoint_tokens field maps owner usernames to satellite tokens.
+        Each endpoint's owner_username is used to lookup its token from this mapping.
+        The aggregator forwards these tokens in Authorization headers to SyftAI-Space.
+        User identity is derived from the satellite tokens (not passed separately).
+
+    Billing (MPP):
+        When an endpoint requires payment, it returns HTTP 402 with a
+        WWW-Authenticate challenge. The aggregator uses user_token to call
+        Hub's wallet/pay endpoint and obtains an X-Payment credential for
+        the retry. The legacy transaction_tokens field is deprecated and
+        ignored.
+    """
+
+    prompt: str = Field(..., min_length=1, description="The user's question or prompt")
+    model: EndpointRef = Field(..., description="Model endpoint reference with URL and slug")
+    data_sources: list[EndpointRef] = Field(
+        default_factory=list,
+        description="List of data source endpoint references",
+    )
+    endpoint_tokens: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of owner username to satellite token for authentication",
+    )
+    transaction_tokens: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "DEPRECATED: Legacy mapping of owner username to transaction token. "
+            "Billing is now handled via the MPP 402 payment flow using user_token."
+        ),
+    )
+    user_token: str | None = Field(
+        default=None,
+        description="User's Hub JWT for authorizing MPP wallet payments on 402 responses",
+    )
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of documents to retrieve per source (maps to 'limit' in SyftAI-Space)",
+    )
+    stream: bool = Field(default=False, description="Enable streaming response")
+    # LLM parameters passed to SyftAI-Space
+    max_tokens: int = Field(
+        default=1024,
+        ge=1,
+        description="Maximum tokens for LLM generation",
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for LLM generation",
+    )
+    similarity_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score for retrieved documents",
+    )
+    custom_system_prompt: str | None = Field(
+        default=None,
+        description="Optional custom system prompt to override the default RAG prompt",
+    )
+    messages: list["Message"] = Field(
+        default_factory=list,
+        description="Conversation history (prior turns) for multi-turn context. "
+        "Only used for LLM generation; data source retrieval remains stateless.",
+    )
+    # NATS peer token fields for tunneling spaces
+    peer_token: str | None = Field(
+        default=None,
+        description="Peer token from /api/v1/peer-token for NATS tunneling authentication",
+    )
+    peer_channel: str | None = Field(
+        default=None,
+        description="Unique reply channel for receiving NATS responses (from peer token endpoint)",
+    )
+    retrieval_only: bool = Field(
+        default=False,
+        description="When True, skip reranking and LLM generation; return only raw retrieved documents.",
+    )
+
+
+class Message(BaseModel):
+    """A message in a chat conversation."""
+
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+# Resolve forward reference to Message in ChatRequest
+ChatRequest.model_rebuild()
+
+
+class QueryRequest(BaseModel):
+    """Request to a data source endpoint's /query interface."""
+
+    query: str = Field(..., description="The search query")
+    top_k: int = Field(default=5, ge=1, description="Number of documents to retrieve")
+
+
+class ChatCompletionRequest(BaseModel):
+    """Request to a model endpoint's /chat interface."""
+
+    messages: list[Message] = Field(..., description="List of messages in the conversation")
+    stream: bool = Field(default=False, description="Enable streaming response")

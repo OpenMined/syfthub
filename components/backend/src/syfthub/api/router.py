@@ -1,0 +1,50 @@
+"""Main API router."""
+
+from fastapi import APIRouter
+
+from syfthub.api.endpoints import (
+    admin,
+    collectives,
+    endpoints,
+    errors,
+    feedback,
+    nats,
+    peer,
+    token,
+    user_aggregators,
+    users,
+    wallet,
+)
+from syfthub.auth import router as auth_router
+
+api_router = APIRouter()
+
+# Include endpoint routers
+api_router.include_router(auth_router.router, tags=["authentication"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+api_router.include_router(
+    user_aggregators.router, prefix="/users", tags=["user-aggregators"]
+)
+api_router.include_router(endpoints.router, prefix="/endpoints", tags=["endpoints"])
+api_router.include_router(
+    collectives.router, prefix="/collectives", tags=["collectives"]
+)
+
+# Identity Provider (IdP) endpoints
+api_router.include_router(token.router, tags=["identity-provider"])
+
+# NATS peer token endpoints
+api_router.include_router(peer.router, tags=["nats-peer"])
+
+# NATS credentials endpoint
+api_router.include_router(nats.router, tags=["nats"])
+
+# Feedback / bug report proxy (creates Linear issues)
+api_router.include_router(feedback.router, tags=["feedback"])
+
+# Error reporting endpoint for frontend
+api_router.include_router(errors.router, tags=["observability"])
+
+# Wallet / MPP payment endpoints
+api_router.include_router(wallet.router, prefix="/wallet", tags=["wallet"])

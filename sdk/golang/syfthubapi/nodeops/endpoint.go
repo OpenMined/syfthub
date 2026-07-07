@@ -1,0 +1,391 @@
+package nodeops
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// Endpoint type constants used for validation.
+// Defined here (not imported from syfthubapi) to avoid a circular dependency.
+const (
+	endpointTypeModel      = "model"
+	endpointTypeDataSource = "data_source"
+)
+
+// Manager provides endpoint file operations scoped to an endpoints directory.
+type Manager struct {
+	EndpointsPath string
+}
+
+// NewManager creates a new Manager for the given endpoints directory.
+func NewManager(endpointsPath string) *Manager {
+	return &Manager{EndpointsPath: endpointsPath}
+}
+
+// CreateEndpoint scaffolds a new endpoint directory with runner.py, pyproject.toml, and README.md.
+// Returns the generated slug.
+func (m *Manager) CreateEndpoint(req CreateEndpointRequest) (string, error) {
+	if req.Name == "" {
+		return "", fmt.Errorf("endpoint name is required")
+	}
+	if req.Type != endpointTypeModel && req.Type != endpointTypeDataSource {
+		return "", fmt.Errorf("endpoint type must be 'model' or 'data_source'")
+	}
+
+	slug := Slugify(req.Name)
+	if slug == "" {
+		return "", fmt.Errorf("could not generate valid slug from name '%s'", req.Name)
+	}
+
+	endpointDir := filepath.Join(m.EndpointsPath, slug)
+	if _, err := os.Stat(endpointDir); !os.IsNotExist(err) {
+		return "", fmt.Errorf("endpoint '%s' already exists", slug)
+	}
+
+	if err := os.MkdirAll(endpointDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create endpoint directory: %w", err)
+	}
+
+	cleanup := func() {
+		os.RemoveAll(endpointDir)
+	}
+
+	// Create runner.py
+	runnerContent := GetRunnerTemplate(req.Type)
+	runnerPath := filepath.Join(endpointDir, "runner.py")
+	if err := os.WriteFile(runnerPath, []byte(runnerContent), 0644); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to create runner.py: %w", err)
+	}
+
+	// Create pyproject.toml
+	version := req.Version
+	if version == "" {
+		version = "1.0.0"
+	}
+	pyprojectContent := fmt.Sprintf("[project]\nname = \"%s\"\nversion = \"%s\"\ndependencies = []\n", slug, version)
+	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
+	if err := os.WriteFile(pyprojectPath, []byte(pyprojectContent), 0644); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to create pyproject.toml: %w", err)
+	}
+
+	// Create README.md with YAML frontmatter
+	description := req.Description
+	if description == "" {
+		description = fmt.Sprintf("A %s endpoint", req.Type)
+	}
+	enabled := true
+	fm := &ReadmeFrontmatter{
+		Slug:        slug,
+		Type:        req.Type,
+		Name:        req.Name,
+		Description: description,
+		Version:     version,
+		Enabled:     &enabled,
+	}
+	body := fmt.Sprintf("# %s\n\n%s\n\n## Usage\n\nEdit the runner.py file to implement your endpoint logic.", req.Name, description)
+	readmePath := filepath.Join(endpointDir, "README.md")
+	if err := WriteReadmeWithFrontmatter(readmePath, fm, body); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to create README.md: %w", err)
+	}
+
+	return slug, nil
+}
+
+// DeleteEndpoint removes an endpoint directory and all its contents.
+func (m *Manager) DeleteEndpoint(slug string) error {
+	if slug == "" {
+		return fmt.Errorf("endpoint slug is required")
+	}
+	if strings.Contains(slug, "..") || strings.Contains(slug, "/") || strings.Contains(slug, "\\") {
+		return fmt.Errorf("invalid endpoint slug")
+	}
+
+	endpointDir := filepath.Join(m.EndpointsPath, slug)
+	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
+		return fmt.Errorf("endpoint not found: %s", slug)
+	}
+
+	if err := os.RemoveAll(endpointDir); err != nil {
+		return fmt.Errorf("failed to delete endpoint: %w", err)
+	}
+
+	return nil
+}
+
+// ListEndpoints lists all endpoints in the endpoints directory with basic info.
+// Endpoint directories are read concurrently using an errgroup for better
+// performance when many endpoints exist (each requires ~5 file reads).
+func (m *Manager) ListEndpoints() ([]EndpointInfo, error) {
+	entries, err := os.ReadDir(m.EndpointsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []EndpointInfo{}, nil
+		}
+		return nil, fmt.Errorf("failed to read endpoints directory: %w", err)
+	}
+
+	// Filter to valid endpoint directories first.
+	var dirs []os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "__") {
+			continue
+		}
+		dirs = append(dirs, entry)
+	}
+
+	if len(dirs) == 0 {
+		return []EndpointInfo{}, nil
+	}
+
+	results := make([]EndpointInfo, len(dirs))
+	g, _ := errgroup.WithContext(context.Background())
+	for i, dir := range dirs {
+		i, dir := i, dir
+		g.Go(func() error {
+			info, err := getEndpointInfo(dir.Name(), m.EndpointsPath)
+			if err != nil {
+				return err
+			}
+			results[i] = *info
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// getEndpointInfo gathers info for a single endpoint directory.
+// Safe to call concurrently — all operations are read-only file I/O.
+func getEndpointInfo(name, endpointsDir string) (*EndpointInfo, error) {
+	info := &EndpointInfo{
+		Slug:    name,
+		Name:    name,
+		Type:    "model",
+		Version: "1.0.0",
+		Enabled: true,
+	}
+
+	readmePath := filepath.Join(endpointsDir, name, "README.md")
+	if fm, _, err := ParseReadmeFrontmatter(readmePath); err == nil {
+		if fm.Name != "" {
+			info.Name = fm.Name
+		}
+		if fm.Description != "" {
+			info.Description = fm.Description
+		}
+		if fm.Type != "" {
+			info.Type = fm.Type
+		}
+		if fm.Version != "" {
+			info.Version = fm.Version
+		}
+		if fm.Enabled != nil {
+			info.Enabled = *fm.Enabled
+		}
+	}
+
+	policiesPath := filepath.Join(endpointsDir, name, "policies.yaml")
+	if _, err := os.Stat(policiesPath); err == nil {
+		info.HasPolicies = true
+	}
+
+	pyprojectPath := filepath.Join(endpointsDir, name, "pyproject.toml")
+	if deps, err := ReadDependencies(pyprojectPath); err == nil {
+		info.DepsCount = len(deps)
+	}
+
+	envPath := filepath.Join(endpointsDir, name, ".env")
+	if envVars, err := ReadEnvFile(envPath); err == nil {
+		info.EnvCount = len(envVars)
+	}
+
+	if status, err := GetSetupStatus(filepath.Join(endpointsDir, name)); err == nil {
+		info.SetupStatus = status
+	}
+
+	return info, nil
+}
+
+// GetEndpointDetail returns full details for an endpoint.
+func (m *Manager) GetEndpointDetail(slug string) (*EndpointDetail, error) {
+	endpointDir := filepath.Join(m.EndpointsPath, slug)
+	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("endpoint not found: %s", slug)
+	}
+
+	detail := &EndpointDetail{
+		Slug:    slug,
+		Name:    slug,
+		Type:    "model",
+		Version: "1.0.0",
+		Enabled: true,
+	}
+
+	readmePath := filepath.Join(endpointDir, "README.md")
+	if content, err := os.ReadFile(readmePath); err == nil {
+		detail.HasReadme = true
+		detail.ReadmeContent = string(content)
+		// Parse frontmatter from already-read content to avoid a second file read.
+		if fm, _, err := ParseReadmeFrontmatterBytes(content); err == nil {
+			if fm.Name != "" {
+				detail.Name = fm.Name
+			}
+			if fm.Slug != "" {
+				detail.Slug = fm.Slug
+			}
+			if fm.Description != "" {
+				detail.Description = fm.Description
+			}
+			if fm.Type != "" {
+				detail.Type = fm.Type
+			}
+			if fm.Version != "" {
+				detail.Version = fm.Version
+			}
+			if fm.Enabled != nil {
+				detail.Enabled = *fm.Enabled
+			}
+		}
+	}
+
+	runnerPath := filepath.Join(endpointDir, "runner.py")
+	if content, err := os.ReadFile(runnerPath); err == nil {
+		detail.RunnerCode = string(content)
+	}
+
+	policiesPath := filepath.Join(endpointDir, "policies.yaml")
+	if policies, version, err := ParsePoliciesYaml(policiesPath); err == nil {
+		detail.HasPolicies = true
+		detail.Policies = policies
+		detail.PoliciesVersion = version
+	}
+
+	envPath := filepath.Join(endpointDir, ".env")
+	if envVars, err := ReadEnvFile(envPath); err == nil {
+		detail.EnvCount = len(envVars)
+	}
+
+	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
+	if deps, err := ReadDependencies(pyprojectPath); err == nil {
+		detail.DepsCount = len(deps)
+	}
+
+	// Load setup spec and status (read each file once, share across both)
+	setupPath := filepath.Join(endpointDir, "setup.yaml")
+	if spec, err := ParseSetupYaml(setupPath); err == nil && spec != nil {
+		detail.SetupSpec = spec
+		if state, err := ReadSetupState(endpointDir); err == nil {
+			detail.SetupStatus = ComputeSetupStatus(spec, state)
+		}
+	}
+
+	return detail, nil
+}
+
+// GetRunnerTemplate returns the Python runner.py template for the given endpoint type.
+func GetRunnerTemplate(endpointType string) string {
+	if endpointType == "agent" {
+		return `"""
+Agent endpoint handler.
+
+This handler processes agent sessions with bidirectional communication.
+The agent can use tools, provide status updates, and request user input.
+"""
+
+
+def handler(session) -> None:
+    """
+    Agent session handler.
+
+    Args:
+        session: AgentSession object with methods:
+            - session.prompt: The user's initial prompt
+            - session.send_message(content): Send a text message
+            - session.send_thinking(content): Show reasoning
+            - session.send_status(status, detail): Send a status update
+            - session.request_input(prompt): Ask for input (blocks)
+            - session.receive(): Wait for user message (blocks)
+    """
+    # TODO: Implement your agent logic here
+    session.send_message(f"Echo: {session.prompt}")
+`
+	}
+	if endpointType == "model" {
+		return `"""
+Model endpoint handler.
+
+This handler processes incoming requests to your model endpoint.
+"""
+
+
+def handler(messages: list, context: dict = None) -> str:
+    """
+    Echo back the last user message.
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys
+        context: Optional context metadata
+
+    Returns:
+        The echoed message
+    """
+    # Find the last user message
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            return f"Echo: {content}"
+    return "Hello world!"
+`
+	}
+
+	return `"""
+Data Source Endpoint Runner
+
+This endpoint provides access to data sources (databases, APIs, files).
+Implement the handler() function to handle data requests.
+"""
+
+
+def handler(query: str, context: dict = None) -> list[dict]:
+    """
+    Query data from your data source.
+
+    Args:
+        query: The search query string
+        context: Optional context metadata
+
+    Returns:
+        List of document dicts, each with keys:
+            - document_id (str): Unique identifier for the document
+            - content (str): The document text content
+            - metadata (dict): Additional metadata (title, source, etc.)
+            - similarity_score (float): Relevance score between 0.0 and 1.0
+    """
+    # TODO: Implement your data source logic here
+    # Example: Execute SQL, call external API, search a vector store, etc.
+
+    return [
+        {
+            "document_id": "doc-001",
+            "content": "Example document content matching the query.",
+            "metadata": {"title": "Example Document", "source": "example"},
+            "similarity_score": 1.0,
+        }
+    ]
+`
+}

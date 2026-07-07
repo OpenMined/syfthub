@@ -1,0 +1,34 @@
+# Policy configuration for sample-model endpoint
+version: "1.0"
+
+# In-memory store for lightweight usage (data lost on restart)
+store:
+  type: memory
+
+policies:
+  # Open access group - anyone can use this model
+  - name: public_access
+    type: access_group
+    config:
+      owner: system
+      users:
+        - "*"  # Wildcard - allow all authenticated users
+      documents: []
+
+  # Gentle rate limiting for public endpoint
+  - name: public_rate_limit
+    type: rate_limit
+    config:
+      max_requests: 20
+      window_seconds: 60
+
+  # Basic content safety filter
+  - name: safety_filter
+    type: prompt_filter
+    config:
+      patterns:
+        - "(?i)\\b(hack|exploit|vulnerability)\\b.*\\b(system|server|database)\\b"
+        - "(?i)\\bignore\\s+(previous|all)\\s+instructions\\b"
+      input_path: query
+      check_input: true
+      check_output: false

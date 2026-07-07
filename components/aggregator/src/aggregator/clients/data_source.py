@@ -1,0 +1,436 @@
+"""Client for interacting with SyftAI-Space data source endpoints."""
+
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING, Any
+
+import httpx
+
+from aggregator.clients._policy_meta import (
+    extract_policy_metadata,
+    source_status_from_policy_metadata,
+)
+from aggregator.clients.mpp_payment import handle_mpp_payment
+from aggregator.observability import get_correlation_id, get_logger
+from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
+from aggregator.schemas.internal import RetrievalResult
+from aggregator.schemas.responses import Document
+
+if TYPE_CHECKING:
+    from aggregator.clients.error_reporter import ErrorReporter
+
+logger = get_logger(__name__)
+
+
+class DataSourceClient:
+    """Client for querying SyftAI-Space data source endpoints.
+
+    This client is adapted to work with SyftAI-Space's unified endpoint API:
+    POST /api/v1/endpoints/{slug}/query
+
+    The endpoint must be configured with response_type that includes "raw"
+    (either "raw" or "both") to return document references.
+    """
+
+    def __init__(
+        self,
+        timeout: float = 30.0,
+        error_reporter: ErrorReporter | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ):
+        self.timeout = httpx.Timeout(timeout)
+        self.error_reporter = error_reporter
+        self.http_client = http_client
+
+    async def query(
+        self,
+        url: str,
+        slug: str,
+        endpoint_path: str,
+        query: str,
+        top_k: int = 5,
+        similarity_threshold: float = 0.5,
+        tenant_name: str | None = None,
+        authorization_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
+    ) -> RetrievalResult:
+        """
+        Query a SyftAI-Space endpoint for relevant documents.
+
+        User identity is derived from the satellite token by SyftAI-Space.
+
+        Args:
+            url: Base URL of the SyftAI-Space instance
+            slug: Endpoint slug for the API path
+            endpoint_path: Path identifier for logging/tracking
+            query: The search query
+            top_k: Number of documents to retrieve (maps to 'limit')
+            similarity_threshold: Minimum similarity score for documents
+            tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
+
+        Returns:
+            RetrievalResult with documents and status
+        """
+        start_time = time.perf_counter()
+
+        # Build SyftAI-Space endpoint URL
+        query_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
+
+        # Build SyftAI-Space compatible request body
+        # SyftAI-Space accepts messages as a string for simple queries
+        # User identity is derived from the satellite token, not the request body
+        request_data: dict[str, Any] = {
+            "messages": query,  # String is accepted by SyftAI-Space
+            "limit": top_k,
+            "similarity_threshold": similarity_threshold,
+            "include_metadata": True,
+        }
+
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
+
+        # Build headers with correlation ID for request tracing
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.DATA_SOURCE_QUERY_STARTED,
+            endpoint_path=endpoint_path,
+            query_url=query_url,
+            top_k=top_k,
+        )
+
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.post(
+                query_url,
+                json=request_data,
+                headers=headers,
+                timeout=self.timeout,
+            )
+
+            # Handle MPP 402 Payment Required
+            if response.status_code == 402 and user_token and syfthub_url:
+                try:
+                    x_payment = await handle_mpp_payment(
+                        response=response,
+                        syfthub_url=syfthub_url,
+                        user_token=user_token,
+                        endpoint_slug=slug,
+                        http_client=client,
+                    )
+                    if x_payment:
+                        # Retry with X-Payment header
+                        retry_headers = {**headers, "X-Payment": x_payment}
+                        response = await client.post(
+                            query_url,
+                            json=request_data,
+                            headers=retry_headers,
+                        )
+                except Exception as pay_err:
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    error_detail = str(pay_err).lower()
+                    if "insufficient" in error_detail:
+                        error_msg = "Payment failed: insufficient wallet balance"
+                    elif "timeout" in error_detail or "timed out" in error_detail:
+                        error_msg = "Payment failed: blockchain timeout"
+                    else:
+                        error_msg = f"Payment failed: {pay_err}"
+                    logger.warning(
+                        LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        endpoint_path=endpoint_path,
+                        status_code=402,
+                        error=error_msg,
+                        latency_ms=latency_ms,
+                    )
+                    return RetrievalResult(
+                        endpoint_path=endpoint_path,
+                        documents=[],
+                        status="payment_failed",
+                        error_message=error_msg,
+                        latency_ms=latency_ms,
+                        policy_metadata=extract_policy_metadata(response),
+                    )
+
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+            if response.status_code == 403:
+                error_detail = self._extract_error_detail(response)
+                logger.warning(
+                    LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    endpoint_path=endpoint_path,
+                    status_code=403,
+                    error=error_detail,
+                    latency_ms=latency_ms,
+                )
+                self._report_upstream_error(
+                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    message=f"Data source access denied: {error_detail}",
+                    endpoint=query_url,
+                    status_code=403,
+                    error_detail=error_detail,
+                    latency_ms=latency_ms,
+                    request_data=request_data,
+                )
+                pm = extract_policy_metadata(response)
+                return RetrievalResult(
+                    endpoint_path=endpoint_path,
+                    documents=[],
+                    # Precise cause from the rejection envelope when present
+                    # (access_denied / rate_limited / policy_violation), else 403's default.
+                    status=source_status_from_policy_metadata(pm) or "access_denied",
+                    error_message=f"Access denied: {error_detail}",
+                    latency_ms=latency_ms,
+                    policy_metadata=pm,
+                )
+
+            if response.status_code != 200:
+                error_detail = self._extract_error_detail(response)
+                logger.warning(
+                    LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    endpoint_path=endpoint_path,
+                    status_code=response.status_code,
+                    error=error_detail,
+                    latency_ms=latency_ms,
+                )
+                self._report_upstream_error(
+                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
+                    endpoint=query_url,
+                    status_code=response.status_code,
+                    error_detail=error_detail,
+                    latency_ms=latency_ms,
+                    request_data=request_data,
+                )
+                user_message = (
+                    self._build_unreachable_message(endpoint_path)
+                    if self._is_html_error_page(error_detail)
+                    else f"HTTP {response.status_code}: {error_detail}"
+                )
+                return RetrievalResult(
+                    endpoint_path=endpoint_path,
+                    documents=[],
+                    status="error",
+                    error_message=user_message,
+                    latency_ms=latency_ms,
+                    policy_metadata=extract_policy_metadata(response),
+                )
+
+            data = response.json()
+            documents = self._parse_syftai_response(data)
+
+            logger.info(
+                LogEvents.DATA_SOURCE_QUERY_COMPLETED,
+                endpoint_path=endpoint_path,
+                documents_count=len(documents),
+                latency_ms=latency_ms,
+            )
+
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=documents,
+                status="success",
+                latency_ms=latency_ms,
+                policy_metadata=data.get("policy_metadata"),
+            )
+
+        except httpx.TimeoutException:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                LogEvents.CHAT_RETRIEVAL_TIMEOUT,
+                endpoint_path=endpoint_path,
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="timeout",
+                error_message="Request timed out",
+                latency_ms=latency_ms,
+            )
+
+        except httpx.RequestError as e:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                endpoint_path=endpoint_path,
+                error=str(e),
+                query_url=query_url,
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="error",
+                error_message=(
+                    f"Cannot reach data source at {query_url}: {e}. "
+                    "Check that the endpoint's public URL is correct in Settings."
+                ),
+                latency_ms=latency_ms,
+            )
+
+        except Exception as e:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.exception(
+                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                endpoint_path=endpoint_path,
+                error=str(e),
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="error",
+                error_message=f"Unexpected error: {e}",
+                latency_ms=latency_ms,
+            )
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
+
+    def _report_upstream_error(
+        self,
+        *,
+        event: str,
+        message: str,
+        endpoint: str,
+        status_code: int,
+        error_detail: str,
+        latency_ms: int | None = None,
+        request_data: dict[str, Any] | None = None,
+    ) -> None:
+        """Report an upstream SyftAI-Space error to the backend for DB persistence."""
+        if not self.error_reporter:
+            return
+
+        context: dict[str, Any] = {"upstream_status_code": status_code}
+        if latency_ms is not None:
+            context["latency_ms"] = latency_ms
+
+        self.error_reporter.report(
+            event=event,
+            message=message,
+            level="ERROR" if status_code >= 500 else "WARNING",
+            endpoint=endpoint,
+            method="POST",
+            error_type="UpstreamError",
+            error_code=str(status_code),
+            context=context,
+            request_data=request_data,
+            response_data={"detail": error_detail},
+        )
+
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(endpoint_path: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The data source '{endpoint_path}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
+        )
+
+    def _extract_error_detail(self, response: httpx.Response) -> str:
+        """Extract error detail from response."""
+        try:
+            data = response.json()
+            return str(data.get("detail", response.text[:200]))
+        except Exception:
+            return response.text[:200]
+
+    def _parse_syftai_response(self, data: dict[str, Any]) -> list[Document]:
+        """Parse documents from SyftAI-Space QueryEndpointResponse.
+
+        SyftAI-Space returns:
+        {
+            "summary": {...} | null,
+            "references": {
+                "documents": [
+                    {
+                        "document_id": str,
+                        "content": str,
+                        "metadata": dict,
+                        "similarity_score": float
+                    }
+                ],
+                "provider_info": {...}
+            } | null,
+            "cost": float,
+            "currency": str
+        }
+
+        We extract from references.documents and map similarity_score -> score.
+
+        Hybrid endpoints (model_data_source) also return an AI-generated answer
+        in summary.message.content. We surface that as a Document too, so hybrid
+        sources contribute their generated answer alongside any retrieved docs
+        instead of reporting "0 documents retrieved".
+        """
+        documents: list[Document] = []
+
+        # Extract references from SyftAI-Space response
+        references = data.get("references")
+        if references:
+            raw_docs = references.get("documents", [])
+
+            for doc in raw_docs:
+                if isinstance(doc, dict):
+                    documents.append(
+                        Document(
+                            content=doc.get("content", ""),
+                            # Map SyftAI-Space's similarity_score to score
+                            score=float(doc.get("similarity_score", 0.0)),
+                            metadata=doc.get("metadata", {}),
+                        )
+                    )
+        else:
+            logger.debug("No references in SyftAI-Space response")
+
+        # Surface an AI-generated summary (hybrid endpoints) as a Document.
+        summary_doc = self._summary_to_document(data.get("summary"))
+        if summary_doc is not None:
+            documents.append(summary_doc)
+
+        return documents
+
+    @staticmethod
+    def _summary_to_document(summary: Any) -> Document | None:
+        """Convert a SyftAI-Space summary into a Document, if it has content.
+
+        Returns None when there is no summary or no non-empty content.
+        """
+        if not summary or not isinstance(summary, dict):
+            return None
+
+        message = summary.get("message") or {}
+        if isinstance(message, dict):
+            content = message.get("content", "")
+        elif isinstance(message, str):
+            content = message
+        else:
+            content = ""
+
+        if not content:
+            return None
+
+        return Document(
+            content=str(content),
+            score=1.0,
+            metadata={"source_type": "generated", "model": summary.get("model")},
+        )

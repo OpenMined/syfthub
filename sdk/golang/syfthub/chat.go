@@ -1,0 +1,913 @@
+package syfthub
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+)
+
+const (
+	tunnelingPrefix = "tunneling:"
+)
+
+// ChatResource provides RAG-augmented chat functionality via the Aggregator.
+//
+// This resource handles satellite token authentication automatically:
+//   - Resolves endpoints and extracts owner information
+//   - Exchanges Hub access tokens for satellite tokens (one per unique owner)
+//   - Sends tokens to the aggregator for forwarding to SyftAI-Space
+//
+// Example usage:
+//
+//	// Simple chat completion
+//	response, err := client.Chat().Complete(ctx, &ChatCompleteRequest{
+//	    Prompt:      "What are the key features?",
+//	    Model:       "alice/gpt-model",
+//	    DataSources: []string{"bob/docs-dataset"},
+//	})
+//	fmt.Println(response.Response)
+//
+//	// Streaming chat
+//	events, errs := client.Chat().Stream(ctx, &ChatCompleteRequest{
+//	    Prompt: "Explain machine learning",
+//	    Model:  "alice/gpt-model",
+//	})
+//	for event := range events {
+//	    if e, ok := event.(*TokenEvent); ok {
+//	        fmt.Print(e.Content)
+//	    }
+//	}
+type ChatResource struct {
+	hub           *HubResource
+	auth          *AuthResource
+	aggregatorURL string
+	aggClient     *http.Client
+}
+
+// newChatResource creates a new ChatResource.
+func newChatResource(hub *HubResource, auth *AuthResource, aggregatorURL string, timeout time.Duration) *ChatResource {
+	return &ChatResource{
+		hub:           hub,
+		auth:          auth,
+		aggregatorURL: strings.TrimRight(aggregatorURL, "/"),
+		aggClient: &http.Client{
+			Timeout: timeout,
+		},
+	}
+}
+
+// ChatCompleteRequest contains parameters for a chat completion request.
+type ChatCompleteRequest struct {
+	Prompt              string
+	Model               string // Can be path "owner/slug" or EndpointRef
+	DataSources         []string
+	TopK                int
+	MaxTokens           int
+	Temperature         float64
+	SimilarityThreshold float64
+	Messages            []Message
+	AggregatorURL       string // Optional custom aggregator URL
+	GuestMode           bool   // Use guest (unauthenticated) peer tokens for tunneling
+}
+
+// chatPrepared holds the resolved request body and target URL, shared by Complete and streamInternal.
+type chatPrepared struct {
+	requestBody   map[string]interface{}
+	aggregatorURL string
+}
+
+// resolvedDefaults holds zero-value defaults resolved as locals so prepareRequest
+// never mutates the caller's *ChatCompleteRequest.
+type resolvedDefaults struct {
+	topK                int
+	maxTokens           int
+	temperature         float64
+	similarityThreshold float64
+}
+
+func resolveDefaults(req *ChatCompleteRequest) resolvedDefaults {
+	r := resolvedDefaults{
+		topK:                req.TopK,
+		maxTokens:           req.MaxTokens,
+		temperature:         req.Temperature,
+		similarityThreshold: req.SimilarityThreshold,
+	}
+	if r.topK == 0 {
+		r.topK = 5
+	}
+	if r.maxTokens == 0 {
+		r.maxTokens = 1024
+	}
+	if r.temperature == 0 {
+		r.temperature = 0.7
+	}
+	if r.similarityThreshold == 0 {
+		r.similarityThreshold = 0.5
+	}
+	return r
+}
+
+// prepareRequest resolves endpoints, fetches tokens, and builds the aggregator request body.
+// It is called by both Complete (stream=false) and streamInternal (stream=true) to eliminate
+// the ~73 lines of setup code that would otherwise be duplicated.
+func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequest, stream bool) (*chatPrepared, error) {
+	defaults := resolveDefaults(req)
+
+	// Resolve aggregator URL
+	aggregatorURL := c.aggregatorURL
+	if req.AggregatorURL != "" {
+		aggregatorURL = strings.TrimRight(req.AggregatorURL, "/")
+	}
+
+	// Resolve endpoints
+	modelRef, err := c.resolveEndpointRef(ctx, req.Model, "model")
+	if err != nil {
+		return nil, err
+	}
+
+	// Expand any collective/<slug> paths into their approved member paths
+	// before resolving each data source to an endpoint reference.
+	expandedDataSources, err := c.expandCollectivePaths(ctx, req.DataSources)
+	if err != nil {
+		return nil, err
+	}
+
+	var dsRefs []EndpointRef
+	for _, ds := range expandedDataSources {
+		ref, err := c.resolveEndpointRef(ctx, ds, "data_source")
+		if err != nil {
+			return nil, err
+		}
+		dsRefs = append(dsRefs, *ref)
+	}
+
+	// Fetch satellite and transaction tokens for all unique endpoint owners
+	uniqueOwners := c.collectUniqueOwners(modelRef, dsRefs)
+	var endpointTokens map[string]string
+	var transactionTokens *TransactionTokensResponse
+	if req.GuestMode {
+		endpointTokens, err = c.auth.GetGuestSatelliteTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get guest satellite tokens, proceeding without them", "error", err)
+			endpointTokens = make(map[string]string)
+		}
+		transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+	} else {
+		endpointTokens, err = c.auth.GetSatelliteTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get satellite tokens, proceeding without them", "error", err)
+			endpointTokens = make(map[string]string)
+		}
+		transactionTokens, err = c.auth.GetTransactionTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get transaction tokens, proceeding without them", "error", err)
+			transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+		}
+	}
+
+	// Auto-fetch peer token if tunneling endpoints detected
+	tokens := chatTokens{
+		endpoint:    endpointTokens,
+		transaction: transactionTokens.Tokens,
+	}
+	tunnelingUsernames := c.collectTunnelingUsernames(modelRef, dsRefs)
+	if len(tunnelingUsernames) > 0 {
+		var peerResponse *PeerTokenResponse
+		if req.GuestMode {
+			peerResponse, err = c.auth.GetGuestPeerToken(ctx, tunnelingUsernames)
+		} else {
+			peerResponse, err = c.auth.GetPeerToken(ctx, tunnelingUsernames)
+		}
+		if err == nil {
+			tokens.peerToken = peerResponse.PeerToken
+			tokens.peerChannel = peerResponse.PeerChannel
+		}
+	}
+
+	requestBody := c.buildRequestBody(req, modelRef, dsRefs, defaults, tokens, stream)
+
+	return &chatPrepared{requestBody: requestBody, aggregatorURL: aggregatorURL}, nil
+}
+
+// collectivePrefix marks a data-source path that addresses a collective rather
+// than a single endpoint.
+const collectivePrefix = "collective/"
+
+// expandCollectivePaths replaces any collective/<slug>[/<shared-slug>] entries
+// in the data-source list with the individual owner/slug paths of the
+// collective's approved members.
+//
+// Path forms recognised (mirrors the TypeScript and Python SDKs):
+//   - collective/<slug>             → every approved member
+//   - collective/<slug>/all         → equivalent alias of the above
+//   - collective/<slug>/<sub-slug>  → the named subset, intersected with the
+//     collective's currently approved members
+//
+// Non-collective entries pass through unchanged and string paths are
+// de-duplicated, so a regular endpoint that also belongs to a selected
+// collective is not queried twice.
+func (c *ChatResource) expandCollectivePaths(ctx context.Context, dataSources []string) ([]string, error) {
+	expanded := make([]string, 0, len(dataSources))
+	seen := make(map[string]struct{})
+
+	add := func(path string) {
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		expanded = append(expanded, path)
+	}
+
+	for _, ds := range dataSources {
+		if !strings.HasPrefix(ds, collectivePrefix) {
+			add(ds)
+			continue
+		}
+
+		rest := strings.TrimPrefix(ds, collectivePrefix)
+		collectiveSlug := rest
+		sharedSlug := ""
+		if before, after, found := strings.Cut(rest, "/"); found {
+			collectiveSlug = before
+			// "all" is the implicit alias of "every approved member".
+			if after != "all" {
+				sharedSlug = after
+			}
+		}
+		if collectiveSlug == "" {
+			return nil, fmt.Errorf("malformed collective path: %s", ds)
+		}
+
+		memberPaths, err := c.hub.GetCollectiveEndpointPaths(ctx, collectiveSlug, sharedSlug)
+		if err != nil {
+			target := collectiveSlug
+			if sharedSlug != "" {
+				target = collectiveSlug + "/" + sharedSlug
+			}
+			return nil, fmt.Errorf("failed to resolve collective %q: %w", target, err)
+		}
+		for _, p := range memberPaths {
+			add(p)
+		}
+	}
+
+	return expanded, nil
+}
+
+// Complete sends a chat request and returns the complete response.
+func (c *ChatResource) Complete(ctx context.Context, req *ChatCompleteRequest) (*ChatResponse, error) {
+	prepared, err := c.prepareRequest(ctx, req, false)
+	if err != nil {
+		return nil, err
+	}
+
+	bodyBytes, err := json.Marshal(prepared.requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", prepared.aggregatorURL+"/chat", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.aggClient.Do(httpReq)
+	if err != nil {
+		return nil, &AggregatorError{ChatError: newChatError(fmt.Sprintf("Failed to connect to aggregator: %v", err))}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, c.handleAggregatorError(resp.StatusCode, body)
+	}
+
+	var data struct {
+		Response      string                    `json:"response"`
+		Sources       map[string]DocumentSource `json:"sources"`
+		RetrievalInfo []SourceInfo              `json:"retrieval_info"`
+		Metadata      ChatMetadata              `json:"metadata"`
+		Usage         *TokenUsage               `json:"usage,omitempty"`
+		Billing       *Billing                  `json:"billing,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &ChatResponse{
+		Response:      data.Response,
+		Sources:       data.Sources,
+		RetrievalInfo: data.RetrievalInfo,
+		Metadata:      data.Metadata,
+		Usage:         data.Usage,
+		Billing:       data.Billing,
+	}, nil
+}
+
+// Stream sends a chat request and streams response events via a channel.
+//
+// Returns two channels: one for events and one for errors.
+// The event channel is closed when streaming is complete.
+func (c *ChatResource) Stream(ctx context.Context, req *ChatCompleteRequest) (<-chan ChatEvent, <-chan error) {
+	events := make(chan ChatEvent, 100)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(events)
+		defer close(errs)
+
+		if err := c.streamInternal(ctx, req, events); err != nil {
+			errs <- err
+		}
+	}()
+
+	return events, errs
+}
+
+// streamInternal handles the actual streaming logic.
+func (c *ChatResource) streamInternal(ctx context.Context, req *ChatCompleteRequest, events chan<- ChatEvent) error {
+	prepared, err := c.prepareRequest(ctx, req, true)
+	if err != nil {
+		return err
+	}
+
+	bodyBytes, err := json.Marshal(prepared.requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", prepared.aggregatorURL+"/chat/stream", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.aggClient.Do(httpReq)
+	if err != nil {
+		return &AggregatorError{ChatError: newChatError(fmt.Sprintf("Failed to connect to aggregator: %v", err))}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return c.handleAggregatorError(resp.StatusCode, body)
+	}
+
+	// Parse SSE stream
+	scanner := bufio.NewScanner(resp.Body)
+	var currentEvent string
+	var currentData string
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "" {
+			// Empty line = end of event
+			if currentEvent != "" && currentData != "" {
+				event := c.parseSSEEvent(currentEvent, currentData)
+				select {
+				case events <- event:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			currentEvent = ""
+			currentData = ""
+			continue
+		}
+
+		if strings.HasPrefix(line, "event:") {
+			currentEvent = strings.TrimSpace(line[6:])
+		} else if strings.HasPrefix(line, "data:") {
+			currentData = strings.TrimSpace(line[5:])
+		}
+	}
+
+	return scanner.Err()
+}
+
+// parseSSEEvent parses an SSE event into a typed ChatEvent.
+func (c *ChatResource) parseSSEEvent(eventType, dataStr string) ChatEvent {
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+		return &ErrorEvent{Error: fmt.Sprintf("Parse error: %v", err)}
+	}
+
+	switch eventType {
+	case "retrieval_start":
+		return &RetrievalStartEvent{}
+
+	case "source_complete":
+		return &SourceCompleteEvent{
+			Source: SourceInfo{
+				Path:               getString(data, "path"),
+				Status:             SourceStatus(getString(data, "status")),
+				DocumentsRetrieved: getInt(data, "documents"),
+			},
+		}
+
+	case "retrieval_complete":
+		return &RetrievalCompleteEvent{}
+
+	case "reranking_start":
+		return &RerankingStartEvent{
+			Documents: getInt(data, "documents"),
+		}
+
+	case "reranking_complete":
+		return &RerankingCompleteEvent{
+			Documents: getInt(data, "documents"),
+			TimeMs:    getInt(data, "time_ms"),
+		}
+
+	case "generation_start":
+		return &GenerationStartEvent{
+			Model: getString(data, "model"),
+		}
+
+	case "generation_heartbeat":
+		return &GenerationHeartbeatEvent{
+			ElapsedMs: getInt(data, "elapsed_ms"),
+		}
+
+	case "token":
+		return &TokenEvent{
+			Content: getString(data, "content"),
+		}
+
+	case "done":
+		// Parse sources
+		sources := make(map[string]DocumentSource)
+		if sourcesData, ok := data["sources"].(map[string]interface{}); ok {
+			for title, sourceData := range sourcesData {
+				if sd, ok := sourceData.(map[string]interface{}); ok {
+					sources[title] = DocumentSource{
+						Slug:    getString(sd, "slug"),
+						Content: getString(sd, "content"),
+					}
+				}
+			}
+		}
+
+		// Parse metadata
+		var metadata ChatMetadata
+		if m, ok := data["metadata"].(map[string]interface{}); ok {
+			metadata = ChatMetadata{
+				RetrievalTimeMs:  getInt(m, "retrieval_time_ms"),
+				GenerationTimeMs: getInt(m, "generation_time_ms"),
+				TotalTimeMs:      getInt(m, "total_time_ms"),
+			}
+		}
+
+		// Parse usage
+		var usage *TokenUsage
+		if u, ok := data["usage"].(map[string]interface{}); ok {
+			usage = &TokenUsage{
+				PromptTokens:     getInt(u, "prompt_tokens"),
+				CompletionTokens: getInt(u, "completion_tokens"),
+				TotalTokens:      getInt(u, "total_tokens"),
+			}
+		}
+
+		return &DoneEvent{
+			Response: getString(data, "response"),
+			Metadata: metadata,
+			Sources:  sources,
+			Usage:    usage,
+			Billing:  parseBilling(data),
+		}
+
+	case "error":
+		// A paid query may be REJECTED yet still carry billing metadata.
+		return &ErrorEvent{
+			Error:   getString(data, "message"),
+			Billing: parseBilling(data),
+		}
+
+	default:
+		slog.Warn("unknown SSE event type received from aggregator", "event_type", eventType)
+		return &ErrorEvent{Error: fmt.Sprintf("Unknown event type: %s", eventType)}
+	}
+}
+
+// resolveEndpointRef converts an endpoint path to EndpointRef.
+func (c *ChatResource) resolveEndpointRef(ctx context.Context, endpoint string, expectedType string) (*EndpointRef, error) {
+	// Fetch from hub
+	ep, err := c.hub.Get(ctx, endpoint)
+	if err != nil {
+		return nil, newEndpointResolutionError(endpoint)
+	}
+
+	// Validate type
+	if expectedType != "" && !typeMatches(string(ep.Type), expectedType) {
+		return nil, fmt.Errorf("expected endpoint type '%s', got '%s' for '%s'", expectedType, ep.Type, endpoint)
+	}
+
+	// Find first enabled connection with URL
+	for _, conn := range ep.Connect {
+		if conn.Enabled {
+			if urlVal, ok := conn.Config["url"].(string); ok && urlVal != "" {
+				var tenantName *string
+				if tn, ok := conn.Config["tenant_name"].(string); ok {
+					tenantName = &tn
+				}
+				return &EndpointRef{
+					URL:           urlVal,
+					Slug:          ep.Slug,
+					Name:          ep.Name,
+					TenantName:    tenantName,
+					OwnerUsername: &ep.OwnerUsername,
+				}, nil
+			}
+		}
+	}
+
+	return nil, &EndpointResolutionError{
+		ChatError: newChatError(fmt.Sprintf("Endpoint '%s' has no connection with URL configured", endpoint)),
+		Path:      endpoint,
+	}
+}
+
+// typeMatches checks if an endpoint type matches the expected type.
+func typeMatches(actualType, expectedType string) bool {
+	if actualType == expectedType {
+		return true
+	}
+	if actualType == string(EndpointTypeModelDataSource) {
+		return expectedType == string(EndpointTypeModel) || expectedType == string(EndpointTypeDataSource)
+	}
+	// Agent endpoints can be used where model endpoints are expected
+	if actualType == string(EndpointTypeAgent) && expectedType == string(EndpointTypeModel) {
+		return true
+	}
+	return false
+}
+
+// collectUniqueOwners collects unique owner usernames from all endpoints.
+func (c *ChatResource) collectUniqueOwners(modelRef *EndpointRef, dsRefs []EndpointRef) []string {
+	seen := make(map[string]bool)
+	var owners []string
+
+	if modelRef.OwnerUsername != nil {
+		if !seen[*modelRef.OwnerUsername] {
+			seen[*modelRef.OwnerUsername] = true
+			owners = append(owners, *modelRef.OwnerUsername)
+		}
+	}
+
+	for _, ds := range dsRefs {
+		if ds.OwnerUsername != nil {
+			if !seen[*ds.OwnerUsername] {
+				seen[*ds.OwnerUsername] = true
+				owners = append(owners, *ds.OwnerUsername)
+			}
+		}
+	}
+
+	return owners
+}
+
+// collectTunnelingUsernames extracts usernames from tunneling URLs.
+func (c *ChatResource) collectTunnelingUsernames(modelRef *EndpointRef, dsRefs []EndpointRef) []string {
+	seen := make(map[string]bool)
+	var usernames []string
+
+	if strings.HasPrefix(modelRef.URL, tunnelingPrefix) {
+		username := modelRef.URL[len(tunnelingPrefix):]
+		if !seen[username] {
+			seen[username] = true
+			usernames = append(usernames, username)
+		}
+	}
+
+	for _, ds := range dsRefs {
+		if strings.HasPrefix(ds.URL, tunnelingPrefix) {
+			username := ds.URL[len(tunnelingPrefix):]
+			if !seen[username] {
+				seen[username] = true
+				usernames = append(usernames, username)
+			}
+		}
+	}
+
+	return usernames
+}
+
+// chatTokens bundles the token maps + peer info passed to buildRequestBody.
+type chatTokens struct {
+	endpoint    map[string]string
+	transaction map[string]string
+	peerToken   string
+	peerChannel string
+}
+
+// buildRequestBody serializes the aggregator request body. It is a pure serializer —
+// defaults are resolved upstream in resolveDefaults, and the caller's *req is never mutated.
+func (c *ChatResource) buildRequestBody(
+	req *ChatCompleteRequest,
+	modelRef *EndpointRef,
+	dsRefs []EndpointRef,
+	defaults resolvedDefaults,
+	tokens chatTokens,
+	stream bool,
+) map[string]interface{} {
+	body := map[string]interface{}{
+		"prompt": req.Prompt,
+		"model": map[string]interface{}{
+			"url":            modelRef.URL,
+			"slug":           modelRef.Slug,
+			"name":           modelRef.Name,
+			"tenant_name":    modelRef.TenantName,
+			"owner_username": modelRef.OwnerUsername,
+		},
+		"data_sources":         make([]map[string]interface{}, 0, len(dsRefs)),
+		"endpoint_tokens":      tokens.endpoint,
+		"transaction_tokens":   tokens.transaction,
+		"top_k":                defaults.topK,
+		"max_tokens":           defaults.maxTokens,
+		"temperature":          defaults.temperature,
+		"similarity_threshold": defaults.similarityThreshold,
+		"stream":               stream,
+	}
+
+	for _, ds := range dsRefs {
+		body["data_sources"] = append(body["data_sources"].([]map[string]interface{}), map[string]interface{}{
+			"url":            ds.URL,
+			"slug":           ds.Slug,
+			"name":           ds.Name,
+			"tenant_name":    ds.TenantName,
+			"owner_username": ds.OwnerUsername,
+		})
+	}
+
+	if len(req.Messages) > 0 {
+		body["messages"] = req.Messages
+	}
+
+	if tokens.peerToken != "" {
+		body["peer_token"] = tokens.peerToken
+	}
+	if tokens.peerChannel != "" {
+		body["peer_channel"] = tokens.peerChannel
+	}
+
+	return body
+}
+
+// Retrieve queries data sources without invoking a model (retrieval-only path).
+// It is the underlying primitive; prefer client.Search().Query() for the high-level API.
+func (c *ChatResource) Retrieve(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
+	aggregatorURL := c.aggregatorURL
+	if req.AggregatorURL != "" {
+		aggregatorURL = strings.TrimRight(req.AggregatorURL, "/")
+	}
+
+	topK := req.TopK
+	if topK == 0 {
+		topK = 5
+	}
+	simThreshold := req.SimilarityThreshold
+	if simThreshold == 0 {
+		simThreshold = 0.5
+	}
+
+	expandedDataSources, err := c.expandCollectivePaths(ctx, req.DataSources)
+	if err != nil {
+		return nil, err
+	}
+
+	var dsRefs []EndpointRef
+	for _, ds := range expandedDataSources {
+		ref, err := c.resolveEndpointRef(ctx, ds, "data_source")
+		if err != nil {
+			return nil, err
+		}
+		dsRefs = append(dsRefs, *ref)
+	}
+
+	seen := make(map[string]bool)
+	var uniqueOwners []string
+	for _, ds := range dsRefs {
+		if ds.OwnerUsername != nil && !seen[*ds.OwnerUsername] {
+			seen[*ds.OwnerUsername] = true
+			uniqueOwners = append(uniqueOwners, *ds.OwnerUsername)
+		}
+	}
+
+	var endpointTokens map[string]string
+	var transactionTokens *TransactionTokensResponse
+	if req.GuestMode {
+		if endpointTokens, err = c.auth.GetGuestSatelliteTokens(ctx, uniqueOwners); err != nil {
+			endpointTokens = make(map[string]string)
+		}
+		transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+	} else {
+		if endpointTokens, err = c.auth.GetSatelliteTokens(ctx, uniqueOwners); err != nil {
+			endpointTokens = make(map[string]string)
+		}
+		if transactionTokens, err = c.auth.GetTransactionTokens(ctx, uniqueOwners); err != nil {
+			transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+		}
+	}
+
+	tokens := chatTokens{
+		endpoint:    endpointTokens,
+		transaction: transactionTokens.Tokens,
+	}
+	emptyModel := &EndpointRef{}
+	if tunnelingUsernames := c.collectTunnelingUsernames(emptyModel, dsRefs); len(tunnelingUsernames) > 0 {
+		var peerResp *PeerTokenResponse
+		if req.GuestMode {
+			peerResp, _ = c.auth.GetGuestPeerToken(ctx, tunnelingUsernames)
+		} else {
+			peerResp, _ = c.auth.GetPeerToken(ctx, tunnelingUsernames)
+		}
+		if peerResp != nil {
+			tokens.peerToken = peerResp.PeerToken
+			tokens.peerChannel = peerResp.PeerChannel
+		}
+	}
+
+	syntheticReq := &ChatCompleteRequest{
+		Prompt:              req.Prompt,
+		TopK:                topK,
+		MaxTokens:           1,
+		SimilarityThreshold: simThreshold,
+	}
+	defaults := resolvedDefaults{
+		topK:                topK,
+		maxTokens:           1,
+		temperature:         0,
+		similarityThreshold: simThreshold,
+	}
+	requestBody := c.buildRequestBody(syntheticReq, emptyModel, dsRefs, defaults, tokens, false)
+	requestBody["retrieval_only"] = true
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", aggregatorURL+"/chat", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.aggClient.Do(httpReq)
+	if err != nil {
+		return nil, &AggregatorError{ChatError: newChatError(fmt.Sprintf("Failed to connect to aggregator: %v", err))}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, c.handleAggregatorError(resp.StatusCode, errBody)
+	}
+
+	var data struct {
+		Sources       map[string]DocumentSource `json:"sources"`
+		RetrievalInfo []SourceInfo              `json:"retrieval_info"`
+		Metadata      ChatMetadata              `json:"metadata"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	documents := make([]SearchDocument, 0, len(data.Sources))
+	for title, src := range data.Sources {
+		documents = append(documents, SearchDocument{
+			Title:   title,
+			Slug:    src.Slug,
+			Content: src.Content,
+		})
+	}
+
+	return &SearchResponse{
+		Documents:     documents,
+		RetrievalInfo: data.RetrievalInfo,
+		Metadata:      data.Metadata,
+	}, nil
+}
+
+// handleAggregatorError converts aggregator errors to SDK errors.
+//
+// The aggregator may include an optional top-level "billing" block on an error
+// body (a paid query can be REJECTED yet still carry a charge), so it is parsed
+// and attached to the returned AggregatorError for callers that need to surface
+// or reconcile it.
+func (c *ChatResource) handleAggregatorError(statusCode int, body []byte) error {
+	var data map[string]interface{}
+	message := string(body)
+	var billing *Billing
+	if err := json.Unmarshal(body, &data); err == nil {
+		if msg, ok := data["message"].(string); ok {
+			message = msg
+		} else if msg, ok := data["error"].(string); ok {
+			message = msg
+		}
+		billing = parseBilling(data)
+	}
+
+	return &AggregatorError{
+		ChatError: &ChatError{
+			SyftHubError: newSyftHubError(statusCode, fmt.Sprintf("Aggregator error: %s", message)),
+		},
+		Billing: billing,
+	}
+}
+
+// getAvailableEndpoints is a shared helper for GetAvailableModels and GetAvailableDataSources.
+func (c *ChatResource) getAvailableEndpoints(ctx context.Context, endpointType EndpointType, limit int) ([]*EndpointPublic, error) {
+	if limit == 0 {
+		limit = 20
+	}
+
+	var results []*EndpointPublic
+	iter := c.hub.Browse(ctx)
+	for iter.Next(ctx) {
+		if len(results) >= limit {
+			break
+		}
+
+		ep := iter.Value()
+		if ep.Type != endpointType {
+			continue
+		}
+
+		// Check if has enabled connection with URL
+		for _, conn := range ep.Connect {
+			if conn.Enabled {
+				if url, ok := conn.Config["url"].(string); ok && url != "" {
+					epCopy := ep
+					results = append(results, &epCopy)
+					break
+				}
+			}
+		}
+	}
+
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// GetAvailableModels returns model endpoints that have connection URLs configured.
+func (c *ChatResource) GetAvailableModels(ctx context.Context, limit int) ([]*EndpointPublic, error) {
+	return c.getAvailableEndpoints(ctx, EndpointTypeModel, limit)
+}
+
+// GetAvailableDataSources returns data source endpoints that have connection URLs configured.
+func (c *ChatResource) GetAvailableDataSources(ctx context.Context, limit int) ([]*EndpointPublic, error) {
+	return c.getAvailableEndpoints(ctx, EndpointTypeDataSource, limit)
+}
+
+// Helper functions for extracting values from map[string]interface{}
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getInt(m map[string]interface{}, key string) int {
+	if v, ok := m[key].(float64); ok {
+		return int(v)
+	}
+	if v, ok := m[key].(int); ok {
+		return v
+	}
+	return 0
+}
+
+// parseBilling extracts the top-level "billing" block from a decoded aggregator
+// payload (SSE event data or an error body) into a *Billing. It re-marshals the
+// sub-object and lets encoding/json map it onto the struct tags, so the snake_case
+// wire shape (incl. nested recipient / transaction) coerces automatically.
+// Returns nil if "billing" is absent or not an object.
+func parseBilling(m map[string]interface{}) *Billing {
+	raw, ok := m["billing"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var billing Billing
+	if err := json.Unmarshal(encoded, &billing); err != nil {
+		return nil
+	}
+	return &billing
+}

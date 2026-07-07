@@ -1,0 +1,226 @@
+"""Domain-specific exceptions."""
+
+from __future__ import annotations
+
+
+class DomainException(Exception):
+    """Base exception for domain-related errors."""
+
+    def __init__(self, message: str, error_code: str = "DOMAIN_ERROR"):
+        """Initialize domain exception."""
+        self.message = message
+        self.error_code = error_code
+        super().__init__(message)
+
+
+class ValidationError(DomainException):
+    """Exception raised when domain validation fails."""
+
+    def __init__(self, message: str):
+        """Initialize validation error."""
+        super().__init__(message, "VALIDATION_ERROR")
+
+
+# ===========================================
+# IDENTITY PROVIDER (IdP) EXCEPTIONS
+# ===========================================
+
+
+class IdPException(DomainException):
+    """Base exception for Identity Provider errors."""
+
+    def __init__(self, message: str, error_code: str = "IDP_ERROR"):
+        """Initialize IdP exception."""
+        super().__init__(message, error_code)
+
+
+class InvalidAudienceError(IdPException):
+    """Raised when requested audience is not in the allowlist.
+
+    DEPRECATED: Use AudienceNotFoundError or AudienceInactiveError instead.
+    This exception is kept for backward compatibility.
+    """
+
+    def __init__(self, audience: str):
+        """Initialize invalid audience error."""
+        self.audience = audience
+        super().__init__(
+            f"The requested audience '{audience}' is not a registered service.",
+            "INVALID_AUDIENCE",
+        )
+
+
+class AudienceNotFoundError(IdPException):
+    """Raised when the requested audience is not a registered user.
+
+    In the dynamic audience model, a valid audience must be the username
+    of an existing user account. This error is raised when the requested
+    audience doesn't match any username in the database.
+    """
+
+    def __init__(self, audience: str):
+        """Initialize audience not found error."""
+        self.audience = audience
+        super().__init__(
+            f"Audience '{audience}' is not a registered user.",
+            "AUDIENCE_NOT_FOUND",
+        )
+
+
+class AudienceInactiveError(IdPException):
+    """Raised when the requested audience user is inactive.
+
+    In the dynamic audience model, tokens can only be minted for active
+    users. This error is raised when the user exists but is deactivated.
+    """
+
+    def __init__(self, audience: str):
+        """Initialize audience inactive error."""
+        self.audience = audience
+        super().__init__(
+            f"Audience '{audience}' is inactive and cannot receive tokens.",
+            "AUDIENCE_INACTIVE",
+        )
+
+
+class KeyNotConfiguredError(IdPException):
+    """Raised when RSA keys are not configured."""
+
+    def __init__(self) -> None:
+        """Initialize key not configured error."""
+        super().__init__(
+            "RSA keys not configured. Identity Provider is unavailable.",
+            "KEY_NOT_CONFIGURED",
+        )
+
+
+class KeyLoadError(IdPException):
+    """Raised when RSA keys cannot be loaded."""
+
+    def __init__(self, reason: str):
+        """Initialize key load error."""
+        self.reason = reason
+        super().__init__(
+            f"Failed to load RSA keys: {reason}",
+            "KEY_LOAD_ERROR",
+        )
+
+
+# ===========================================
+# USER REGISTRATION EXCEPTIONS
+# ===========================================
+
+
+class UserAlreadyExistsError(DomainException):
+    """Raised when username or email already exists in SyftHub.
+
+    This error indicates a duplicate user registration attempt.
+    """
+
+    def __init__(self, field: str, value: str):
+        """Initialize user already exists error.
+
+        Args:
+            field: The field that already exists ("username" or "email")
+            value: The value that already exists
+        """
+        self.field = field
+        self.value = value
+        super().__init__(
+            f"{field.capitalize()} already exists",
+            "USER_ALREADY_EXISTS",
+        )
+
+
+# ===========================================
+# GENERAL CRUD EXCEPTIONS
+# ===========================================
+
+
+class NotFoundError(DomainException):
+    """Raised when a requested resource does not exist."""
+
+    def __init__(self, resource: str, identifier: str | None = None):
+        """Initialize not found error.
+
+        Args:
+            resource: The type of resource that was not found (e.g., "User", "Endpoint")
+            identifier: Optional identifier value that was looked up
+        """
+        self.resource = resource
+        message = (
+            f"{resource} '{identifier}' not found"
+            if identifier is not None
+            else f"{resource} not found"
+        )
+        super().__init__(message, "NOT_FOUND")
+
+
+class PermissionDeniedError(DomainException):
+    """Raised when the caller lacks permission to perform an operation."""
+
+    def __init__(self, message: str = "Permission denied"):
+        """Initialize permission denied error."""
+        super().__init__(message, "PERMISSION_DENIED")
+
+
+class ConflictError(DomainException):
+    """Raised when a resource already exists and a conflict is detected."""
+
+    def __init__(self, resource: str, field: str):
+        """Initialize conflict error.
+
+        Args:
+            resource: The type of resource with the conflict (e.g., "user")
+            field: The field that already exists (e.g., "username", "email")
+        """
+        self.resource = resource
+        self.field = field
+        super().__init__(f"{field.capitalize()} already exists", "CONFLICT")
+
+
+# ===========================================
+# OTP / EMAIL VERIFICATION EXCEPTIONS
+# ===========================================
+
+
+class InvalidOTPError(DomainException):
+    """Raised when an OTP code is wrong or expired."""
+
+    def __init__(self, message: str = "Invalid or expired verification code"):
+        """Initialize invalid OTP error."""
+        super().__init__(message, "INVALID_OTP")
+
+
+class OTPMaxAttemptsError(DomainException):
+    """Raised when OTP verification attempts are exhausted."""
+
+    def __init__(self) -> None:
+        """Initialize OTP max attempts error."""
+        super().__init__(
+            "Too many verification attempts. Please request a new code.",
+            "OTP_MAX_ATTEMPTS",
+        )
+
+
+class OTPRateLimitedError(DomainException):
+    """Raised when OTP send requests exceed rate limit."""
+
+    def __init__(self) -> None:
+        """Initialize OTP rate limited error."""
+        super().__init__(
+            "Too many code requests. Please wait before requesting a new code.",
+            "OTP_RATE_LIMITED",
+        )
+
+
+class EmailNotVerifiedError(DomainException):
+    """Raised when an unverified user attempts to log in."""
+
+    def __init__(self) -> None:
+        """Initialize email not verified error."""
+        super().__init__(
+            "Email address has not been verified. "
+            "Please check your inbox for a verification code.",
+            "EMAIL_NOT_VERIFIED",
+        )

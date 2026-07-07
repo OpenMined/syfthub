@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+*.pyo
+mock_oauth_server/syftbox-api-sdk-ts/

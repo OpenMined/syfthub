@@ -1,0 +1,18 @@
+{
+  "source": {
+    "path": "server.py",
+    "entrypoint": "mcp"
+  },
+  "deployment": {
+    "transport": "http",
+    "port": 8002,
+    "host": "0.0.0.0",
+    "environment_variables": {
+      "OAUTH_ISSUER": "http://localhost:8080/mcp",
+      "API_BASE_URL": "http://localhost:8080/mcp",
+      "OAUTH_AUDIENCE": "mcp-server",
+      "SYFTHUB_URL": "http://backend:8000",
+      "SYFTHUB_PUBLIC_URL": "http://localhost:8080"
+    }
+  }
+}

@@ -1,0 +1,125 @@
+"""Database dependencies for FastAPI dependency injection."""
+
+from typing import Annotated
+
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from syfthub.database.connection import get_db_session
+from syfthub.repositories import (
+    APITokenRepository,
+    CollectiveMemberRepository,
+    CollectiveRepository,
+    EndpointRepository,
+    UserRepository,
+    UserXenditSubscriptionRepository,
+)
+from syfthub.repositories.endpoint import EndpointStarRepository
+from syfthub.services.admin_stats_service import AdminStatsService
+from syfthub.services.api_token_service import APITokenService
+from syfthub.services.auth_service import AuthService
+from syfthub.services.collective_service import CollectiveService
+from syfthub.services.endpoint_service import EndpointService
+from syfthub.services.otp_service import OTPService
+from syfthub.services.user_service import UserService
+
+__all__ = ["get_db_session"]
+
+
+def get_user_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> UserRepository:
+    """Get UserRepository dependency."""
+    return UserRepository(session)
+
+
+def get_api_token_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APITokenRepository:
+    """Get APITokenRepository dependency."""
+    return APITokenRepository(session)
+
+
+def get_endpoint_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> EndpointRepository:
+    """Get EndpointRepository dependency."""
+    return EndpointRepository(session)
+
+
+def get_endpoint_star_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> EndpointStarRepository:
+    """Get EndpointStarRepository dependency."""
+    return EndpointStarRepository(session)
+
+
+def get_collective_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveRepository:
+    """Get CollectiveRepository dependency."""
+    return CollectiveRepository(session)
+
+
+def get_collective_member_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveMemberRepository:
+    """Get CollectiveMemberRepository dependency."""
+    return CollectiveMemberRepository(session)
+
+
+def get_user_xendit_subscription_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> UserXenditSubscriptionRepository:
+    """Get UserXenditSubscriptionRepository dependency."""
+    return UserXenditSubscriptionRepository(session)
+
+
+# Service dependencies
+def get_user_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> UserService:
+    """Get UserService dependency."""
+    return UserService(session)
+
+
+def get_auth_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> AuthService:
+    """Get AuthService dependency."""
+    return AuthService(session)
+
+
+def get_endpoint_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> EndpointService:
+    """Get EndpointService dependency."""
+    return EndpointService(session)
+
+
+def get_collective_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveService:
+    """Get CollectiveService dependency."""
+    return CollectiveService(session)
+
+
+def get_otp_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> OTPService:
+    """Get OTPService dependency."""
+    return OTPService(session)
+
+
+def get_api_token_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APITokenService:
+    """Get APITokenService dependency."""
+    return APITokenService(session)
+
+
+def get_admin_stats_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> AdminStatsService:
+    """Get AdminStatsService dependency."""
+    return AdminStatsService(session)

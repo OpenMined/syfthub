@@ -1,0 +1,41 @@
+meta:
+  id: telegram
+  name: "Telegram"
+  description: "Connect a Telegram bot for messaging"
+  category: communication
+  tags: [telegram, bot, messaging, chat]
+
+steps:
+  - id: bot_token
+    type: prompt
+    name: "Enter Telegram Bot Token"
+    required: true
+    prompt:
+      message: "Enter your Telegram Bot Token (from @BotFather)"
+      secret: true
+      validate:
+        pattern: "^[0-9]+:[A-Za-z0-9_-]+$"
+        message: "Token should be in format: 123456:ABC-DEF"
+    outputs:
+      TELEGRAM_BOT_TOKEN: "{{value}}"
+
+  - id: verify_bot
+    type: http
+    name: "Verifying bot token..."
+    depends_on: [bot_token]
+    required: true
+    http:
+      method: GET
+      url: "https://api.telegram.org/bot{{steps.bot_token.value}}/getMe"
+      expect_status: 200
+    outputs:
+      TELEGRAM_BOT_USERNAME: "{{response.result.username}}"
+
+  - id: webhook_url
+    type: prompt
+    name: "Webhook URL"
+    depends_on: [verify_bot]
+    prompt:
+      message: "Enter the webhook URL for your bot (leave empty to skip)"
+    outputs:
+      TELEGRAM_WEBHOOK_URL: "{{value}}"
