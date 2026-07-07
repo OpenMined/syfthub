@@ -163,7 +163,7 @@ async def test_disabled_switch_skips_redis_entirely() -> None:
 
 def test_get_client_ip_prefers_x_real_ip() -> None:
     """X-Real-IP (nginx-set, un-spoofable) wins over the socket peer."""
-    from syfthub.core.rate_limit import get_client_ip
+    from syfthub.core.client_ip import get_client_ip
 
     # client.host is the proxy; X-Real-IP is the true client.
     assert (

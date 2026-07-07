@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from syfthub.auth.api_tokens import hash_api_token, is_api_token
 from syfthub.auth.security import verify_token
+from syfthub.core.client_ip import get_client_ip
 from syfthub.database.dependencies import get_api_token_repository, get_user_repository
 from syfthub.observability.logger import get_logger
 from syfthub.repositories.api_token import APITokenRepository
@@ -124,9 +125,7 @@ def _authenticate_with_api_token(
 
     # Update last used timestamp (fire-and-forget, don't fail auth on error)
     try:
-        client_ip = None
-        if request and request.client:
-            client_ip = request.client.host
+        client_ip = get_client_ip(request) if request is not None else None
         api_token_repo.update_last_used(api_token.id, client_ip)
     except Exception:
         logger.debug("auth.api_token.tracking_failed", exc_info=True)

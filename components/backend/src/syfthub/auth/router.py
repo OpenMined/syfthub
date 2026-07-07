@@ -16,6 +16,7 @@ from syfthub.auth.db_dependencies import (
 from syfthub.auth.security import (
     blacklist_token,
 )
+from syfthub.core.client_ip import get_client_ip
 from syfthub.core.config import settings
 from syfthub.core.rate_limit import per_ip_rate_limit
 from syfthub.database.dependencies import (
@@ -139,7 +140,7 @@ def register_user(
 
         # If email verification is required, generate and send OTP
         if result.requires_email_verification:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 user_data.email, "registration", requester_ip=client_ip
             )
@@ -338,7 +339,7 @@ def resend_registration_otp(
         user = user_repo.get_by_email(body.email)
 
         if user and not user.is_email_verified:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 body.email, "registration", requester_ip=client_ip
             )
@@ -380,7 +381,7 @@ def request_password_reset(
 
         # Only send if user exists and has a password (not OAuth-only)
         if model and model.password_hash:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 body.email, "password_reset", requester_ip=client_ip
             )

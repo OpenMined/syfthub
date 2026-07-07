@@ -13,9 +13,8 @@ Design choices:
   marginal brute-force exposure during a Redis outage — and nginx ``limit_req``
   is an independent outer guard that does not depend on Redis. Flip the setting
   to fail closed where strictness matters more.
-- Client IP comes from ``request.client.host``, which is the real client only
-  when uvicorn runs with ``--proxy-headers`` (it does in the container image);
-  otherwise it is the proxy's IP and the limit becomes global.
+- Client IP comes from the canonical, un-spoofable ``get_client_ip`` helper
+  (nginx ``X-Real-IP``); see ``syfthub.core.client_ip`` for the trust model.
 """
 
 from __future__ import annotations
@@ -25,31 +24,14 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, Request, status
 
+from syfthub.core.client_ip import get_client_ip
 from syfthub.core.config import get_settings
 from syfthub.core.redis_client import get_redis_client
 from syfthub.observability.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-def get_client_ip(request: Request) -> str:
-    """Return the trusted client IP for rate-limit keying.
-
-    Prefers nginx's ``X-Real-IP`` header, which the proxy sets from
-    ``$remote_addr`` and **overwrites** on every request — so, unlike
-    ``X-Forwarded-For`` (which nginx *appends* to and a client can seed), it
-    cannot be spoofed. The backend port is only reachable via nginx on the
-    internal network, so a client can never set ``X-Real-IP`` directly.
-
-    Falls back to ``request.client.host`` only when the header is absent (e.g.
-    a direct/local request with no proxy in front).
-    """
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+__all__ = ["get_client_ip", "per_ip_rate_limit"]
 
 
 def per_ip_rate_limit(
