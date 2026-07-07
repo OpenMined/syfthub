@@ -32,7 +32,7 @@ check_user_ownership = OwnershipChecker()
 
 
 @router.get("/", response_model=list[UserResponse])
-async def list_users(
+def list_users(
     _: Annotated[bool, Depends(require_admin)],
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> list[UserResponse]:
@@ -41,7 +41,7 @@ async def list_users(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_profile(
+def get_current_user_profile(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> UserResponse:
     """Get current user's profile."""
@@ -107,7 +107,7 @@ async def get_tunnel_credentials(
 
 
 @router.get("/check-username/{username}")
-async def check_username_availability(
+def check_username_availability(
     username: str,
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> dict[str, Union[bool, str]]:
@@ -117,7 +117,7 @@ async def check_username_availability(
 
 
 @router.get("/check-email/{email}")
-async def check_email_availability(
+def check_email_availability(
     email: str,
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> dict[str, Union[bool, str]]:
@@ -140,7 +140,7 @@ only present in the response when the user has opted in via
 ``is_email_public``. Returns 404 for unknown or deactivated accounts.
 """,
 )
-async def get_public_user_profile(
+def get_public_user_profile(
     username: str,
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> PublicUserProfile:
@@ -154,7 +154,7 @@ async def get_public_user_profile(
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
+def get_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
@@ -173,7 +173,7 @@ async def get_user(
 
 
 @router.put("/me", response_model=UserResponse)
-async def update_current_user_profile(
+def update_current_user_profile(
     user_data: UserUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
@@ -183,7 +183,7 @@ async def update_current_user_profile(
 
 
 @router.put("/{user_id}", response_model=UserResponse)
-async def update_user(
+def update_user(
     user_id: int,
     user_data: UserUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -194,7 +194,7 @@ async def update_user(
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)
-async def deactivate_user(
+def deactivate_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
@@ -214,7 +214,7 @@ async def deactivate_user(
 
 
 @router.patch("/{user_id}/activate", response_model=UserResponse)
-async def activate_user(
+def activate_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
@@ -246,7 +246,7 @@ async def activate_user(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(
+def delete_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],

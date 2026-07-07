@@ -50,7 +50,7 @@ Authenticated spaces call this after login to obtain the shared NATS
 auth token, which they use to connect to the NATS server via WebSocket.
 """,
 )
-async def get_nats_credentials(
+def get_nats_credentials(
     _current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> NatsCredentialsResponse:
     """Return the NATS auth token for the authenticated user.
@@ -88,7 +88,7 @@ the key so the aggregator can encrypt tunnel request payloads destined for this
 space. The key must be a base64url-encoded X25519 public key (32 bytes).
 """,
 )
-async def register_encryption_key(
+def register_encryption_key(
     body: EncryptionKeyRegisterRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     session: Annotated[Session, Depends(get_db_session)],
@@ -142,7 +142,7 @@ encrypt the payload. Public keys are safe to expose without authentication.
 Returns null encryption_public_key if the space has not registered a key.
 """,
 )
-async def get_space_encryption_key(
+def get_space_encryption_key(
     username: str,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> EncryptionKeyResponse:

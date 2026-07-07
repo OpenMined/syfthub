@@ -33,7 +33,7 @@ class TrendWindow(IntEnum):
 
 
 @router.get("/overview", response_model=UserOverviewStats)
-async def get_user_overview(
+def get_user_overview(
     _: Annotated[bool, Depends(require_admin)],
     service: Annotated[AdminStatsService, Depends(get_admin_stats_service)],
     trend_days: Annotated[TrendWindow, Query()] = TrendWindow.MONTH,
@@ -43,7 +43,7 @@ async def get_user_overview(
 
 
 @router.get("/users", response_model=AdminUserPage)
-async def list_admin_users(
+def list_admin_users(
     _: Annotated[bool, Depends(require_admin)],
     service: Annotated[AdminStatsService, Depends(get_admin_stats_service)],
     page: Annotated[int, Query(ge=1)] = 1,
@@ -69,7 +69,7 @@ async def list_admin_users(
 
 
 @router.get("/users/export")
-async def export_admin_users(
+def export_admin_users(
     _: Annotated[bool, Depends(require_admin)],
     service: Annotated[AdminStatsService, Depends(get_admin_stats_service)],
     sort_by: Annotated[SortByParam, Query()] = "created_at",

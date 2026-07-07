@@ -396,6 +396,15 @@ class EndpointHealthMonitor:
             session.rollback()
 
     async def run_health_check_cycle(self) -> None:
+        """Run one health check cycle, offloaded to a worker thread.
+
+        The cycle body is fully synchronous (blocking SQLAlchemy: advisory lock,
+        full endpoint scan, per-row commits). Running it inline would block the
+        shared event loop for the whole cycle, so it is dispatched to a thread.
+        """
+        await asyncio.to_thread(self._run_health_check_cycle_sync)
+
+    def _run_health_check_cycle_sync(self) -> None:
         """Run one complete health check cycle for all endpoints.
 
         This method:

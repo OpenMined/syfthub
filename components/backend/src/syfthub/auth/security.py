@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -20,10 +21,13 @@ logger = logging.getLogger(__name__)
 # Password hashing context - using Argon2 for better security and no length limitations
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-# Token blacklist mapping token string to Unix expiration timestamp
+# Token blacklist mapping token string to Unix expiration timestamp.
+# Guarded by _blacklist_lock: handlers now run on threadpool threads, so this
+# shared dict is mutated concurrently and every read/write must hold the lock.
 token_blacklist: Dict[str, float] = {}
+_blacklist_lock = threading.Lock()
 
-# Counter for periodic cleanup
+# Counter for periodic cleanup (also guarded by _blacklist_lock)
 _blacklist_insert_count: int = 0
 
 # JWT algorithm
@@ -123,10 +127,15 @@ def blacklist_token(token: str) -> None:
         # Conservative fallback: assume token lives for the configured access TTL
         exp = time.time() + settings.access_token_expire_minutes * 60
 
-    token_blacklist[token] = float(exp)
+    should_cleanup = False
+    with _blacklist_lock:
+        token_blacklist[token] = float(exp)
+        _blacklist_insert_count += 1
+        if _blacklist_insert_count % 100 == 0:
+            should_cleanup = True
 
-    _blacklist_insert_count += 1
-    if _blacklist_insert_count % 100 == 0:
+    # Run cleanup outside the lock; cleanup_expired_tokens re-acquires it.
+    if should_cleanup:
         cleanup_expired_tokens()
 
 
@@ -135,24 +144,27 @@ def is_token_blacklisted(token: str) -> bool:
 
     Performs lazy cleanup: if the entry has expired, removes it and
     returns ``False`` since the token would fail verification anyway.
+    The check-and-delete is atomic under ``_blacklist_lock``.
     """
-    if token not in token_blacklist:
-        return False
+    with _blacklist_lock:
+        exp = token_blacklist.get(token)
+        if exp is None:
+            return False
 
-    exp = token_blacklist[token]
-    if exp < time.time():
-        del token_blacklist[token]
-        return False
+        if exp < time.time():
+            del token_blacklist[token]
+            return False
 
-    return True
+        return True
 
 
 def cleanup_expired_tokens() -> None:
     """Remove all expired entries from the token blacklist."""
     now = time.time()
-    expired_tokens = [t for t, exp in token_blacklist.items() if exp < now]
-    for t in expired_tokens:
-        del token_blacklist[t]
+    with _blacklist_lock:
+        expired_tokens = [t for t, exp in token_blacklist.items() if exp < now]
+        for t in expired_tokens:
+            del token_blacklist[t]
 
 
 def get_token_from_header(authorization: str) -> Optional[str]:

@@ -11,6 +11,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.core.config import settings
@@ -66,7 +67,7 @@ async def _fund_via_tempo_faucet(address: str) -> None:
 
 
 @router.get("/", response_model=WalletResponse)
-async def get_wallet(
+def get_wallet(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> WalletResponse:
     """Get wallet info (address and existence) for the current user."""
@@ -77,7 +78,7 @@ async def get_wallet(
 
 
 @router.post("/create", response_model=CreateWalletResponse)
-async def create_wallet(
+def create_wallet(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     background_tasks: BackgroundTasks,
@@ -121,7 +122,7 @@ async def create_wallet(
 
 
 @router.post("/import", response_model=CreateWalletResponse)
-async def import_wallet(
+def import_wallet(
     request: ImportWalletRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
@@ -265,7 +266,11 @@ async def pay(
         )
 
     # Fetch the private key directly from the DB (not exposed on the User schema)
-    wallet_private_key = user_repo.get_wallet_private_key(current_user.id)
+    # Offloaded to the threadpool so the blocking DB read doesn't stall the loop
+    # in this otherwise-async handler.
+    wallet_private_key = await run_in_threadpool(
+        user_repo.get_wallet_private_key, current_user.id
+    )
     if not wallet_private_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -366,7 +371,7 @@ async def pay(
 
 
 @router.get("/subscriptions", response_model=XenditSubscriptionListResponse)
-async def list_xendit_subscriptions(
+def list_xendit_subscriptions(
     current_user: Annotated[User, Depends(get_current_active_user)],
     repo: Annotated[
         UserXenditSubscriptionRepository,
@@ -389,7 +394,7 @@ async def list_xendit_subscriptions(
     response_model=XenditSubscriptionResponse,
     status_code=status.HTTP_200_OK,
 )
-async def upsert_xendit_subscription(
+def upsert_xendit_subscription(
     request: XenditSubscriptionUpsertRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     repo: Annotated[
@@ -429,7 +434,7 @@ async def upsert_xendit_subscription(
     "/subscriptions/by-owner/{endpoint_owner}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_xendit_subscriptions_by_owner(
+def delete_xendit_subscriptions_by_owner(
     endpoint_owner: str,
     current_user: Annotated[User, Depends(get_current_active_user)],
     repo: Annotated[
@@ -456,7 +461,7 @@ async def delete_xendit_subscriptions_by_owner(
     "/subscriptions/{subscription_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_xendit_subscription(
+def delete_xendit_subscription(
     subscription_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     repo: Annotated[

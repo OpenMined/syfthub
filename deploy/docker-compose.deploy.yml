@@ -62,18 +62,23 @@ services:
     networks:
       - syfthub-network
     depends_on:
+      # service_started (not service_healthy): the proxy must come up and serve
+      # the SPA + aggregator/mcp/nats routes even if the backend is browning
+      # out — a frozen backend must never gate the proxy's (re)start.
       backend:
-        condition: service_healthy
+        condition: service_started
       aggregator:
-        condition: service_healthy
+        condition: service_started
       mcp:
-        condition: service_healthy
+        condition: service_started
       nats:
         condition: service_healthy
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      # Self-answering nginx liveness — deliberately does NOT probe the backend,
+      # so a backend brownout can't cascade the proxy into "unhealthy".
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -224,8 +229,11 @@ services:
     networks:
       - syfthub-network
     depends_on:
+      # service_started, not service_healthy: the aggregator's own health is
+      # self-contained; gating it on backend health let a stuck backend block
+      # aggregator (re)starts during the incident.
       backend:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
       interval: 30s
@@ -276,10 +284,12 @@ services:
     networks:
       - syfthub-network
     depends_on:
+      # service_started, not service_healthy: mcp's own /health is self-contained;
+      # gating on backend health let a stuck backend block mcp (re)starts.
       backend:
-        condition: service_healthy
+        condition: service_started
       aggregator:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s

@@ -76,7 +76,7 @@ class ErrorReportResponse(BaseModel):
     Authentication is optional - anonymous errors can be reported.
     """,
 )
-async def report_frontend_error(
+def report_frontend_error(
     error_report: FrontendErrorReport,
     session: Annotated[Session, Depends(get_db_session)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
@@ -179,7 +179,7 @@ class ServiceErrorReport(BaseModel):
     No authentication required - services use internal network.
     """,
 )
-async def report_service_error(
+def report_service_error(
     error_report: ServiceErrorReport,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> ErrorReportResponse:

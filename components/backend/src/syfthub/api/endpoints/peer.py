@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.auth.peer_tokens import create_guest_peer_token, create_peer_token
 from syfthub.core.config import get_settings
+from syfthub.core.rate_limit import per_ip_rate_limit
 from syfthub.core.redis_client import get_redis_client
 from syfthub.schemas.peer import (
     GuestPeerTokenRequest,
@@ -96,36 +97,22 @@ async def generate_peer_token(
     )
 
 
+# Per-IP limiter for guest peer tokens, built from the shared utility so there
+# is a single fixed-window implementation. Reuses the existing guest-peer knobs.
+_guest_peer_rate_limiter = per_ip_rate_limit(
+    "nats-guest-peer",
+    "guest_peer_token_rate_limit_max",
+    "guest_peer_token_rate_limit_window_seconds",
+)
+
+
 async def _check_guest_peer_rate_limit(request: Request) -> None:
     """Check IP-based rate limit for guest peer token requests.
-
-    Uses Redis INCR + EXPIRE for a sliding window rate limiter.
 
     Raises:
         HTTPException: 429 if rate limit exceeded.
     """
-    settings = get_settings()
-    redis = await get_redis_client()
-
-    ip = request.client.host if request.client else "unknown"
-    key = f"nats:guest-peer:rate:{ip}"
-
-    # Pipeline SET NX + INCR in one round-trip: SET NX initialises the key with
-    # TTL on the first request; INCR atomically returns the new count.
-    # Using transaction=False (no MULTI/EXEC) is enough — both commands execute
-    # server-side in order, avoiding the INCR/EXPIRE race of the naive approach.
-    async with redis.pipeline(transaction=False) as pipe:
-        pipe.set(
-            key, 0, ex=settings.guest_peer_token_rate_limit_window_seconds, nx=True
-        )
-        pipe.incr(key)
-        _, count = await pipe.execute()
-
-    if count > settings.guest_peer_token_rate_limit_max:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Guest peer token rate limit exceeded. Try again later.",
-        )
+    await _guest_peer_rate_limiter(request)
 
 
 @router.post(

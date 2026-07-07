@@ -32,6 +32,8 @@ class TestGetRedisClient:
                 mock_redis_cls.from_url.assert_called_once_with(
                     "redis://localhost:6379",
                     decode_responses=True,
+                    socket_timeout=1.0,
+                    socket_connect_timeout=1.0,
                 )
 
     @pytest.mark.asyncio
