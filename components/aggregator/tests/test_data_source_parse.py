@@ -78,7 +78,39 @@ def test_parse_empty_when_no_summary_and_no_references() -> None:
     assert docs == []
 
 
-def test_parse_ignores_empty_summary_content() -> None:
+def test_parse_returns_placeholder_for_empty_summary_content() -> None:
+    """A summary block with empty content (e.g. a silently-failed generation)
+    surfaces a placeholder Document instead of being dropped, so the source's
+    document count stays consistent across repeated identical queries."""
     client = DataSourceClient()
-    data = {"summary": {"message": {"role": "assistant", "content": ""}}, "references": None}
-    assert client._parse_syftai_response(data) == []
+    data = {
+        "summary": {"model": "gpt-x", "message": {"role": "assistant", "content": ""}},
+        "references": None,
+    }
+
+    docs = client._parse_syftai_response(data)
+
+    assert len(docs) == 1
+    assert docs[0].content == DataSourceClient.EMPTY_SUMMARY_MESSAGE
+    assert docs[0].score == 1.0
+    assert docs[0].metadata.get("source_type") == "generated_empty"
+    assert docs[0].metadata.get("model") == "gpt-x"
+
+
+def test_parse_includes_both_documents_and_empty_summary_placeholder() -> None:
+    """Hybrid source returns real docs plus an empty summary: the placeholder
+    still surfaces alongside the real documents, not instead of them."""
+    client = DataSourceClient()
+    data = {
+        "summary": {"message": {"role": "assistant", "content": ""}},
+        "references": {
+            "documents": [{"content": "doc one", "similarity_score": 0.8, "metadata": {}}]
+        },
+    }
+
+    docs = client._parse_syftai_response(data)
+
+    contents = [d.content for d in docs]
+    assert "doc one" in contents
+    assert DataSourceClient.EMPTY_SUMMARY_MESSAGE in contents
+    assert len(docs) == 2

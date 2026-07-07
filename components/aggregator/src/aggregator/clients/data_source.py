@@ -429,7 +429,12 @@ class DataSourceClient:
         Hybrid endpoints (model_data_source) also return an AI-generated answer
         in summary.message.content. We surface that as a Document too, so hybrid
         sources contribute their generated answer alongside any retrieved docs
-        instead of reporting "0 documents retrieved".
+        instead of reporting "0 documents retrieved". If a summary block is
+        present but its content is empty (the endpoint's own LLM call produced
+        nothing), we still surface a placeholder Document (see
+        EMPTY_SUMMARY_MESSAGE) rather than silently dropping the source, so
+        hybrid sources report a consistent document count across repeated
+        identical queries.
         """
         documents: list[Document] = []
 
@@ -458,11 +463,22 @@ class DataSourceClient:
 
         return documents
 
-    @staticmethod
-    def _summary_to_document(summary: Any) -> Document | None:
-        """Convert a SyftAI-Space summary into a Document, if it has content.
+    # Placeholder shown when a hybrid endpoint returned a summary block but its
+    # message content was empty (e.g. the endpoint's own LLM call silently
+    # produced nothing). Surfacing this explicitly — rather than dropping the
+    # source entirely — keeps per-source document counts consistent across
+    # repeated identical queries and tells the model/user "this source had
+    # nothing to add" instead of making the source vanish without a trace.
+    EMPTY_SUMMARY_MESSAGE = "No related information found for this query."
 
-        Returns None when there is no summary or no non-empty content.
+    @classmethod
+    def _summary_to_document(cls, summary: Any) -> Document | None:
+        """Convert a SyftAI-Space summary into a Document.
+
+        Returns None only when there is no summary at all (the endpoint isn't
+        hybrid, or never attempted generation). When a summary IS present but
+        its message content is empty, returns a placeholder Document instead
+        of silently dropping the source.
         """
         if not summary or not isinstance(summary, dict):
             return None
@@ -476,7 +492,11 @@ class DataSourceClient:
             content = ""
 
         if not content:
-            return None
+            return Document(
+                content=cls.EMPTY_SUMMARY_MESSAGE,
+                score=1.0,
+                metadata={"source_type": "generated_empty", "model": summary.get("model")},
+            )
 
         return Document(
             content=str(content),
