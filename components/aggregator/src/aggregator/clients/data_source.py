@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,13 @@ if TYPE_CHECKING:
     from aggregator.clients.error_reporter import ErrorReporter
 
 logger = get_logger(__name__)
+
+# Retry configuration for transient upstream failures (e.g. HTTP 500 from a
+# hybrid endpoint's own LLM generation step). Mirrors ModelClient so a source
+# that momentarily fails isn't silently reported as "0 documents retrieved".
+MAX_RETRIES = 2
+RETRY_BASE_DELAY = 1.0  # seconds
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
 
 class DataSourceClient:
@@ -112,172 +120,213 @@ class DataSourceClient:
         )
 
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        last_error: RetrievalResult | None = None
         try:
-            response = await client.post(
-                query_url,
-                json=request_data,
-                headers=headers,
-                timeout=self.timeout,
-            )
-
-            # Handle MPP 402 Payment Required
-            if response.status_code == 402 and user_token and syfthub_url:
+            for attempt in range(1 + MAX_RETRIES):
                 try:
-                    x_payment = await handle_mpp_payment(
-                        response=response,
-                        syfthub_url=syfthub_url,
-                        user_token=user_token,
-                        endpoint_slug=slug,
-                        http_client=client,
+                    response = await client.post(
+                        query_url,
+                        json=request_data,
+                        headers=headers,
+                        timeout=self.timeout,
                     )
-                    if x_payment:
-                        # Retry with X-Payment header
-                        retry_headers = {**headers, "X-Payment": x_payment}
-                        response = await client.post(
-                            query_url,
-                            json=request_data,
-                            headers=retry_headers,
-                        )
-                except Exception as pay_err:
+
+                    # Handle MPP 402 Payment Required
+                    if response.status_code == 402 and user_token and syfthub_url:
+                        try:
+                            x_payment = await handle_mpp_payment(
+                                response=response,
+                                syfthub_url=syfthub_url,
+                                user_token=user_token,
+                                endpoint_slug=slug,
+                                http_client=client,
+                            )
+                            if x_payment:
+                                # Retry with X-Payment header
+                                retry_headers = {**headers, "X-Payment": x_payment}
+                                response = await client.post(
+                                    query_url,
+                                    json=request_data,
+                                    headers=retry_headers,
+                                )
+                        except Exception as pay_err:
+                            latency_ms = int((time.perf_counter() - start_time) * 1000)
+                            error_detail = str(pay_err).lower()
+                            if "insufficient" in error_detail:
+                                error_msg = "Payment failed: insufficient wallet balance"
+                            elif "timeout" in error_detail or "timed out" in error_detail:
+                                error_msg = "Payment failed: blockchain timeout"
+                            else:
+                                error_msg = f"Payment failed: {pay_err}"
+                            logger.warning(
+                                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                                endpoint_path=endpoint_path,
+                                status_code=402,
+                                error=error_msg,
+                                latency_ms=latency_ms,
+                            )
+                            return RetrievalResult(
+                                endpoint_path=endpoint_path,
+                                documents=[],
+                                status="payment_failed",
+                                error_message=error_msg,
+                                latency_ms=latency_ms,
+                                policy_metadata=extract_policy_metadata(response),
+                            )
+
                     latency_ms = int((time.perf_counter() - start_time) * 1000)
-                    error_detail = str(pay_err).lower()
-                    if "insufficient" in error_detail:
-                        error_msg = "Payment failed: insufficient wallet balance"
-                    elif "timeout" in error_detail or "timed out" in error_detail:
-                        error_msg = "Payment failed: blockchain timeout"
-                    else:
-                        error_msg = f"Payment failed: {pay_err}"
-                    logger.warning(
-                        LogEvents.DATA_SOURCE_QUERY_FAILED,
+
+                    if response.status_code == 403:
+                        error_detail = self._extract_error_detail(response)
+                        logger.warning(
+                            LogEvents.DATA_SOURCE_QUERY_FAILED,
+                            endpoint_path=endpoint_path,
+                            status_code=403,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                            message=f"Data source access denied: {error_detail}",
+                            endpoint=query_url,
+                            status_code=403,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        pm = extract_policy_metadata(response)
+                        return RetrievalResult(
+                            endpoint_path=endpoint_path,
+                            documents=[],
+                            # Precise cause from the rejection envelope when present
+                            # (access_denied / rate_limited / policy_violation), else 403's default.
+                            status=source_status_from_policy_metadata(pm) or "access_denied",
+                            error_message=f"Access denied: {error_detail}",
+                            latency_ms=latency_ms,
+                            policy_metadata=pm,
+                        )
+
+                    if response.status_code != 200:
+                        error_detail = self._extract_error_detail(response)
+                        user_message = (
+                            self._build_unreachable_message(endpoint_path)
+                            if self._is_html_error_page(error_detail)
+                            else f"HTTP {response.status_code}: {error_detail}"
+                        )
+
+                        # Retry on transient upstream errors (e.g. a hybrid
+                        # endpoint's own LLM generation step failing/rate-limiting)
+                        # instead of silently reporting "0 documents retrieved".
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            delay = RETRY_BASE_DELAY * (2**attempt)
+                            logger.warning(
+                                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                                endpoint_path=endpoint_path,
+                                status_code=response.status_code,
+                                error=error_detail,
+                                latency_ms=latency_ms,
+                                retry_attempt=attempt + 1,
+                                retry_max=MAX_RETRIES,
+                                retry_delay=delay,
+                            )
+                            last_error = RetrievalResult(
+                                endpoint_path=endpoint_path,
+                                documents=[],
+                                status="error",
+                                error_message=user_message,
+                                latency_ms=latency_ms,
+                                policy_metadata=extract_policy_metadata(response),
+                            )
+                            await asyncio.sleep(delay)
+                            start_time = time.perf_counter()
+                            continue
+
+                        logger.warning(
+                            LogEvents.DATA_SOURCE_QUERY_FAILED,
+                            endpoint_path=endpoint_path,
+                            status_code=response.status_code,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                            message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
+                            endpoint=query_url,
+                            status_code=response.status_code,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        return RetrievalResult(
+                            endpoint_path=endpoint_path,
+                            documents=[],
+                            status="error",
+                            error_message=user_message,
+                            latency_ms=latency_ms,
+                            policy_metadata=extract_policy_metadata(response),
+                        )
+
+                    data = response.json()
+                    documents = self._parse_syftai_response(data)
+
+                    logger.info(
+                        LogEvents.DATA_SOURCE_QUERY_COMPLETED,
                         endpoint_path=endpoint_path,
-                        status_code=402,
-                        error=error_msg,
+                        documents_count=len(documents),
+                        latency_ms=latency_ms,
+                    )
+
+                    return RetrievalResult(
+                        endpoint_path=endpoint_path,
+                        documents=documents,
+                        status="success",
+                        latency_ms=latency_ms,
+                        policy_metadata=data.get("policy_metadata"),
+                    )
+
+                except httpx.TimeoutException:
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    logger.warning(
+                        LogEvents.CHAT_RETRIEVAL_TIMEOUT,
+                        endpoint_path=endpoint_path,
                         latency_ms=latency_ms,
                     )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
                         documents=[],
-                        status="payment_failed",
-                        error_message=error_msg,
+                        status="timeout",
+                        error_message="Request timed out",
                         latency_ms=latency_ms,
-                        policy_metadata=extract_policy_metadata(response),
                     )
 
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
+                except httpx.RequestError as e:
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    logger.warning(
+                        LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        endpoint_path=endpoint_path,
+                        error=str(e),
+                        query_url=query_url,
+                        latency_ms=latency_ms,
+                    )
+                    return RetrievalResult(
+                        endpoint_path=endpoint_path,
+                        documents=[],
+                        status="error",
+                        error_message=(
+                            f"Cannot reach data source at {query_url}: {e}. "
+                            "Check that the endpoint's public URL is correct in Settings."
+                        ),
+                        latency_ms=latency_ms,
+                    )
 
-            if response.status_code == 403:
-                error_detail = self._extract_error_detail(response)
-                logger.warning(
-                    LogEvents.DATA_SOURCE_QUERY_FAILED,
-                    endpoint_path=endpoint_path,
-                    status_code=403,
-                    error=error_detail,
-                    latency_ms=latency_ms,
-                )
-                self._report_upstream_error(
-                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
-                    message=f"Data source access denied: {error_detail}",
-                    endpoint=query_url,
-                    status_code=403,
-                    error_detail=error_detail,
-                    latency_ms=latency_ms,
-                    request_data=request_data,
-                )
-                pm = extract_policy_metadata(response)
-                return RetrievalResult(
-                    endpoint_path=endpoint_path,
-                    documents=[],
-                    # Precise cause from the rejection envelope when present
-                    # (access_denied / rate_limited / policy_violation), else 403's default.
-                    status=source_status_from_policy_metadata(pm) or "access_denied",
-                    error_message=f"Access denied: {error_detail}",
-                    latency_ms=latency_ms,
-                    policy_metadata=pm,
-                )
-
-            if response.status_code != 200:
-                error_detail = self._extract_error_detail(response)
-                logger.warning(
-                    LogEvents.DATA_SOURCE_QUERY_FAILED,
-                    endpoint_path=endpoint_path,
-                    status_code=response.status_code,
-                    error=error_detail,
-                    latency_ms=latency_ms,
-                )
-                self._report_upstream_error(
-                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
-                    message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
-                    endpoint=query_url,
-                    status_code=response.status_code,
-                    error_detail=error_detail,
-                    latency_ms=latency_ms,
-                    request_data=request_data,
-                )
-                user_message = (
-                    self._build_unreachable_message(endpoint_path)
-                    if self._is_html_error_page(error_detail)
-                    else f"HTTP {response.status_code}: {error_detail}"
-                )
-                return RetrievalResult(
-                    endpoint_path=endpoint_path,
-                    documents=[],
-                    status="error",
-                    error_message=user_message,
-                    latency_ms=latency_ms,
-                    policy_metadata=extract_policy_metadata(response),
-                )
-
-            data = response.json()
-            documents = self._parse_syftai_response(data)
-
-            logger.info(
-                LogEvents.DATA_SOURCE_QUERY_COMPLETED,
-                endpoint_path=endpoint_path,
-                documents_count=len(documents),
-                latency_ms=latency_ms,
-            )
-
-            return RetrievalResult(
-                endpoint_path=endpoint_path,
-                documents=documents,
-                status="success",
-                latency_ms=latency_ms,
-                policy_metadata=data.get("policy_metadata"),
-            )
-
-        except httpx.TimeoutException:
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-            logger.warning(
-                LogEvents.CHAT_RETRIEVAL_TIMEOUT,
-                endpoint_path=endpoint_path,
-                latency_ms=latency_ms,
-            )
-            return RetrievalResult(
-                endpoint_path=endpoint_path,
-                documents=[],
-                status="timeout",
-                error_message="Request timed out",
-                latency_ms=latency_ms,
-            )
-
-        except httpx.RequestError as e:
-            latency_ms = int((time.perf_counter() - start_time) * 1000)
-            logger.warning(
-                LogEvents.DATA_SOURCE_QUERY_FAILED,
-                endpoint_path=endpoint_path,
-                error=str(e),
-                query_url=query_url,
-                latency_ms=latency_ms,
-            )
-            return RetrievalResult(
+            # All retries exhausted without an explicit return above (defensive;
+            # the final attempt's non-retryable branch always returns).
+            return last_error or RetrievalResult(
                 endpoint_path=endpoint_path,
                 documents=[],
                 status="error",
-                error_message=(
-                    f"Cannot reach data source at {query_url}: {e}. "
-                    "Check that the endpoint's public URL is correct in Settings."
-                ),
-                latency_ms=latency_ms,
+                error_message="Data source request failed after retries",
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
             )
 
         except Exception as e:
