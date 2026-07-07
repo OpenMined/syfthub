@@ -28,11 +28,28 @@ def _get_connect_args() -> dict[str, Any]:
     return {}
 
 
+def _get_pool_kwargs() -> dict[str, Any]:
+    """Pool sizing for non-SQLite engines.
+
+    Sync handlers run on the anyio threadpool, so the pool must have enough
+    connections for the concurrent threads without exhausting Postgres's
+    shared max_connections. SQLite (tests) uses its default pool untouched.
+    """
+    if "sqlite" in settings.database_url:
+        return {}
+    return {
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_timeout": settings.db_pool_timeout_seconds,
+    }
+
+
 engine = create_engine(
     settings.database_url,
     echo=settings.debug,  # Log SQL queries in debug mode
     pool_pre_ping=True,  # Verify connections before use
     connect_args=_get_connect_args(),
+    **_get_pool_kwargs(),
 )
 
 

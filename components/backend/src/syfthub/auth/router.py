@@ -16,7 +16,9 @@ from syfthub.auth.db_dependencies import (
 from syfthub.auth.security import (
     blacklist_token,
 )
+from syfthub.core.client_ip import get_client_ip
 from syfthub.core.config import settings
+from syfthub.core.rate_limit import per_ip_rate_limit
 from syfthub.database.dependencies import (
     get_api_token_service,
     get_auth_service,
@@ -61,9 +63,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
+# Per-IP rate limiters for the public, unauthenticated auth endpoints. These are
+# the direct anti-abuse guard for the login-burst that froze the event loop.
+# Login gets its own bucket so the multi-call registration/OTP flow (register +
+# resend-otp + verify-otp) can't exhaust the login budget for users sharing a
+# NAT/CGNAT egress IP, and vice-versa.
+_login_rate_limit = Depends(
+    per_ip_rate_limit(
+        "auth-login", "auth_rate_limit_max", "auth_rate_limit_window_seconds"
+    )
+)
+_auth_rate_limit = Depends(
+    per_ip_rate_limit("auth", "auth_rate_limit_max", "auth_rate_limit_window_seconds")
+)
+# Refresh gets its own looser bucket — legitimate clients auto-refresh on a timer.
+_refresh_rate_limit = Depends(
+    per_ip_rate_limit(
+        "auth-refresh", "refresh_rate_limit_max", "refresh_rate_limit_window_seconds"
+    )
+)
+
 
 @router.get("/config", response_model=AuthConfigResponse)
-async def get_auth_config() -> AuthConfigResponse:
+def get_auth_config() -> AuthConfigResponse:
     """Return public authentication configuration.
 
     No authentication required. Frontends use this to decide whether to show
@@ -96,8 +118,9 @@ async def get_auth_config() -> AuthConfigResponse:
             },
         },
     },
+    dependencies=[_auth_rate_limit],
 )
-async def register_user(
+def register_user(
     user_data: UserRegister,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -117,7 +140,7 @@ async def register_user(
 
         # If email verification is required, generate and send OTP
         if result.requires_email_verification:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 user_data.email, "registration", requester_ip=client_ip
             )
@@ -147,8 +170,8 @@ async def register_user(
         ) from e
 
 
-@router.post("/login", response_model=AuthResponse)
-async def login_for_access_token(
+@router.post("/login", response_model=AuthResponse, dependencies=[_login_rate_limit])
+def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
@@ -184,8 +207,9 @@ async def login_for_access_token(
             },
         },
     },
+    dependencies=[_auth_rate_limit],
 )
-async def google_login(
+def google_login(
     google_data: GoogleAuthRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
@@ -202,8 +226,8 @@ async def google_login(
     return auth_service.google_login(google_data.credential)
 
 
-@router.post("/refresh", response_model=Token)
-async def refresh_access_token(
+@router.post("/refresh", response_model=Token, dependencies=[_refresh_rate_limit])
+def refresh_access_token(
     refresh_request: RefreshTokenRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> Token:
@@ -212,7 +236,7 @@ async def refresh_access_token(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(
+def logout(
     current_user: Annotated[User, Depends(get_current_active_user)],  # noqa: ARG001
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
 ) -> None:
@@ -222,7 +246,7 @@ async def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
+def get_current_user_info(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> UserResponse:
     """Get current user profile information."""
@@ -230,7 +254,7 @@ async def get_current_user_info(
 
 
 @router.put("/me/password", status_code=status.HTTP_204_NO_CONTENT)
-async def change_password(
+def change_password(
     password_data: PasswordChange,
     current_user: Annotated[User, Depends(get_current_active_user)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
@@ -246,8 +270,12 @@ async def change_password(
 # =============================================================================
 
 
-@router.post("/register/verify-otp", response_model=AuthResponse)
-async def verify_registration_otp(
+@router.post(
+    "/register/verify-otp",
+    response_model=AuthResponse,
+    dependencies=[_auth_rate_limit],
+)
+def verify_registration_otp(
     body: VerifyOTPRequest,
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
 ) -> AuthResponse:
@@ -293,8 +321,9 @@ async def verify_registration_otp(
 @router.post(
     "/register/resend-otp",
     status_code=status.HTTP_200_OK,
+    dependencies=[_auth_rate_limit],
 )
-async def resend_registration_otp(
+def resend_registration_otp(
     body: ResendOTPRequest,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -310,7 +339,7 @@ async def resend_registration_otp(
         user = user_repo.get_by_email(body.email)
 
         if user and not user.is_email_verified:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 body.email, "registration", requester_ip=client_ip
             )
@@ -330,8 +359,9 @@ async def resend_registration_otp(
 @router.post(
     "/password-reset/request",
     status_code=status.HTTP_200_OK,
+    dependencies=[_auth_rate_limit],
 )
-async def request_password_reset(
+def request_password_reset(
     body: PasswordResetRequest,
     request: Request,
     background_tasks: BackgroundTasks,
@@ -351,7 +381,7 @@ async def request_password_reset(
 
         # Only send if user exists and has a password (not OAuth-only)
         if model and model.password_hash:
-            client_ip = request.client.host if request.client else None
+            client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
                 body.email, "password_reset", requester_ip=client_ip
             )
@@ -370,8 +400,9 @@ async def request_password_reset(
 @router.post(
     "/password-reset/confirm",
     status_code=status.HTTP_200_OK,
+    dependencies=[_auth_rate_limit],
 )
-async def confirm_password_reset(
+def confirm_password_reset(
     body: PasswordResetConfirm,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
@@ -419,7 +450,7 @@ async def confirm_password_reset(
         400: {"description": "Token limit exceeded"},
     },
 )
-async def create_api_token(
+def create_api_token(
     token_data: APITokenCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
@@ -445,7 +476,7 @@ async def create_api_token(
     response_model=APITokenListResponse,
     summary="List API tokens",
 )
-async def list_api_tokens(
+def list_api_tokens(
     current_user: Annotated[User, Depends(get_current_active_user)],
     api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
     include_inactive: bool = False,
@@ -475,7 +506,7 @@ async def list_api_tokens(
         404: {"description": "Token not found"},
     },
 )
-async def get_api_token(
+def get_api_token(
     token_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
@@ -495,7 +526,7 @@ async def get_api_token(
         404: {"description": "Token not found"},
     },
 )
-async def update_api_token(
+def update_api_token(
     token_id: int,
     token_data: APITokenUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -517,7 +548,7 @@ async def update_api_token(
         404: {"description": "Token not found"},
     },
 )
-async def revoke_api_token(
+def revoke_api_token(
     token_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],

@@ -58,7 +58,15 @@ class OTPCleanupJob:
             return False
 
     async def run_cleanup_cycle(self) -> None:
-        """Run a single cleanup cycle."""
+        """Run a single cleanup cycle, offloaded to a worker thread.
+
+        The body is synchronous (advisory lock + DELETE); dispatch it off the
+        event loop so it can't block other requests on this worker.
+        """
+        await asyncio.to_thread(self._run_cleanup_cycle_sync)
+
+    def _run_cleanup_cycle_sync(self) -> None:
+        """Run a single cleanup cycle (blocking DB work)."""
         session = db_manager.get_session()
         try:
             if not self._try_acquire_lock(session):

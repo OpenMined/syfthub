@@ -27,7 +27,7 @@ def get_user_aggregator_service(
 
 
 @router.get("/me/aggregators", response_model=UserAggregatorListResponse)
-async def list_user_aggregators(
+def list_user_aggregators(
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[UserAggregatorService, Depends(get_user_aggregator_service)],
 ) -> UserAggregatorListResponse:
@@ -43,7 +43,7 @@ async def list_user_aggregators(
     response_model=UserAggregatorResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_user_aggregator(
+def create_user_aggregator(
     aggregator_data: UserAggregatorCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[UserAggregatorService, Depends(get_user_aggregator_service)],
@@ -57,7 +57,7 @@ async def create_user_aggregator(
 
 
 @router.get("/me/aggregators/{aggregator_id}", response_model=UserAggregatorResponse)
-async def get_user_aggregator(
+def get_user_aggregator(
     aggregator_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[UserAggregatorService, Depends(get_user_aggregator_service)],
@@ -67,7 +67,7 @@ async def get_user_aggregator(
 
 
 @router.put("/me/aggregators/{aggregator_id}", response_model=UserAggregatorResponse)
-async def update_user_aggregator(
+def update_user_aggregator(
     aggregator_id: int,
     aggregator_data: UserAggregatorUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -83,7 +83,7 @@ async def update_user_aggregator(
 @router.delete(
     "/me/aggregators/{aggregator_id}", status_code=status.HTTP_204_NO_CONTENT
 )
-async def delete_user_aggregator(
+def delete_user_aggregator(
     aggregator_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[UserAggregatorService, Depends(get_user_aggregator_service)],
@@ -101,7 +101,7 @@ async def delete_user_aggregator(
 @router.patch(
     "/me/aggregators/{aggregator_id}/default", response_model=UserAggregatorResponse
 )
-async def set_default_aggregator(
+def set_default_aggregator(
     aggregator_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[UserAggregatorService, Depends(get_user_aggregator_service)],

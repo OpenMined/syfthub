@@ -19,7 +19,8 @@ services:
       - mcp
       - nats
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      # Self-answering nginx liveness — does not probe the backend.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3

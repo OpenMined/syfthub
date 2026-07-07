@@ -36,7 +36,7 @@ router = APIRouter()
 
 
 @router.post("", response_model=EndpointResponse, status_code=status.HTTP_201_CREATED)
-async def create_endpoint(
+def create_endpoint(
     endpoint_data: EndpointCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -50,7 +50,7 @@ async def create_endpoint(
 
 
 @router.get("", response_model=list[EndpointResponse])
-async def list_my_endpoints(
+def list_my_endpoints(
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     skip: int = Query(0, ge=0),
@@ -65,7 +65,7 @@ async def list_my_endpoints(
 
 
 @router.get("/public", response_model=list[EndpointPublicResponse])
-async def list_public_endpoints(
+def list_public_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
@@ -117,7 +117,7 @@ Returns a list of groups, where each group contains:
 - Within each group, endpoints are ordered by `updated_at` (most recent first)
 """,
 )
-async def list_public_endpoints_grouped(
+def list_public_endpoints_grouped(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     max_per_owner: int = Query(
@@ -164,7 +164,7 @@ Returns a list of owners, where each owner has:
 - `GET /endpoints/public` to get full endpoint listings
 """,
 )
-async def list_public_endpoint_owners(
+def list_public_endpoint_owners(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     skip: int = Query(0, ge=0, description="Number of owners to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum owners to return"),
@@ -205,7 +205,7 @@ Returns a list of EndpointPublicResponse objects containing:
 - `GET /endpoints/public/owners` to list all owners first
 """,
 )
-async def list_public_endpoints_by_owner(
+def list_public_endpoints_by_owner(
     owner_slug: str,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
@@ -235,7 +235,7 @@ without requiring pagination or search.
 """,
     responses={404: {"description": "Endpoint not found"}},
 )
-async def get_public_endpoint_by_path(
+def get_public_endpoint_by_path(
     owner_username: str,
     slug: str,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -248,7 +248,7 @@ async def get_public_endpoint_by_path(
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])
-async def list_trending_endpoints(
+def list_trending_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
@@ -294,7 +294,7 @@ are NOT included in this list, even if they are public. This ensures guests only
 endpoints they can actually use without additional authorization.
 """,
 )
-async def list_guest_accessible_endpoints(
+def list_guest_accessible_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
@@ -339,7 +339,7 @@ relevance.
 - If RAG is not configured, returns empty results
 """,
 )
-async def search_endpoints(
+def search_endpoints(
     search_request: EndpointSearchRequest,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
@@ -424,7 +424,7 @@ Synchronize user's endpoints with the provided list.
 - Sending an empty list `{"endpoints": []}` will delete ALL user endpoints
 """,
 )
-async def sync_user_endpoints(
+def sync_user_endpoints(
     sync_request: SyncEndpointsRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -458,7 +458,7 @@ Report per-endpoint health status from the client.
   report has expired) are treated as unhealthy by the health monitor.
 """,
 )
-async def report_endpoint_health(
+def report_endpoint_health(
     health_data: EndpointHealthRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -493,7 +493,7 @@ INTERNAL / PRIVATE endpoints require the viewer to be the owner.
 """,
     responses={404: {"description": "Endpoint not found"}},
 )
-async def get_endpoint_uptime(
+def get_endpoint_uptime(
     owner_username: str,
     slug: str,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
@@ -518,7 +518,7 @@ async def get_endpoint_uptime(
 
 
 @router.get("/{endpoint_id}", response_model=EndpointResponse)
-async def get_endpoint(
+def get_endpoint(
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -528,7 +528,7 @@ async def get_endpoint(
 
 
 @router.patch("/{endpoint_id}", response_model=EndpointResponse)
-async def update_endpoint(
+def update_endpoint(
     endpoint_id: int,
     endpoint_data: EndpointUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -539,7 +539,7 @@ async def update_endpoint(
 
 
 @router.get("/{endpoint_slug}/exists", response_model=bool)
-async def endpoint_exists_for_user(
+def endpoint_exists_for_user(
     endpoint_slug: str,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -549,7 +549,7 @@ async def endpoint_exists_for_user(
 
 
 @router.patch("/slug/{endpoint_slug}", response_model=EndpointResponse)
-async def update_endpoint_by_slug(
+def update_endpoint_by_slug(
     endpoint_slug: str,
     endpoint_data: EndpointUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -562,7 +562,7 @@ async def update_endpoint_by_slug(
 
 
 @router.delete("/slug/{endpoint_slug}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_endpoint_by_slug(
+def delete_endpoint_by_slug(
     endpoint_slug: str,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -572,7 +572,7 @@ async def delete_endpoint_by_slug(
 
 
 @router.delete("/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_endpoint(
+def delete_endpoint(
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -583,7 +583,7 @@ async def delete_endpoint(
 
 # Admin-only endpoints
 @router.patch("/{endpoint_id}/admin", response_model=EndpointResponse)
-async def admin_update_endpoint(
+def admin_update_endpoint(
     endpoint_id: int,
     admin_data: EndpointAdminUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -596,7 +596,7 @@ async def admin_update_endpoint(
 
 # Star management endpoints
 @router.post("/{endpoint_id}/star", status_code=status.HTTP_201_CREATED)
-async def star_endpoint(
+def star_endpoint(
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -607,7 +607,7 @@ async def star_endpoint(
 
 
 @router.delete("/{endpoint_id}/star", status_code=status.HTTP_204_NO_CONTENT)
-async def unstar_endpoint(
+def unstar_endpoint(
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
@@ -617,7 +617,7 @@ async def unstar_endpoint(
 
 
 @router.get("/{endpoint_id}/starred")
-async def check_endpoint_starred(
+def check_endpoint_starred(
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],

@@ -6,6 +6,7 @@ natural language queries.
 """
 
 import logging
+import threading
 from typing import Any, Optional
 
 import meilisearch
@@ -35,16 +36,22 @@ class RAGService:
         """
         self._client = client
         self._index_configured: bool = False
+        # Guards lazy client creation — the shared singleton's `client` property
+        # is now hit concurrently from threadpool threads.
+        self._client_lock = threading.Lock()
 
     @property
     def client(self) -> Optional[meilisearch.Client]:
         """Get the Meilisearch client, creating it lazily if needed."""
         if self._client is None and settings.rag_available:
-            assert settings.meili_url is not None
-            self._client = meilisearch.Client(
-                settings.meili_url,
-                settings.meili_master_key,
-            )
+            with self._client_lock:
+                # Double-checked: another thread may have built it while we waited.
+                if self._client is None:
+                    assert settings.meili_url is not None
+                    self._client = meilisearch.Client(
+                        settings.meili_url,
+                        settings.meili_master_key,
+                    )
         return self._client
 
     @property
@@ -319,6 +326,7 @@ class RAGService:
 
 # Module-level instance for convenience
 _rag_service_instance: Optional[RAGService] = None
+_rag_lock = threading.Lock()
 
 
 def get_rag_service() -> RAGService:
@@ -330,6 +338,10 @@ def get_rag_service() -> RAGService:
     global _rag_service_instance
 
     if _rag_service_instance is None:
-        _rag_service_instance = RAGService()
+        with _rag_lock:
+            # Double-checked: guard against concurrent first-call races now that
+            # handlers run on threadpool threads.
+            if _rag_service_instance is None:
+                _rag_service_instance = RAGService()
 
     return _rag_service_instance

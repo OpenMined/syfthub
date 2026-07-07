@@ -176,11 +176,17 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Production entrypoint - using gunicorn with uvicorn workers for better performance
+# Production entrypoint.
+# --limit-concurrency sheds excess load with 503 instead of unbounded queueing.
+# NOTE: we deliberately do NOT enable --proxy-headers/--forwarded-allow-ips.
+# Trusting client X-Forwarded-For would let a caller spoof request.client.host
+# (uvicorn takes the leftmost XFF entry), defeating the per-IP auth limiter. The
+# rate limiter instead reads nginx's un-spoofable X-Real-IP header directly.
 CMD [".venv/bin/uvicorn", "syfthub.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--workers", "4", \
+     "--limit-concurrency", "256", \
      "--log-level", "info", \
      "--access-log", \
      "--use-colors"]
@@ -240,9 +246,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Production entrypoint
+# Production entrypoint (see primary stage above for flag rationale).
 CMD [".venv/bin/uvicorn", "syfthub.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--workers", "4", \
+     "--limit-concurrency", "256", \
      "--log-level", "info"]

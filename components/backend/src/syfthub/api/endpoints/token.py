@@ -94,7 +94,7 @@ The returned token is signed by the Hub's Private Key using RS256.
 - Token cannot be refreshed - request a new one when expired
 """,
 )
-async def get_satellite_token(
+def get_satellite_token(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     aud: str = Query(
@@ -203,7 +203,7 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 - When a user is deactivated/deleted, their username becomes invalid
 """,
 )
-async def get_guest_satellite_token(
+def get_guest_satellite_token(
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     aud: str = Query(
         ...,
@@ -273,7 +273,7 @@ async def get_guest_satellite_token(
 - The list updates automatically as users are created/deactivated
 """,
 )
-async def list_allowed_audiences(
+def list_allowed_audiences(
     _current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> dict[str, Any]:
@@ -374,7 +374,7 @@ tokens where `aud=syftai-space`.
 - `valid: false` with error details if verification fails
 """,
 )
-async def verify_satellite_token(
+def verify_satellite_token(
     request: TokenVerifyRequest,
     service: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],

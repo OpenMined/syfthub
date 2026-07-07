@@ -168,9 +168,7 @@ class TestAsyncAuthFunctions:
     ):
         """Test get_current_user with no credentials."""
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(
-                None, mock_user_repo, mock_api_token_repo, mock_request
-            )
+            get_current_user(None, mock_user_repo, mock_api_token_repo, mock_request)
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
@@ -183,7 +181,7 @@ class TestAsyncAuthFunctions:
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, mock_user_repo, mock_api_token_repo, mock_request
                 )
             assert exc_info.value.status_code == 401
@@ -198,7 +196,7 @@ class TestAsyncAuthFunctions:
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value={}):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, mock_user_repo, mock_api_token_repo, mock_request
                 )
             assert exc_info.value.status_code == 401
@@ -215,7 +213,7 @@ class TestAsyncAuthFunctions:
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "invalid"}
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, mock_user_repo, mock_api_token_repo, mock_request
                 )
             assert exc_info.value.status_code == 401
@@ -234,7 +232,7 @@ class TestAsyncAuthFunctions:
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "999"}
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, mock_user_repo, mock_api_token_repo, mock_request
                 )
             assert exc_info.value.status_code == 401
@@ -250,7 +248,7 @@ class TestAsyncAuthFunctions:
         with patch(
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "1"}
         ):
-            user = await get_current_user(
+            user = get_current_user(
                 credentials, mock_user_repo, mock_api_token_repo, mock_request
             )
             assert user == sample_user
@@ -272,7 +270,7 @@ class TestAsyncAuthFunctions:
         )
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_active_user(inactive_user)
+            get_current_active_user(inactive_user)
         assert exc_info.value.status_code == 400
         assert "Inactive user" in str(exc_info.value.detail)
 
@@ -283,7 +281,7 @@ class TestAsyncAuthFunctions:
         sample_user,
     ):
         """Test get_current_active_user success case."""
-        user = await get_current_active_user(sample_user)
+        user = get_current_active_user(sample_user)
         assert user == sample_user
 
     @pytest.mark.asyncio
@@ -291,7 +289,7 @@ class TestAsyncAuthFunctions:
         self, mock_user_repo, mock_api_token_repo, mock_request
     ):
         """Test get_optional_current_user with no credentials."""
-        user = await get_optional_current_user(
+        user = get_optional_current_user(
             None, mock_user_repo, mock_api_token_repo, mock_request
         )
         assert user is None
@@ -305,7 +303,7 @@ class TestAsyncAuthFunctions:
             scheme="Bearer", credentials="invalid_token"
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value=None):
-            user = await get_optional_current_user(
+            user = get_optional_current_user(
                 credentials, mock_user_repo, mock_api_token_repo, mock_request
             )
             assert user is None
@@ -321,7 +319,7 @@ class TestAsyncAuthFunctions:
         with patch(
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "1"}
         ):
-            user = await get_optional_current_user(
+            user = get_optional_current_user(
                 credentials, mock_user_repo, mock_api_token_repo, mock_request
             )
             assert user == sample_user

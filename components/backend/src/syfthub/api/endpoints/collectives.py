@@ -43,7 +43,7 @@ router = APIRouter()
 
 
 @router.post("", response_model=CollectiveResponse, status_code=status.HTTP_201_CREATED)
-async def create_collective(
+def create_collective(
     data: CollectiveCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -53,7 +53,7 @@ async def create_collective(
 
 
 @router.get("", response_model=List[CollectiveResponse])
-async def list_collectives(
+def list_collectives(
     service: Annotated[CollectiveService, Depends(get_collective_service)],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -72,7 +72,7 @@ async def list_collectives(
 
 
 @router.get("/by-slug/{slug}", response_model=CollectiveResponse)
-async def get_collective_by_slug(
+def get_collective_by_slug(
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> CollectiveResponse:
@@ -83,7 +83,7 @@ async def get_collective_by_slug(
 @router.get(
     "/by-endpoint/{owner_username}/{slug}", response_model=List[CollectiveResponse]
 )
-async def list_collectives_for_endpoint(
+def list_collectives_for_endpoint(
     owner_username: str,
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -98,7 +98,7 @@ async def list_collectives_for_endpoint(
 
 
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])
-async def get_collective_endpoint_paths(
+def get_collective_endpoint_paths(
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> List[str]:
@@ -115,7 +115,7 @@ async def get_collective_endpoint_paths(
     "/by-slug/{slug}/billing-summary",
     response_model=CollectiveBillingSummaryResponse,
 )
-async def get_collective_billing_summary(
+def get_collective_billing_summary(
     slug: str,
     _current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -145,7 +145,7 @@ async def get_collective_billing_summary(
     "/shared-endpoints/bulk",
     response_model=List[CollectiveSharedEndpointResponse],
 )
-async def list_shared_endpoints_bulk(
+def list_shared_endpoints_bulk(
     service: Annotated[CollectiveService, Depends(get_collective_service)],
     collective_ids: Annotated[
         Optional[List[int]],
@@ -171,7 +171,7 @@ async def list_shared_endpoints_bulk(
     "/by-slug/{slug}/shared-endpoints",
     response_model=List[CollectiveSharedEndpointResponse],
 )
-async def list_shared_endpoints_by_slug(
+def list_shared_endpoints_by_slug(
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> List[CollectiveSharedEndpointResponse]:
@@ -183,7 +183,7 @@ async def list_shared_endpoints_by_slug(
     "/by-slug/{slug}/shared-endpoints/{shared_slug}",
     response_model=CollectiveSharedEndpointResponse,
 )
-async def get_shared_endpoint_by_slug(
+def get_shared_endpoint_by_slug(
     slug: str,
     shared_slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -196,7 +196,7 @@ async def get_shared_endpoint_by_slug(
     "/by-slug/{slug}/shared-endpoints/{shared_slug}/endpoint-paths",
     response_model=List[str],
 )
-async def get_shared_endpoint_endpoint_paths(
+def get_shared_endpoint_endpoint_paths(
     slug: str,
     shared_slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -217,7 +217,7 @@ async def get_shared_endpoint_endpoint_paths(
     "/by-slug/{slug}/shared-endpoints/{shared_slug}/billing-summary",
     response_model=CollectiveBillingSummaryResponse,
 )
-async def get_shared_endpoint_billing_summary(
+def get_shared_endpoint_billing_summary(
     slug: str,
     shared_slug: str,
     _current_user: Annotated[User, Depends(get_current_active_user)],
@@ -234,7 +234,7 @@ async def get_shared_endpoint_billing_summary(
 
 
 @router.get("/{collective_id}", response_model=CollectiveResponse)
-async def get_collective(
+def get_collective(
     collective_id: int,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> CollectiveResponse:
@@ -243,7 +243,7 @@ async def get_collective(
 
 
 @router.patch("/{collective_id}", response_model=CollectiveResponse)
-async def update_collective(
+def update_collective(
     collective_id: int,
     data: CollectiveUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -254,7 +254,7 @@ async def update_collective(
 
 
 @router.delete("/{collective_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_collective(
+def delete_collective(
     collective_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -269,7 +269,7 @@ async def delete_collective(
 
 
 @router.get("/{collective_id}/members", response_model=List[CollectiveMemberResponse])
-async def list_members(
+def list_members(
     collective_id: int,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -290,7 +290,7 @@ async def list_members(
     response_model=CollectiveMemberResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def request_join(
+def request_join(
     collective_id: int,
     data: CollectiveMemberRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -304,7 +304,7 @@ async def request_join(
     "/{collective_id}/members/{endpoint_id}/review",
     response_model=CollectiveMemberResponse,
 )
-async def review_request(
+def review_request(
     collective_id: int,
     endpoint_id: int,
     data: CollectiveReviewRequest,
@@ -321,7 +321,7 @@ async def review_request(
     "/{collective_id}/members/{endpoint_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def remove_member(
+def remove_member(
     collective_id: int,
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -336,7 +336,7 @@ async def remove_member(
     response_model=CollectiveMemberResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def invite_endpoint(
+def invite_endpoint(
     collective_id: int,
     data: CollectiveMemberRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -361,7 +361,7 @@ async def invite_endpoint(
     response_model=CollectiveMemberResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def invite_endpoint_by_path(
+def invite_endpoint_by_path(
     collective_id: int,
     data: CollectiveInviteByPathRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -386,7 +386,7 @@ async def invite_endpoint_by_path(
     "/{collective_id}/invitations/{endpoint_id}",
     response_model=CollectiveMemberResponse,
 )
-async def get_invitation(
+def get_invitation(
     collective_id: int,
     endpoint_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -404,7 +404,7 @@ async def get_invitation(
     "/{collective_id}/invitations/{endpoint_id}/respond",
     response_model=CollectiveMemberResponse,
 )
-async def respond_to_invitation(
+def respond_to_invitation(
     collective_id: int,
     endpoint_id: int,
     data: CollectiveInvitationResponse,
@@ -426,7 +426,7 @@ async def respond_to_invitation(
     "/{collective_id}/shared-endpoints",
     response_model=List[CollectiveSharedEndpointResponse],
 )
-async def list_shared_endpoints(
+def list_shared_endpoints(
     collective_id: int,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
 ) -> List[CollectiveSharedEndpointResponse]:
@@ -439,7 +439,7 @@ async def list_shared_endpoints(
     response_model=CollectiveSharedEndpointResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_shared_endpoint(
+def create_shared_endpoint(
     collective_id: int,
     data: CollectiveSharedEndpointCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -457,7 +457,7 @@ async def create_shared_endpoint(
     "/{collective_id}/shared-endpoints/{shared_slug}",
     response_model=CollectiveSharedEndpointResponse,
 )
-async def get_shared_endpoint(
+def get_shared_endpoint(
     collective_id: int,
     shared_slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
@@ -470,7 +470,7 @@ async def get_shared_endpoint(
     "/{collective_id}/shared-endpoints/{shared_slug}",
     response_model=CollectiveSharedEndpointResponse,
 )
-async def update_shared_endpoint(
+def update_shared_endpoint(
     collective_id: int,
     shared_slug: str,
     data: CollectiveSharedEndpointUpdate,
@@ -491,7 +491,7 @@ async def update_shared_endpoint(
     "/{collective_id}/shared-endpoints/{shared_slug}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_shared_endpoint(
+def delete_shared_endpoint(
     collective_id: int,
     shared_slug: str,
     current_user: Annotated[User, Depends(get_current_active_user)],

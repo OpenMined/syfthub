@@ -137,7 +137,7 @@ class TestAuthenticationDependencies:
             }
             created_user = user_repo.create(user_data)
 
-            result = await get_current_user(
+            result = get_current_user(
                 credentials, user_repo, mock_api_token_repo, mock_request
             )
             assert result.id == created_user.id
@@ -151,7 +151,7 @@ class TestAuthenticationDependencies:
         user_repo = UserRepository(test_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(None, user_repo, mock_api_token_repo, mock_request)
+            get_current_user(None, user_repo, mock_api_token_repo, mock_request)
 
         assert exc_info.value.status_code == 401
         assert "Could not validate credentials" in exc_info.value.detail
@@ -171,7 +171,7 @@ class TestAuthenticationDependencies:
             mock_verify.return_value = None
 
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, user_repo, mock_api_token_repo, mock_request
                 )
 
@@ -195,7 +195,7 @@ class TestAuthenticationDependencies:
             }  # Non-existent user
 
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(
+                get_current_user(
                     credentials, user_repo, mock_api_token_repo, mock_request
                 )
 
@@ -204,7 +204,7 @@ class TestAuthenticationDependencies:
     @pytest.mark.asyncio
     async def test_get_current_active_user_success(self, mock_user: User):
         """Test getting active user when user is active."""
-        result = await get_current_active_user(mock_user)
+        result = get_current_active_user(mock_user)
         assert result.id == mock_user.id
         assert result.is_active is True
 
@@ -214,7 +214,7 @@ class TestAuthenticationDependencies:
         mock_user.is_active = False
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_active_user(mock_user)
+            get_current_active_user(mock_user)
 
         assert exc_info.value.status_code == 400
         assert "Inactive user" in exc_info.value.detail
@@ -252,7 +252,7 @@ class TestAuthenticationDependencies:
             }
             created_user = user_repo.create(user_data)
 
-            result = await get_optional_current_user(
+            result = get_optional_current_user(
                 credentials, user_repo, mock_api_token_repo, mock_request
             )
             assert result is not None
@@ -265,7 +265,7 @@ class TestAuthenticationDependencies:
         """Test optional authentication with no credentials."""
         user_repo = UserRepository(test_session)
 
-        result = await get_optional_current_user(
+        result = get_optional_current_user(
             None, user_repo, mock_api_token_repo, mock_request
         )
         assert result is None
@@ -284,7 +284,7 @@ class TestAuthenticationDependencies:
         with patch("syfthub.auth.db_dependencies.verify_token") as mock_verify:
             mock_verify.return_value = None
 
-            result = await get_optional_current_user(
+            result = get_optional_current_user(
                 credentials, user_repo, mock_api_token_repo, mock_request
             )
             assert result is None

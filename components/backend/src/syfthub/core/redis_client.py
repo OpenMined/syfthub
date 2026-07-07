@@ -25,6 +25,10 @@ async def get_redis_client() -> Redis:
         _redis_client = Redis.from_url(
             settings.redis_url,
             decode_responses=True,
+            # Short timeouts so a hung Redis degrades to a fast fail (and, for
+            # rate limiting, a fail-open) instead of stalling every request.
+            socket_timeout=1.0,
+            socket_connect_timeout=1.0,
         )
     return _redis_client
 

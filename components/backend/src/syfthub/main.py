@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from syfthub import __version__
 from syfthub.api.router import api_router
@@ -199,6 +200,15 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info(f"Starting Syfthub API v{__version__}")
 
+    # Bound the anyio threadpool that runs sync route handlers, sync
+    # dependencies, and run_in_threadpool calls. Kept in step with the DB pool
+    # so blocking DB work can't queue unboundedly nor exhaust Postgres.
+    import anyio.to_thread
+
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = settings.threadpool_max_tokens
+    logger.info(f"Threadpool token limit set to {settings.threadpool_max_tokens}")
+
     # Initialize database
     logger.info("Initializing database...")
     create_tables()
@@ -246,10 +256,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     )
     logger.info("Shared HTTP client initialized")
 
-    yield
+    # Eagerly build the RAG/Meilisearch singleton + client at startup so the
+    # first search request doesn't pay lazy-init cost (and can't race it).
+    from syfthub.services.rag_service import get_rag_service
 
-    # Close shared httpx client
-    await _app.state.http_client.aclose()
+    _ = get_rag_service().client
+    logger.info("RAG search service initialized")
+
+    yield
 
     # Shutdown
     # Close shared httpx client
@@ -321,7 +335,7 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 
 @app.get("/")
-async def root() -> dict[str, str]:
+def root() -> dict[str, str]:
     """Root endpoint."""
     return {
         "message": "Welcome to Syfthub API",
@@ -342,7 +356,7 @@ async def health_check() -> dict[str, str]:
 
 
 @app.get("/.well-known/jwks.json")
-async def get_jwks() -> JSONResponse:
+def get_jwks() -> JSONResponse:
     """Get JSON Web Key Set (JWKS) for token verification.
 
     This endpoint exposes the Hub's public RSA keys in standard JWKS format.
@@ -377,7 +391,7 @@ async def get_jwks() -> JSONResponse:
 
 # Special routes for GitHub-like URLs (must be last to avoid conflicts)
 @app.get("/{owner_slug}", response_model=list[EndpointPublicResponse])
-async def list_owner_public_endpoints(
+def list_owner_public_endpoints(
     owner_slug: str,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
@@ -442,7 +456,7 @@ async def list_owner_public_endpoints(
 
 
 @app.get("/{owner_slug}/{endpoint_slug}", response_model=None)
-async def get_owner_endpoint(
+def get_owner_endpoint(
     request: Request,
     owner_slug: str,
     endpoint_slug: str,
@@ -539,19 +553,20 @@ async def get_owner_endpoint(
             return EndpointPublicResponse.model_validate(endpoint_dict)
 
 
-@app.post("/{owner_slug}/{endpoint_slug}", response_model=None)
-async def invoke_owner_endpoint(
-    request: Request,
+def _resolve_invocation_target(
     owner_slug: str,
     endpoint_slug: str,
-    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
-    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> JSONResponse:
-    """Invoke a specific endpoint by owner and slug.
+    current_user: Optional[User],
+    endpoint_repo: EndpointRepository,
+    user_repo: UserRepository,
+) -> tuple[Endpoint, str]:
+    """Resolve owner + endpoint, enforce access, build the invocation URL, and
+    run the SSRF check.
 
-    This endpoint handles POST requests to /{owner_slug}/{endpoint_slug} for
-    invoking/executing the endpoint's functionality.
+    All of this is blocking work — synchronous DB lookups plus a blocking
+    ``socket.getaddrinfo`` inside ``validate_domain_for_ssrf`` — so it is a
+    plain ``def`` meant to be dispatched via ``run_in_threadpool`` to keep the
+    event loop free. Raises the same ``HTTPException``s as the inline code did.
     """
     # Resolve owner
     owner = resolve_owner(owner_slug, user_repo)
@@ -604,6 +619,34 @@ async def invoke_owner_endpoint(
     owner_domain = getattr(owner, "domain", None)
     if owner_domain:
         validate_domain_for_ssrf(owner_domain)
+
+    return endpoint, query_url
+
+
+@app.post("/{owner_slug}/{endpoint_slug}", response_model=None)
+async def invoke_owner_endpoint(
+    request: Request,
+    owner_slug: str,
+    endpoint_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> JSONResponse:
+    """Invoke a specific endpoint by owner and slug.
+
+    This endpoint handles POST requests to /{owner_slug}/{endpoint_slug} for
+    invoking/executing the endpoint's functionality.
+    """
+    # Resolve owner + endpoint, enforce access, build URL, SSRF-check — all
+    # blocking work, offloaded to the threadpool so it can't stall the loop.
+    endpoint, query_url = await run_in_threadpool(
+        _resolve_invocation_target,
+        owner_slug,
+        endpoint_slug,
+        current_user,
+        endpoint_repo,
+        user_repo,
+    )
 
     # Get the request body
     try:

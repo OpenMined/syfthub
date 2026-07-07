@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from syfthub.core.client_ip import get_client_ip
 from syfthub.observability.constants import (
     CORRELATION_ID_HEADER,
     LogEvents,
@@ -166,27 +167,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP from request, considering proxies.
+        """Extract the client IP for request logs.
 
-        Args:
-            request: The incoming HTTP request.
-
-        Returns:
-            The client IP address.
+        Uses the canonical, un-spoofable derivation (nginx ``X-Real-IP``) so the
+        logged IP matches what the rate limiters key on and can't be forged via
+        a client-supplied ``X-Forwarded-For``. See ``syfthub.core.client_ip``.
         """
-        # Check X-Forwarded-For header (set by reverse proxies)
-        forwarded_for = request.headers.get("x-forwarded-for")
-        if forwarded_for:
-            # Take the first IP (original client)
-            return forwarded_for.split(",")[0].strip()
-
-        # Check X-Real-IP header (nginx convention)
-        real_ip = request.headers.get("x-real-ip")
-        if real_ip:
-            return real_ip
-
-        # Fallback to direct client
-        if request.client:
-            return request.client.host
-
-        return "unknown"
+        return get_client_ip(request)

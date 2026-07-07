@@ -533,6 +533,69 @@ class Settings(BaseSettings):
         description="Linear team ID to assign feedback issues to",
     )
 
+    # ===========================================
+    # CONCURRENCY & DATABASE POOL SETTINGS
+    # ===========================================
+    # Route handlers and dependencies run synchronous DB/CPU work on the anyio
+    # threadpool. These knobs bound that concurrency and size the DB pool to
+    # match so threads never starve for connections (or exhaust Postgres).
+
+    threadpool_max_tokens: int = Field(
+        default=16,
+        description=(
+            "Max concurrent anyio threadpool tokens per worker (shared by sync "
+            "route handlers, sync dependencies, and run_in_threadpool calls). "
+            "Kept in step with the DB pool ceiling below."
+        ),
+    )
+    db_pool_size: int = Field(
+        default=10,
+        description="SQLAlchemy connection pool size per worker (non-SQLite only)",
+    )
+    db_max_overflow: int = Field(
+        default=10,
+        description="SQLAlchemy pool overflow connections per worker (non-SQLite only)",
+    )
+    db_pool_timeout_seconds: int = Field(
+        default=10,
+        description="Seconds a thread waits for a DB connection before erroring",
+    )
+
+    # ===========================================
+    # RATE LIMITING SETTINGS
+    # ===========================================
+    # Per-IP Redis rate limiting for the public authentication endpoints. This
+    # is the app-level enforcement layer; nginx applies a coarser outer limit.
+
+    rate_limit_enabled: bool = Field(
+        default=True,
+        description="Master switch for app-level per-IP rate limiting",
+    )
+    rate_limit_fail_open: bool = Field(
+        default=True,
+        description=(
+            "When True, allow the request if Redis is unavailable (availability "
+            "over strictness — nginx limit_req remains as the Redis-independent "
+            "outer guard). Set False to fail closed (429 on Redis errors)."
+        ),
+    )
+    auth_rate_limit_max: int = Field(
+        default=10,
+        description="Max requests per IP per window for auth endpoints (login/register/etc.)",
+    )
+    auth_rate_limit_window_seconds: int = Field(
+        default=60,
+        description="Rate limit window in seconds for auth endpoints",
+    )
+    refresh_rate_limit_max: int = Field(
+        default=60,
+        description="Max token-refresh requests per IP per window (looser: clients auto-refresh)",
+    )
+    refresh_rate_limit_window_seconds: int = Field(
+        default=60,
+        description="Rate limit window in seconds for the token-refresh endpoint",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

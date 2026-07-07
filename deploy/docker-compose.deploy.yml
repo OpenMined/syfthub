@@ -62,6 +62,10 @@ services:
     networks:
       - syfthub-network
     depends_on:
+      # Wait for dependencies to be healthy before starting (correct cold-boot
+      # ordering — prevents proxying to a not-yet-migrated backend). Runtime
+      # brownout resilience is handled by the self-answering healthcheck below,
+      # not by depends_on (which only gates startup).
       backend:
         condition: service_healthy
       aggregator:
@@ -73,7 +77,9 @@ services:
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      # Self-answering nginx liveness — deliberately does NOT probe the backend,
+      # so a backend brownout can't cascade the proxy into "unhealthy".
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from syfthub.auth.api_tokens import hash_api_token, is_api_token
 from syfthub.auth.security import verify_token
+from syfthub.core.client_ip import get_client_ip
 from syfthub.database.dependencies import get_api_token_repository, get_user_repository
 from syfthub.observability.logger import get_logger
 from syfthub.repositories.api_token import APITokenRepository
@@ -52,7 +53,7 @@ def get_user_by_email(
     return user_repo.get_by_email(email)
 
 
-async def _authenticate_with_api_token(
+def _authenticate_with_api_token(
     token: str,
     api_token_repo: APITokenRepository,
     request: Optional[Request] = None,
@@ -124,9 +125,7 @@ async def _authenticate_with_api_token(
 
     # Update last used timestamp (fire-and-forget, don't fail auth on error)
     try:
-        client_ip = None
-        if request and request.client:
-            client_ip = request.client.host
+        client_ip = get_client_ip(request) if request is not None else None
         api_token_repo.update_last_used(api_token.id, client_ip)
     except Exception:
         logger.debug("auth.api_token.tracking_failed", exc_info=True)
@@ -136,7 +135,7 @@ async def _authenticate_with_api_token(
     return User.model_validate(user_model)
 
 
-async def _authenticate_with_jwt(
+def _authenticate_with_jwt(
     token: str,
     user_repo: UserRepository,
 ) -> User:
@@ -185,7 +184,7 @@ async def _authenticate_with_jwt(
     return user
 
 
-async def get_current_user(
+def get_current_user(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     api_token_repo: Annotated[APITokenRepository, Depends(get_api_token_repository)],
@@ -214,10 +213,10 @@ async def get_current_user(
 
         # Check if this is an API token (starts with "syft_")
         if is_api_token(token):
-            return await _authenticate_with_api_token(token, api_token_repo, request)
+            return _authenticate_with_api_token(token, api_token_repo, request)
 
         # Otherwise, use JWT authentication
-        return await _authenticate_with_jwt(token, user_repo)
+        return _authenticate_with_jwt(token, user_repo)
 
     except HTTPException:
         raise
@@ -226,7 +225,7 @@ async def get_current_user(
         raise credentials_exception from None
 
 
-async def get_current_active_user(
+def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
     """Get the current authenticated and active user."""
@@ -237,7 +236,7 @@ async def get_current_active_user(
     return current_user
 
 
-async def get_optional_current_user(
+def get_optional_current_user(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     api_token_repo: Annotated[APITokenRepository, Depends(get_api_token_repository)],
@@ -255,7 +254,7 @@ async def get_optional_current_user(
 
         # Check if this is an API token
         if is_api_token(token):
-            return await _authenticate_with_api_token(token, api_token_repo, request)
+            return _authenticate_with_api_token(token, api_token_repo, request)
 
         # Otherwise, use JWT authentication
         payload = verify_token(token, token_type="access")

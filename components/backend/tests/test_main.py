@@ -683,6 +683,43 @@ class TestInvokeOwnerEndpoint:
         data = response.json()
         assert "summary" in data
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_ssrf_blocked(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_ssrf_check,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """An SSRF-blocked owner domain must still surface as a 400.
+
+        Regression guard for the run_in_threadpool refactor: the SSRF check now
+        runs inside the offloaded _resolve_invocation_target, and its
+        HTTPException must propagate back out of the threadpool unchanged.
+        """
+        from fastapi import HTTPException, status
+
+        mock_get_user.return_value = None
+        mock_resolve.return_value = mock_user
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+        mock_ssrf_check.side_effect = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Blocked domain"
+        )
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"messages": [{"role": "user", "content": "Hello"}]},
+        )
+
+        assert response.status_code == 400
+        assert "Blocked domain" in response.json()["detail"]
+
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
     def test_invoke_endpoint_owner_not_found(self, mock_get_user, mock_resolve, client):
