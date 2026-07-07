@@ -26,6 +26,7 @@ import {
   inviteEndpointByPath,
   listCollectives,
   listCollectivesForEndpoint,
+  listCollectivesForUserEndpoints,
   listCollectivesPaginated,
   listMembers,
   removeMember,
@@ -40,11 +41,23 @@ import { collectiveKeys } from '@/lib/query-keys';
 // Queries
 // =============================================================================
 
-/** List collectives, optionally filtered to those owned by `ownerId`. */
-export function useCollectives(ownerId?: number) {
+/** List collectives, optionally filtered to those owned by `ownerUsername`. */
+export function useCollectives(ownerUsername?: string) {
   return useQuery({
-    queryKey: collectiveKeys.list(ownerId),
-    queryFn: () => listCollectives({ ownerId, limit: 100 })
+    queryKey: collectiveKeys.list(ownerUsername),
+    queryFn: () => listCollectives({ ownerUsername, limit: 100 })
+  });
+}
+
+/**
+ * List distinct approved collectives where any endpoint owned by `username` is
+ * a member. Backs a "joined collectives" view on a user profile page.
+ */
+export function useCollectivesForUserEndpoints(username: string | undefined | null) {
+  return useQuery({
+    queryKey: collectiveKeys.byMemberUsername(username ?? ''),
+    queryFn: () => (username ? listCollectivesForUserEndpoints(username) : []),
+    enabled: Boolean(username)
   });
 }
 
