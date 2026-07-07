@@ -60,9 +60,7 @@ def test_parse_includes_both_documents_and_summary() -> None:
             "message": {"role": "assistant", "content": "The generated answer."},
         },
         "references": {
-            "documents": [
-                {"content": "doc one", "similarity_score": 0.8, "metadata": {}}
-            ]
+            "documents": [{"content": "doc one", "similarity_score": 0.8, "metadata": {}}]
         },
     }
 
