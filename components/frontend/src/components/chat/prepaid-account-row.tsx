@@ -106,7 +106,9 @@ export function PrepaidAccountRow({
   const handleBuy = async () => {
     if (!selectedBundle || !primaryEndpoint) return;
     setPurchase({ state: 'creating' });
-    const token = await getSatelliteToken(primaryEndpoint.owner);
+    // Mint for the wallet's audience — the wallet-hosting account for
+    // cluster wallets, the endpoint owner otherwise.
+    const token = await getSatelliteToken(pending.audience);
     if (!token) {
       setPurchase({
         state: 'error',

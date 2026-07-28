@@ -31,12 +31,15 @@ type PurchaseState =
   | { state: 'error'; message: string };
 
 /**
- * Prepaid-balance providers. Both publish policy.config in the same shape
+ * Prepaid-balance providers. All publish policy.config in the same shape
  * (bundles + currency + payment_url + credits_url + invoices_url + price +
  * unit_type), so the buy-credits card body is identical; only the button
- * theme and the "Sign in to subscribe" copy change per provider.
+ * theme and the provider label change. `cluster` additionally carries
+ * `wallet_id` + `wallet_owner_username` (a station-hosted wallet shared
+ * across spaces — satellite tokens are minted for the wallet owner, not the
+ * endpoint owner).
  */
-export type PrepaidProvider = 'xendit' | 'stripe';
+export type PrepaidProvider = 'xendit' | 'stripe' | 'cluster';
 
 interface ProviderTheme {
   label: string;
@@ -73,6 +76,19 @@ const PROVIDER_THEME: Record<PrepaidProvider, ProviderTheme> = {
     ),
     focusRingClass: 'focus-visible:ring-indigo-400/50 dark:focus-visible:ring-indigo-500/40',
     pickerFocusClass: 'focus:ring-indigo-400/40 dark:focus:ring-indigo-500/30'
+  },
+  cluster: {
+    // UX term for a station/cluster wallet — never surface "station" in the UI.
+    label: 'Managed Wallet',
+    buttonClass: cn(
+      'bg-teal-600 text-white shadow-sm',
+      'hover:bg-teal-500 active:bg-teal-700',
+      'disabled:cursor-not-allowed disabled:bg-teal-600/40 disabled:shadow-none',
+      'dark:bg-teal-500 dark:hover:bg-teal-400 dark:active:bg-teal-600',
+      'dark:disabled:bg-teal-500/30'
+    ),
+    focusRingClass: 'focus-visible:ring-teal-400/50 dark:focus-visible:ring-teal-500/40',
+    pickerFocusClass: 'focus:ring-teal-400/40 dark:focus:ring-teal-500/30'
   }
 };
 
@@ -98,6 +114,9 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   // would get a fresh reference each render and re-fire the validation effect.
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
   const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerUnit, unit } = parsed;
+  // Satellite tokens go to the wallet's audience: the wallet-hosting account
+  // for station-hosted cluster wallets, the endpoint owner otherwise.
+  const audience = parsed.walletOwnerUsername ?? endpointOwner;
 
   const [subscription, setSubscription] = useState<SubscriptionState>({ state: 'loading' });
   const [purchase, setPurchase] = useState<PurchaseState>({ state: 'idle' });
@@ -126,14 +145,14 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   const checkBalance = useCallback(
     async (options: { silent?: boolean; signal?: AbortSignal; checkPending?: boolean } = {}) => {
       const tokens = syftClient.getTokens();
-      if (!tokens || !creditsUrl || !endpointOwner) {
+      if (!tokens || !creditsUrl || !audience) {
         setSubscription((previous) =>
           previous.state === 'inactive' ? previous : { state: 'inactive' }
         );
         return;
       }
       if (!options.silent) setSubscription({ state: 'loading' });
-      const satelliteToken = await getSatelliteToken(endpointOwner);
+      const satelliteToken = await getSatelliteToken(audience);
       if (options.signal?.aborted) return;
       if (!satelliteToken) {
         setSubscription((previous) =>
@@ -184,7 +203,16 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
         });
       }
     },
-    [creditsUrl, invoicesUrl, endpointOwner, paymentUrl, endpointSlug, currency, registerOnFunding]
+    [
+      creditsUrl,
+      invoicesUrl,
+      audience,
+      endpointOwner,
+      paymentUrl,
+      endpointSlug,
+      currency,
+      registerOnFunding
+    ]
   );
 
   const refreshBalance = useCallback(() => checkBalance(), [checkBalance]);
@@ -222,15 +250,15 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
       setPurchase({ state: 'error', message: 'Sign in to subscribe.' });
       return;
     }
-    if (!endpointOwner) {
+    if (!audience) {
       setPurchase({
         state: 'error',
-        message: 'Endpoint owner unknown — cannot mint satellite token.'
+        message: 'Wallet owner unknown — cannot mint satellite token.'
       });
       return;
     }
     setPurchase({ state: 'creating', bundleName });
-    const satelliteToken = await getSatelliteToken(endpointOwner);
+    const satelliteToken = await getSatelliteToken(audience);
     if (!satelliteToken) {
       setPurchase({ state: 'error', message: 'Failed to get satellite token from SyftHub.' });
       return;

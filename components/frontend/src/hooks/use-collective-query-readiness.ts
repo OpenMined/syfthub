@@ -44,9 +44,11 @@ export function useCollectiveQueryReadiness(
       const b = member.billing;
       if (b.kind !== 'prepaid' || !b.credits_url || !member.endpoint_owner_username) continue;
       descriptors.push({
-        walletKey: b.credits_url,
+        // wallet_id (cluster) beats credits_url as the grouping key; the
+        // token audience is the wallet-hosting account when published.
+        walletKey: b.wallet_id ?? b.credits_url,
         creditsUrl: b.credits_url,
-        owner: member.endpoint_owner_username,
+        owner: b.wallet_owner_username ?? member.endpoint_owner_username,
         threshold: b.price_per_unit ?? 1
       });
     }
@@ -89,11 +91,11 @@ export function useCollectiveQueryReadiness(
           if (token) tokenByOwner.set(owner, token);
         })
       );
-      // walletKey === creditsUrl here, so the tuples key the balance map by URL.
+      // Tuples key the balance map by walletKey (wallet_id or credits_url).
       // Keep the raw null (unreachable wallet) — it must BLOCK ready below.
       const updates = await fetchWalletBalances(wallets, tokenByOwner, signal);
       const out: Record<string, number | null> = {};
-      for (const [creditsUrl, balance] of updates) out[creditsUrl] = balance;
+      for (const [walletKey, balance] of updates) out[walletKey] = balance;
       return out;
     }
   });
@@ -105,7 +107,7 @@ export function useCollectiveQueryReadiness(
 
   const balances = balancesQuery.data ?? {};
   const prepaidReady = wallets.every((w) => {
-    const balance = balances[w.creditsUrl];
+    const balance = balances[w.walletKey];
     return typeof balance === 'number' && balance >= w.threshold;
   });
   // The Hub wallet settles only its own currency; an MPP member priced in any

@@ -55,6 +55,13 @@ export interface CollectivePrepaidMember {
   name: string;
   /** owner/slug, as displayed and as the satellite-token subject. */
   path: string;
+  /**
+   * Satellite-token audience for this member's wallet: the wallet-hosting
+   * account (cluster) or the endpoint owner (self-hosted).
+   */
+  audience: string;
+  /** Published shared-wallet id (cluster only); null for self-hosted. */
+  walletId: string | null;
   paymentUrl: string;
   creditsUrl: string;
   bundles: MoneyBundle[];
@@ -80,6 +87,8 @@ export function collectivePrepaidMembers(
       slug: member.endpoint_slug,
       name: member.endpoint_name ?? member.endpoint_slug,
       path: `${member.endpoint_owner_username}/${member.endpoint_slug}`,
+      audience: b.wallet_owner_username ?? member.endpoint_owner_username,
+      walletId: b.wallet_id ?? null,
       paymentUrl: b.payment_url,
       creditsUrl: b.credits_url,
       bundles: b.bundles.map((bundle) => ({ name: bundle.name, amount: bundle.amount })),
@@ -104,10 +113,11 @@ function memberReference(member: CollectivePrepaidMember): EndpointReference {
 }
 
 /**
- * Group a collective's prepaid members by publisher wallet (`credits_url`) into
+ * Group a collective's prepaid members by publisher wallet into
  * {@link PendingSubscription}s — one row per wallet, the shape the collective
- * accounts modal renders. Members sharing a wallet collapse into one row whose
- * `endpoints` lists them all (paying once funds them all).
+ * accounts modal renders. The wallet key is the published `wallet_id`
+ * (cluster) or `credits_url` (self-hosted); members sharing a wallet collapse
+ * into one row whose `endpoints` lists them all (paying once funds them all).
  */
 export function collectivePrepaidGroups(
   summary: CollectiveBillingSummary | null | undefined
@@ -115,14 +125,16 @@ export function collectivePrepaidGroups(
   const byWallet = new Map<string, PendingSubscription>();
   for (const member of collectivePrepaidMembers(summary)) {
     const reference = memberReference(member);
-    const existing = byWallet.get(member.creditsUrl);
+    const walletKey = member.walletId ?? member.creditsUrl;
+    const existing = byWallet.get(walletKey);
     if (existing) {
       existing.endpoints.push(reference);
       continue;
     }
-    byWallet.set(member.creditsUrl, {
-      walletKey: member.creditsUrl,
+    byWallet.set(walletKey, {
+      walletKey,
       endpoints: [reference],
+      audience: member.audience,
       paymentUrl: member.paymentUrl,
       creditsUrl: member.creditsUrl,
       bundles: member.bundles,

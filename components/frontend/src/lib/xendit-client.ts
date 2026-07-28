@@ -17,6 +17,19 @@ import { syftClient } from '@/lib/sdk-client';
 
 export const POLL_INTERVAL_MS = 3000;
 
+/**
+ * Policy `type` values that bill via publisher-side prepaid credits. `cluster`
+ * is a station-hosted *shared* wallet — many spaces publish the same
+ * `wallet_id` under one wallet-owner account, so one balance backs them all.
+ * Keep in lockstep with the backend `PREPAID_POLICY_TYPES` in
+ * `schemas/endpoint.py`.
+ */
+export const PREPAID_POLICY_TYPES = new Set<string>(['xendit', 'stripe', 'cluster']);
+
+export function isPrepaidPolicyType(type: string): boolean {
+  return PREPAID_POLICY_TYPES.has(type.toLowerCase());
+}
+
 // Billing unit on a payment policy. Syft Space publishes the field as
 // `unit_type` in policy.config; legacy policies omit it and bill per request.
 export type PolicyUnit = 'request' | 'document';
@@ -48,6 +61,18 @@ export interface ParsedXenditConfig {
   pricePerUnit: number | null;
   unit: PolicyUnit;
   country: string | null;
+  /**
+   * Stable shared-wallet identifier (cluster policies). Preferred over
+   * `creditsUrl` as a grouping key: N spaces publish the URL independently,
+   * so string drift would split one wallet into several.
+   */
+  walletId: string | null;
+  /**
+   * Username of the wallet-hosting Hub account, injected server-side at
+   * publish time (cluster policies). This is the satellite-token audience;
+   * `null` means self-hosted → the endpoint owner is the audience.
+   */
+  walletOwnerUsername: string | null;
 }
 
 export function isValidUrl(value: unknown): value is string {
@@ -96,7 +121,40 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
       typeof (b as Record<string, unknown>).name === 'string' &&
       typeof (b as Record<string, unknown>).amount === 'number'
   );
-  return { paymentUrl, creditsUrl, invoicesUrl, bundles, currency, pricePerUnit, unit, country };
+  const walletId = pickConfigValue(config, 'wallet_id', 'walletId', isStringValue);
+  const walletOwnerUsername = pickConfigValue(
+    config,
+    'wallet_owner_username',
+    'walletOwnerUsername',
+    isStringValue
+  );
+  return {
+    paymentUrl,
+    creditsUrl,
+    invoicesUrl,
+    bundles,
+    currency,
+    pricePerUnit,
+    unit,
+    country,
+    walletId: walletId !== null && walletId !== '' ? walletId : null,
+    walletOwnerUsername:
+      walletOwnerUsername !== null && walletOwnerUsername !== '' ? walletOwnerUsername : null
+  };
+}
+
+/**
+ * The audience to mint a satellite token for when talking to this wallet's
+ * gateway: the wallet-hosting account (cluster) or the endpoint owner
+ * (self-hosted xendit/stripe). The station/space verifies `aud` against its
+ * own account, so minting for the wrong party yields `audience_mismatch`
+ * rejections that surface as permanently-null balances.
+ */
+export function resolveWalletAudience(
+  parsed: Pick<ParsedXenditConfig, 'walletOwnerUsername'>,
+  endpointOwner: string
+): string {
+  return parsed.walletOwnerUsername ?? endpointOwner;
 }
 
 export function formatUnitEstimate(amount: number, pricePerUnit: number, unit: PolicyUnit): string {

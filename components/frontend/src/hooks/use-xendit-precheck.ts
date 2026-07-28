@@ -2,11 +2,13 @@
  * useXenditPrecheck
  *
  * Pre-flight subscription check run before a chat message is sent.
- * Inspects the model + selected data sources for Xendit prepaid-credits
- * policies, dedupes by credits_url (one wallet may back multiple endpoints),
- * and fetches each balance via a satellite token. Returns the rows that
- * still need a paid subscription so the chat view can open the gate
- * modal — or an empty array when the user is clear to send.
+ * Inspects the model + selected data sources for prepaid-credits policies
+ * (xendit / stripe / cluster), dedupes by wallet (one wallet may back
+ * multiple endpoints), and fetches each balance via a satellite token
+ * minted for the wallet's audience — the wallet-hosting account for
+ * station-hosted cluster wallets, the endpoint owner otherwise. Returns
+ * the rows that still need a paid subscription so the chat view can open
+ * the gate modal — or an empty array when the user is clear to send.
  *
  * A selected **Collective API** is a single ChatSource with no policies of its
  * own (`full_path` = `collective/<slug>[/<shared-slug>]`); the SDK fans it out
@@ -26,7 +28,13 @@ import type { MoneyBundle, ParsedXenditConfig, PolicyUnit } from '@/lib/xendit-c
 import { collectivePrepaidMembers, parseCollectivePath } from '@/lib/collective-billing';
 import { getCollectiveBillingSummary } from '@/lib/collectives-api';
 import { syftClient } from '@/lib/sdk-client';
-import { fetchBalance, getSatelliteToken, parseXenditConfig } from '@/lib/xendit-client';
+import {
+  fetchBalance,
+  getSatelliteToken,
+  isPrepaidPolicyType,
+  parseXenditConfig,
+  resolveWalletAudience
+} from '@/lib/xendit-client';
 
 export type EndpointRole = 'model' | 'data_source';
 
@@ -42,10 +50,18 @@ export interface EndpointReference {
 }
 
 export interface PendingSubscription {
-  /** Stable identity = credits_url. Rows sharing a wallet share this key. */
+  /**
+   * Stable wallet identity: the published `wallet_id` (cluster) or
+   * `credits_url` (self-hosted). Rows sharing a wallet share this key.
+   */
   walletKey: string;
   /** All endpoints covered by this single wallet subscription. */
   endpoints: EndpointReference[];
+  /**
+   * Satellite-token audience for this wallet's gateway: the wallet-hosting
+   * account (cluster) or the endpoint owner (self-hosted).
+   */
+  audience: string;
   paymentUrl: string;
   creditsUrl: string;
   bundles: MoneyBundle[];
@@ -70,11 +86,15 @@ interface ResolvedXenditPolicy {
   currency: string;
   pricePerUnit: number | null;
   unit: PolicyUnit;
+  /** Grouping key: published wallet_id (cluster) or credits_url. */
+  walletKey: string;
+  /** Already-resolved satellite-token audience for this wallet. */
+  audience: string;
 }
 
-function resolveXenditPolicy(policy: Policy): ResolvedXenditPolicy | null {
+function resolveXenditPolicy(policy: Policy, endpointOwner: string): ResolvedXenditPolicy | null {
   if (!policy.enabled) return null;
-  if (policy.type.toLowerCase() !== 'xendit') return null;
+  if (!isPrepaidPolicyType(policy.type)) return null;
   const parsed: ParsedXenditConfig = parseXenditConfig(policy.config);
   if (!parsed.paymentUrl || !parsed.creditsUrl) return null;
   return {
@@ -83,7 +103,9 @@ function resolveXenditPolicy(policy: Policy): ResolvedXenditPolicy | null {
     bundles: parsed.bundles,
     currency: parsed.currency,
     pricePerUnit: parsed.pricePerUnit,
-    unit: parsed.unit
+    unit: parsed.unit,
+    walletKey: parsed.walletId ?? parsed.creditsUrl,
+    audience: resolveWalletAudience(parsed, endpointOwner)
   };
 }
 
@@ -112,7 +134,7 @@ function candidatesFromSource(source: ChatSource, role: EndpointRole): XenditCan
   if (!ref) return [];
   const out: XenditCandidate[] = [];
   for (const policy of source.policies) {
-    const xendit = resolveXenditPolicy(policy);
+    const xendit = resolveXenditPolicy(policy, ref.owner);
     if (xendit) out.push({ endpoint: ref, policy: xendit, removable: true });
   }
   return out;
@@ -135,7 +157,9 @@ function candidateFromCollectiveMember(member: CollectivePrepaidMember): XenditC
       bundles: member.bundles,
       currency: member.currency,
       pricePerUnit: member.pricePerUnit,
-      unit: member.unit
+      unit: member.unit,
+      walletKey: member.walletId ?? member.creditsUrl,
+      audience: member.audience
     },
     removable: false
   };
@@ -200,14 +224,15 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       const candidates = [...collectCandidates(model, dataSources), ...collectiveLists.flat()];
       if (candidates.length === 0) return [];
 
-      // One satellite token per distinct owner — multiple wallets owned by
-      // the same publisher reuse the token.
-      const owners = [...new Set(candidates.map((c) => c.endpoint.owner))];
-      const tokenByOwner = new Map<string, string>();
+      // One satellite token per distinct audience — the wallet-hosting
+      // account for cluster wallets, the endpoint owner otherwise. Multiple
+      // wallets sharing an audience reuse the token.
+      const audiences = [...new Set(candidates.map((c) => c.policy.audience))];
+      const tokenByAudience = new Map<string, string>();
       await Promise.all(
-        owners.map(async (owner) => {
-          const token = await getSatelliteToken(owner);
-          if (token) tokenByOwner.set(owner, token);
+        audiences.map(async (audience) => {
+          const token = await getSatelliteToken(audience);
+          if (token) tokenByAudience.set(audience, token);
         })
       );
 
@@ -221,7 +246,7 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
         distinctCreditsUrls.map(async (creditsUrl) => {
           const sample = candidates.find((c) => c.policy.creditsUrl === creditsUrl);
           if (!sample) return;
-          const token = tokenByOwner.get(sample.endpoint.owner);
+          const token = tokenByAudience.get(sample.policy.audience);
           if (!token) return;
           const balance = await fetchBalance(creditsUrl, token, signal);
           balanceByCreditsUrl.set(creditsUrl, balance);
@@ -229,9 +254,10 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       );
 
       // One PendingSubscription per endpoint. Rows that share a wallet keep
-      // the same `walletKey` (= credits_url) so the gate's polling loop and
-      // auto-registration can dedupe by wallet, and a single payment flips
-      // every sibling row to active at once.
+      // the same `walletKey` (wallet_id for cluster, credits_url otherwise)
+      // so the gate's polling loop and auto-registration can dedupe by
+      // wallet, and a single payment flips every sibling row to active at
+      // once.
       const out: PendingSubscription[] = [];
       for (const c of candidates) {
         const balance = balanceByCreditsUrl.get(c.policy.creditsUrl);
@@ -239,8 +265,9 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
         const threshold = c.policy.pricePerUnit ?? 1;
         if (balance >= threshold) continue;
         out.push({
-          walletKey: c.policy.creditsUrl,
+          walletKey: c.policy.walletKey,
           endpoints: [c.endpoint],
+          audience: c.policy.audience,
           paymentUrl: c.policy.paymentUrl,
           creditsUrl: c.policy.creditsUrl,
           bundles: c.policy.bundles,

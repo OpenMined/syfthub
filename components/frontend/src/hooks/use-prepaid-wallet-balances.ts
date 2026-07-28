@@ -26,10 +26,13 @@ import { fetchBalance, getSatelliteToken, POLL_INTERVAL_MS } from '@/lib/xendit-
 // ── shared pure core (no React) ──────────────────────────────────────────────
 
 export interface PrepaidWalletDescriptor {
-  /** Stable identity = credits_url. Multiple endpoints/members collapse to one. */
+  /** Stable identity: wallet_id (cluster) or credits_url (self-hosted). */
   walletKey: string;
   creditsUrl: string;
-  /** Owner used to mint the satellite token. = endpoints[0].owner for the gate. */
+  /**
+   * Satellite-token audience for this wallet: the wallet-hosting account
+   * (cluster) or the endpoint owner (self-hosted).
+   */
   owner: string;
   /** Minimum balance considered "funded" — pricePerUnit ?? 1. */
   threshold: number;
@@ -38,15 +41,15 @@ export interface PrepaidWalletDescriptor {
 /**
  * Adapt a PendingSubscription (gate + modal) to the core descriptor.
  *
- * NOTE: this bakes in the gate's "owner = first endpoint of the wallet"
- * assumption and the "threshold defaults to 1" rule. A call site that owns a
- * wallet via a non-first endpoint must build the descriptor itself.
+ * NOTE: this bakes in the "threshold defaults to 1" rule. The token audience
+ * comes pre-resolved on the subscription (`audience`), so shared cluster
+ * wallets mint for the wallet-hosting account, not the first endpoint's owner.
  */
 export function descriptorFromPending(p: PendingSubscription): PrepaidWalletDescriptor {
   return {
     walletKey: p.walletKey,
     creditsUrl: p.creditsUrl,
-    owner: p.endpoints[0]?.owner ?? '',
+    owner: p.audience,
     threshold: p.pricePerUnit ?? 1
   };
 }
@@ -68,7 +71,7 @@ export function descriptorMapFromPending(
   return byKey;
 }
 
-/** Dedup descriptors by walletKey (credits_url), first-wins. */
+/** Dedup descriptors by walletKey, first-wins. */
 export function dedupeWalletsByKey(wallets: PrepaidWalletDescriptor[]): PrepaidWalletDescriptor[] {
   const byKey = new Map<string, PrepaidWalletDescriptor>();
   for (const wallet of wallets) {
@@ -77,7 +80,7 @@ export function dedupeWalletsByKey(wallets: PrepaidWalletDescriptor[]): PrepaidW
   return [...byKey.values()];
 }
 
-/** Distinct owners across descriptors, insertion order (token-fetch dedup). */
+/** Distinct token audiences across descriptors, insertion order (token-fetch dedup). */
 export function distinctWalletOwners(wallets: PrepaidWalletDescriptor[]): string[] {
   const owners = new Set<string>();
   for (const wallet of wallets) owners.add(wallet.owner);

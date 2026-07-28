@@ -56,6 +56,16 @@ function summary(members: CollectiveMemberBilling[]): CollectiveBillingSummary {
   };
 }
 
+/** Station-hosted shared wallet: same envelope + wallet identity fields. */
+function clusterBilling(over: Partial<MemberBillingDetail> = {}): MemberBillingDetail {
+  return prepaidBilling({
+    provider: 'cluster',
+    wallet_id: '018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90',
+    wallet_owner_username: 'station',
+    ...over
+  });
+}
+
 const freeBilling: MemberBillingDetail = {
   kind: 'free',
   provider: null,
@@ -150,6 +160,18 @@ describe('collectivePrepaidMembers', () => {
       expect(collectivePrepaidMembers(empty)).toEqual([]);
     }
   });
+
+  it('resolves the token audience to the endpoint owner for self-hosted wallets', () => {
+    const result = collectivePrepaidMembers(summary([member(1, prepaidBilling())]));
+    expect(result[0]?.audience).toBe('alice');
+    expect(result[0]?.walletId).toBeNull();
+  });
+
+  it('resolves the token audience to the wallet owner for cluster wallets', () => {
+    const result = collectivePrepaidMembers(summary([member(1, clusterBilling())]));
+    expect(result[0]?.audience).toBe('station');
+    expect(result[0]?.walletId).toBe('018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90');
+  });
 });
 
 // ── collectivePrepaidGroups ──────────────────────────────────────────────────
@@ -174,5 +196,24 @@ describe('collectivePrepaidGroups', () => {
   it('seeds each subscription balance at 0', () => {
     const groups = collectivePrepaidGroups(summary([member(1, prepaidBilling())]));
     expect(groups[0]?.balance).toBe(0);
+  });
+
+  it('groups cluster members by wallet_id even when their URLs drift', () => {
+    // Each space publishes the station URLs independently, so the strings can
+    // drift (trailing slash, casing…) while the wallet is one and the same.
+    const groups = collectivePrepaidGroups(
+      summary([
+        member(1, clusterBilling()),
+        member(2, clusterBilling({ credits_url: 'https://pay.example.com/balance/' })),
+        member(3, prepaidBilling()) // self-hosted, same credits_url as member 1
+      ])
+    );
+    expect(groups).toHaveLength(2);
+    const cluster = groups.find((g) => g.walletKey === '018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90');
+    expect(cluster?.endpoints).toHaveLength(2);
+    expect(cluster?.audience).toBe('station');
+    const selfHosted = groups.find((g) => g.walletKey === 'https://pay.example.com/balance');
+    expect(selfHosted?.endpoints).toHaveLength(1);
+    expect(selfHosted?.audience).toBe('alice');
   });
 });
