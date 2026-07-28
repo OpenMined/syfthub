@@ -3,11 +3,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import CheckCircle2 from 'lucide-react/dist/esm/icons/check-circle-2';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import LogIn from 'lucide-react/dist/esm/icons/log-in';
 import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
 
 import { BundlePicker } from '@/components/endpoint/bundle-picker';
+import { useAuth } from '@/context/auth-context';
 import { useRegisterOnFundingDetected } from '@/hooks/use-xendit-subscriptions';
-import { syftClient } from '@/lib/sdk-client';
 import { cn } from '@/lib/utils';
 import {
   createInvoice,
@@ -18,6 +19,7 @@ import {
   parseXenditConfig,
   POLL_INTERVAL_MS
 } from '@/lib/xendit-client';
+import { useModalStore } from '@/stores/modal-store';
 
 type SubscriptionState =
   | { state: 'loading' }
@@ -110,6 +112,13 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   provider = 'xendit'
 }: Readonly<XenditPolicyContentProperties>) {
   const theme = PROVIDER_THEME[provider];
+  // Auth state drives both the balance check (satellite tokens need a signed-in
+  // user) and the CTA: logged-out viewers get "Sign in to buy credits" instead
+  // of a Buy button that would fail. Reactive, so signing in via the modal
+  // re-runs the balance check without a page reload.
+  const { user } = useAuth();
+  const isAuthenticated = user !== null;
+  const openLogin = useModalStore((state) => state.openLogin);
   // Re-parse only when config identity changes — otherwise the bundles array
   // would get a fresh reference each render and re-fire the validation effect.
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
@@ -144,8 +153,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   // back on "awaiting payment" after closing the checkout popup.
   const checkBalance = useCallback(
     async (options: { silent?: boolean; signal?: AbortSignal; checkPending?: boolean } = {}) => {
-      const tokens = syftClient.getTokens();
-      if (!tokens || !creditsUrl || !audience) {
+      if (!isAuthenticated || !creditsUrl || !audience) {
         setSubscription((previous) =>
           previous.state === 'inactive' ? previous : { state: 'inactive' }
         );
@@ -206,6 +214,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
       }
     },
     [
+      isAuthenticated,
       creditsUrl,
       invoicesUrl,
       audience,
@@ -247,9 +256,10 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
 
   const handleSubscribe = async (bundleName: string) => {
     if (!paymentUrl || !enabled) return;
-    const tokens = syftClient.getTokens();
-    if (!tokens) {
-      setPurchase({ state: 'error', message: 'Sign in to subscribe.' });
+    // Fallback only — the CTA swaps to "Sign in to buy credits" when logged
+    // out, so this is unreachable through normal UI flow.
+    if (!isAuthenticated) {
+      openLogin();
       return;
     }
     if (!audience) {
@@ -322,29 +332,45 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             unit={unit}
             triggerClassName={theme.pickerFocusClass}
           />
-          <button
-            type='button'
-            disabled={!canPurchase || isCreatingAny}
-            onClick={() => void handleSubscribe(selectedBundleName)}
-            className={cn(
-              'group inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors',
-              theme.buttonClass,
-              'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
-              theme.focusRingClass
-            )}
-          >
-            {isCreatingAny ? (
-              <>
-                <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                Opening checkout…
-              </>
-            ) : (
-              <>
-                Buy credits
-                <ArrowRight className='h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5' />
-              </>
-            )}
-          </button>
+          {isAuthenticated ? (
+            <button
+              type='button'
+              disabled={!canPurchase || isCreatingAny}
+              onClick={() => void handleSubscribe(selectedBundleName)}
+              className={cn(
+                'group inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors',
+                theme.buttonClass,
+                'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+                theme.focusRingClass
+              )}
+            >
+              {isCreatingAny ? (
+                <>
+                  <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                  Opening checkout…
+                </>
+              ) : (
+                <>
+                  Buy credits
+                  <ArrowRight className='h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5' />
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type='button'
+              onClick={openLogin}
+              className={cn(
+                'group inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors',
+                theme.buttonClass,
+                'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none',
+                theme.focusRingClass
+              )}
+            >
+              <LogIn className='h-3.5 w-3.5' />
+              Sign in to buy credits
+            </button>
+          )}
         </div>
       )}
 
