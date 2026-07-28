@@ -15,6 +15,8 @@ from syfthub.repositories.endpoint import EndpointRepository, EndpointStarReposi
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
+    CLUSTER_POLICY_TYPE,
+    PREPAID_POLICY_TYPES,
     RESERVED_SLUGS,
     Endpoint,
     EndpointAdminUpdate,
@@ -169,18 +171,159 @@ class EndpointService(BaseService):
 
     @staticmethod
     def _inject_prepaid_tag(tags: list[str], policies: list[Policy]) -> list[str]:
-        """Inject 'prepaid' tag if a xendit policy is present.
+        """Inject 'prepaid' tag if a prepaid-credits policy is present.
 
         Silently skips if the tags list already has 10 or more entries and
         'prepaid' is not present (preserves the 10-tag soft limit for
         user-supplied tags without rejecting the request).
         """
-        has_xendit_policy = any(p.type.lower() == "xendit" for p in policies)
-        if has_xendit_policy and "prepaid" not in tags:
+        has_prepaid_policy = any(
+            p.type.lower() in PREPAID_POLICY_TYPES for p in policies
+        )
+        if has_prepaid_policy and "prepaid" not in tags:
             if len(tags) >= 10:
                 return tags
             return [*tags, "prepaid"]
         return tags
+
+    @staticmethod
+    def _iter_policy_leaf_configs(policies: Any) -> Any:
+        """Yield ``(type, config)`` for every enabled leaf policy.
+
+        Accepts both shapes a policy arrives in: validated ``Policy`` models
+        (top-level entries) and raw dicts (children that composite policies
+        nest under ``config["policies"]``). Composite wrappers (``all_of`` /
+        ``any_of`` / …) are descended into rather than yielded — a billing
+        policy inside a wrapper is just as active as a top-level one, so
+        publish-time validation must see it exactly like the billing
+        classifier in ``collective_service`` does. A disabled policy (or
+        wrapper) skips its whole subtree.
+
+        Yielded configs are the live dicts: mutating one mutates the policy
+        that will be stored.
+        """
+        for policy in policies or []:
+            if isinstance(policy, dict):
+                ptype = policy.get("type", "")
+                enabled = policy.get("enabled", True)
+                config = policy.get("config") or {}
+            else:
+                ptype = policy.type
+                enabled = policy.enabled
+                config = policy.config
+            if not enabled or not isinstance(config, dict):
+                continue
+            children = config.get("policies")
+            if isinstance(children, list) and children:
+                yield from EndpointService._iter_policy_leaf_configs(children)
+            else:
+                yield str(ptype), config
+
+    @staticmethod
+    def _host_under_domain(url: str, domain_host: str) -> bool:
+        """Whether ``url``'s host equals or is a subdomain of ``domain_host``.
+
+        ``domain_host`` must be a bare lowercase hostname (no scheme or port).
+        For ``domain_host="spaces.openmined.org"``:
+
+        - ``https://spaces.openmined.org/api/...`` → True (exact match)
+        - ``https://wallet.spaces.openmined.org/...`` → True (subdomain)
+        - ``https://spaces.openmined.org.evil.com/...`` → False
+        """
+        host = (urlparse(url).hostname or "").lower()
+        return bool(host) and (host == domain_host or host.endswith("." + domain_host))
+
+    def _process_cluster_policies(self, policies: list[Policy]) -> Optional[str]:
+        """Validate ``cluster`` (station-hosted shared wallet) policies in place.
+
+        Runs on every publish path (create, update, sync) before policies are
+        stored. A ``cluster`` policy claims its wallet is hosted by another
+        Hub account (``wallet_owner``), and buyers' satellite tokens are
+        minted for that account — so the claim is verified here, not trusted:
+
+        1. ``wallet_id`` must be a non-empty string.
+        2. ``wallet_owner`` must be the id of an existing, active user.
+        3. ``payment_url`` and ``credits_url`` (plus ``invoices_url`` when
+           present) must be http(s) URLs whose hosts fall under the wallet
+           owner's registered ``domain``. This stops a malicious publisher
+           from routing buyers' satellite tokens to a host the wallet owner
+           doesn't control.
+
+        On success, each cluster config is enriched **in place** with the
+        server-derived ``wallet_owner_username`` — the audience the frontend
+        mints satellite tokens for. Any client-supplied value is overwritten:
+        usernames are mutable and reusable on SyftHub, so the id stays
+        canonical and the username is re-derived on every publish.
+
+        Returns:
+            The first failed check as a human-readable message (callers
+            surface it as a 422 or a sync validation error), or ``None``
+            when every cluster policy validates. Endpoints with no cluster
+            policy always pass.
+        """
+        for ptype, config in self._iter_policy_leaf_configs(policies):
+            if ptype.lower() != CLUSTER_POLICY_TYPE:
+                continue
+
+            wallet_id = config.get("wallet_id") or config.get("walletId")
+            if not isinstance(wallet_id, str) or not wallet_id.strip():
+                return "cluster policy requires a non-empty 'wallet_id'"
+
+            raw_owner = config.get("wallet_owner")
+            if raw_owner is None:
+                raw_owner = config.get("walletOwner")
+            if isinstance(raw_owner, str) and raw_owner.isdigit():
+                raw_owner = int(raw_owner)
+            if not isinstance(raw_owner, int) or isinstance(raw_owner, bool):
+                return "cluster policy requires 'wallet_owner' (Hub user id)"
+
+            owner = self.user_repository.get_by_id(raw_owner)
+            if owner is None or not owner.is_active:
+                return (
+                    f"cluster policy 'wallet_owner' {raw_owner} does not "
+                    "resolve to an active user"
+                )
+            if not owner.domain:
+                return (
+                    f"cluster wallet owner '{owner.username}' has no registered "
+                    "domain on SyftHub; the wallet URLs cannot be verified"
+                )
+            domain = owner.domain
+            if "://" not in domain:
+                domain = f"https://{domain}"
+            domain_host = (urlparse(domain).hostname or "").lower()
+            if not domain_host:
+                return (
+                    f"cluster wallet owner '{owner.username}' has an invalid "
+                    "registered domain"
+                )
+
+            payment_url = config.get("payment_url") or config.get("paymentUrl")
+            credits_url = config.get("credits_url") or config.get("creditsUrl")
+            invoices_url = config.get("invoices_url") or config.get("invoicesUrl")
+            for field_name, url, required in (
+                ("payment_url", payment_url, True),
+                ("credits_url", credits_url, True),
+                ("invoices_url", invoices_url, False),
+            ):
+                if url is None and not required:
+                    continue
+                if not isinstance(url, str) or not url.startswith(
+                    ("https://", "http://")
+                ):
+                    return f"cluster policy requires a valid http(s) '{field_name}'"
+                if not self._host_under_domain(url, domain_host):
+                    return (
+                        f"cluster policy '{field_name}' host is not under the "
+                        f"wallet owner's registered domain '{domain_host}'"
+                    )
+
+            # Server-derived enrichment: canonical id + current username. The
+            # frontend uses the username as the satellite-token audience.
+            config["wallet_owner"] = owner.id
+            config["wallet_owner_username"] = owner.username
+
+        return None
 
     def create_endpoint(
         self,
@@ -196,6 +339,13 @@ class EndpointService(BaseService):
         # This ensures every endpoint has at least one contributor (the creator)
         if current_user and current_user.id not in valid_contributors:
             valid_contributors.append(current_user.id)
+
+        cluster_error = self._process_cluster_policies(endpoint_data.policies)
+        if cluster_error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=cluster_error,
+            )
 
         # Auto-generate slug if not provided
         final_slug = endpoint_data.slug
@@ -328,6 +478,12 @@ class EndpointService(BaseService):
             endpoint_data.contributors = valid_contributors
 
         if endpoint_data.policies is not None:
+            cluster_error = self._process_cluster_policies(endpoint_data.policies)
+            if cluster_error:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=cluster_error,
+                )
             effective_tags = (
                 endpoint_data.tags
                 if endpoint_data.tags is not None
@@ -1077,6 +1233,16 @@ class EndpointService(BaseService):
             # Always add current user as contributor
             if current_user.id not in valid_contributors:
                 valid_contributors.append(current_user.id)
+
+            # Validate + enrich cluster (shared wallet) policies
+            cluster_error = self._process_cluster_policies(endpoint_data.policies)
+            if cluster_error:
+                validation_errors.append(
+                    SyncValidationError(
+                        index=index, field="policies", error=cluster_error
+                    )
+                )
+                continue
 
             # Prepare the validated endpoint data
             final_tags = self._inject_prepaid_tag(

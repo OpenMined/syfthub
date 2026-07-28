@@ -36,6 +36,15 @@ _PREPAID_CONFIG = {
     "bundles": [{"name": "Starter", "amount": 50000}],
 }
 
+# Station-hosted shared wallet: same envelope plus the wallet identity fields.
+# ``wallet_owner_username`` is injected server-side at publish time.
+_CLUSTER_CONFIG = {
+    **_PREPAID_CONFIG,
+    "wallet_id": "018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90",
+    "wallet_owner": 42,
+    "wallet_owner_username": "station",
+}
+
 
 # ----------------------------------------------------------------------
 # _parse_unit
@@ -210,6 +219,29 @@ def test_classify_stripe_provider_recorded() -> None:
     detail = _classify_billing(_endpoint(_policy("stripe", _PREPAID_CONFIG)))
     assert detail.kind == "prepaid"
     assert detail.provider == "stripe"
+
+
+def test_parse_prepaid_config_cluster_wallet_fields() -> None:
+    parsed = _parse_prepaid_config(_CLUSTER_CONFIG)
+    assert parsed is not None
+    assert parsed["wallet_id"] == "018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90"
+    assert parsed["wallet_owner_username"] == "station"
+
+
+def test_parse_prepaid_config_wallet_fields_absent_for_self_hosted() -> None:
+    parsed = _parse_prepaid_config(_PREPAID_CONFIG)
+    assert parsed is not None
+    assert parsed["wallet_id"] is None
+    assert parsed["wallet_owner_username"] is None
+
+
+def test_classify_cluster_as_prepaid() -> None:
+    detail = _classify_billing(_endpoint(_policy("cluster", _CLUSTER_CONFIG)))
+    assert detail.kind == "prepaid"
+    assert detail.provider == "cluster"
+    assert detail.wallet_id == "018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90"
+    assert detail.wallet_owner_username == "station"
+    assert detail.payment_url == "https://pay.example.com/invoice"
 
 
 # ----------------------------------------------------------------------

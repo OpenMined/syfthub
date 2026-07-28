@@ -46,6 +46,7 @@ from syfthub.schemas.collective import (
     slugify_shared_endpoint_name,
 )
 from syfthub.schemas.endpoint import (
+    PREPAID_POLICY_TYPES,
     Endpoint,
     EndpointType,
     EndpointVisibility,
@@ -69,8 +70,9 @@ _JOINABLE_ENDPOINT_TYPES: frozenset[str] = frozenset(
 
 # Policy ``type`` values that bill via publisher-side prepaid credits (the buyer
 # funds a wallet with the publisher and we read/charge it). These map onto the
-# chat PaymentGate / wallet-panel settlement UX.
-_PREPAID_PROVIDERS: frozenset[str] = frozenset({"xendit", "stripe"})
+# chat PaymentGate / wallet-panel settlement UX. Defined in ``schemas.endpoint``
+# as the single source of truth (also drives the 'prepaid' discovery tag).
+_PREPAID_PROVIDERS: frozenset[str] = PREPAID_POLICY_TYPES
 
 # The single canonical pay-as-you-go (MPP) policy ``type`` — billed per request
 # against the buyer's single Hub (MPP) wallet, with no upfront prepaid wallet per
@@ -141,6 +143,14 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
                     MoneyBundle(name=entry["name"], amount=float(entry["amount"]))
                 )
 
+    # Cluster (station-hosted shared wallet) extras. ``wallet_owner_username``
+    # is server-derived at publish time and names the satellite-token audience;
+    # absent on self-hosted xendit/stripe policies (audience = endpoint owner).
+    wallet_id = _pick(config, "wallet_id", "walletId")
+    wallet_owner_username = _pick(
+        config, "wallet_owner_username", "walletOwnerUsername"
+    )
+
     return {
         "currency": currency if isinstance(currency, str) else "IDR",
         "price_per_unit": float(price) if isinstance(price, (int, float)) else None,
@@ -149,6 +159,12 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
         "credits_url": credits_url,
         "invoices_url": invoices_url if _is_url(invoices_url) else None,
         "bundles": bundles,
+        "wallet_id": wallet_id if isinstance(wallet_id, str) and wallet_id else None,
+        "wallet_owner_username": (
+            wallet_owner_username
+            if isinstance(wallet_owner_username, str) and wallet_owner_username
+            else None
+        ),
     }
 
 

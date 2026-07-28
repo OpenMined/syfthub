@@ -560,7 +560,7 @@ class MemberBillingDetail(BaseModel):
 
     kind: str = Field(..., description="One of 'prepaid', 'mpp', 'free'")
     provider: Optional[str] = Field(
-        None, description="Prepaid gateway provider ('xendit' / 'stripe')"
+        None, description="Prepaid gateway provider ('xendit' / 'stripe' / 'cluster')"
     )
     currency: Optional[str] = Field(None, description="Prepaid currency code")
     price_per_unit: Optional[float] = Field(
@@ -578,6 +578,17 @@ class MemberBillingDetail(BaseModel):
     )
     bundles: List[MoneyBundle] = Field(
         default_factory=list, description="Purchasable prepaid bundles"
+    )
+    wallet_id: Optional[str] = Field(
+        None,
+        description="Shared wallet identifier (cluster prepaid only) — stable "
+        "grouping key across the endpoints backed by one wallet",
+    )
+    wallet_owner_username: Optional[str] = Field(
+        None,
+        description="Username of the wallet-hosting account, i.e. the "
+        "satellite-token audience (cluster prepaid only; audience falls back "
+        "to the endpoint owner when absent)",
     )
 
 
