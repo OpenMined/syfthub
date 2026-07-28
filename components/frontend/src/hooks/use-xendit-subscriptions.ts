@@ -4,7 +4,13 @@
  * Surfaces the publisher-side wallets a user has funded. Subscription rows
  * live on the SyftHub backend (just metadata + last-known balance), but the
  * authoritative balance is always fetched live from the publisher's
- * `credits_url` with a per-publisher satellite token.
+ * `credits_url` with a satellite token minted for the row's audience.
+ *
+ * The backend `endpoint_owner` column IS that audience: the wallet-hosting
+ * account for cluster (managed) wallets, the endpoint owner for self-hosted
+ * ones. Since every endpoint backed by one managed wallet shares the same
+ * audience, the panel's dedupe-by-owner naturally collapses a shared wallet
+ * to a single row.
  */
 
 import { useCallback } from 'react';
@@ -39,7 +45,12 @@ function removeFromSubscriptionsCache(
 export interface RegisterXenditSubscriptionInput {
   creditsUrl: string;
   paymentUrl: string;
-  endpointOwner: string;
+  /**
+   * Satellite-token audience for the wallet — stored as `endpoint_owner` on
+   * the backend. Pass the resolved audience (wallet owner for cluster
+   * wallets, endpoint owner otherwise), never the raw endpoint owner.
+   */
+  audience: string;
   endpointSlug?: string | null;
   currency: string;
   lastKnownBalance?: number | null;
@@ -69,7 +80,7 @@ export function useRegisterXenditSubscription() {
       return getWalletClient().upsertXenditSubscription({
         credits_url: input.creditsUrl,
         payment_url: input.paymentUrl,
-        endpoint_owner: input.endpointOwner,
+        endpoint_owner: input.audience,
         endpoint_slug: input.endpointSlug ?? null,
         currency: input.currency,
         last_known_balance: input.lastKnownBalance ?? null
@@ -130,9 +141,10 @@ export interface SubscriptionBalanceResult {
 /**
  * Live-fetch a subscription's balance from its publisher.
  *
- * Mints a satellite token for the endpoint owner and queries credits_url.
- * Polls every `pollIntervalMs` while `enabled` is true (typically while the
- * credits panel is open). Returns `null` balance when fetching fails.
+ * Mints a satellite token for the row's audience (`endpoint_owner`) and
+ * queries credits_url. Polls every `pollIntervalMs` while `enabled` is true
+ * (typically while the credits panel is open). Returns `null` balance when
+ * fetching fails.
  */
 export function useSubscriptionBalance(
   subscription: Pick<XenditSubscription, 'credits_url' | 'endpoint_owner'>,

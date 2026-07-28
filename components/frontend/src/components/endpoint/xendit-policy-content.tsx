@@ -190,13 +190,15 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
       setPurchase((previous) => (previous.state === 'idle' ? previous : { state: 'idle' }));
 
       // Active wallet detected — record it on the user's account so the
-      // unified credits panel can list it. Idempotent server-side.
-      if (!hasRegisteredReference.current && paymentUrl && endpointOwner && creditsUrl) {
+      // unified credits panel can list it. Idempotent server-side. Registered
+      // under the wallet's audience so the panel re-mints for the right
+      // account (managed wallets settle with the wallet owner).
+      if (!hasRegisteredReference.current && paymentUrl && audience && creditsUrl) {
         hasRegisteredReference.current = true;
         void registerOnFunding({
           creditsUrl,
           paymentUrl,
-          endpointOwner,
+          audience,
           endpointSlug: endpointSlug ?? null,
           currency,
           lastKnownBalance: balance

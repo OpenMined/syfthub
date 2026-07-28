@@ -63,7 +63,7 @@ export function PaymentGate({
       void registerOnFunding({
         creditsUrl: p.creditsUrl,
         paymentUrl: p.paymentUrl,
-        endpointOwner: p.endpoints[0]?.owner ?? '',
+        audience: p.audience,
         endpointSlug: p.endpoints[0]?.slug ?? null,
         currency: p.currency,
         lastKnownBalance: balance
