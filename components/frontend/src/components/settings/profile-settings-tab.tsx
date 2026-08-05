@@ -40,13 +40,15 @@ interface ProfileFormData {
 const BIO_MAX_LENGTH = 2000;
 
 // The backend requires a protocol on `domain`; default to https:// when the
-// user typed a bare host, but keep an explicit http:// (local dev).
+// user typed a bare host, but keep an explicit http:// (local dev) or
+// tunneling: prefix. Pasted schemes are lowercased — the backend matches
+// them case-sensitively.
 function normalizeDomainInput(value: string): string {
   const trimmed = value.trim();
-  if (trimmed && !/^(https?:\/\/|tunneling:)/.test(trimmed)) {
-    return `https://${trimmed}`;
-  }
-  return trimmed;
+  if (!trimmed) return trimmed;
+  const scheme = /^(https?:\/\/|tunneling:)/i.exec(trimmed)?.[0];
+  if (!scheme) return `https://${trimmed}`;
+  return scheme.toLowerCase() + trimmed.slice(scheme.length);
 }
 
 export function ProfileSettingsTab() {

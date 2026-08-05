@@ -201,7 +201,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
       // unified credits panel can list it. Idempotent server-side. Registered
       // under the wallet's audience so the panel re-mints for the right
       // account (managed wallets settle with the wallet owner).
-      if (!hasRegisteredReference.current && paymentUrl && audience && creditsUrl) {
+      if (!hasRegisteredReference.current && paymentUrl) {
         hasRegisteredReference.current = true;
         void registerOnFunding({
           creditsUrl,

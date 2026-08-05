@@ -74,12 +74,19 @@ export function useCollectiveQueryReadiness(
   const { isConfigured } = useWalletContext();
   const { balance: walletBalance } = useWalletBalance();
 
-  const creditsUrls = useMemo(
-    () => wallets.map((w) => w.creditsUrl).toSorted((a, b) => a.localeCompare(b)),
+  // The cache identity must cover everything the fetch depends on: walletKey
+  // (the balance-map key), owner (the token audience) and creditsUrl (the
+  // fetch target) — a republish can change walletKey/audience while the URL
+  // stays the same, and a key of URLs alone would then serve a stale map.
+  const walletIdentities = useMemo(
+    () =>
+      wallets
+        .map((w) => `${w.walletKey}|${w.owner}|${w.creditsUrl}`)
+        .toSorted((a, b) => a.localeCompare(b)),
     [wallets]
   );
   const balancesQuery = useQuery({
-    queryKey: billingSummaryKeys.readiness(creditsUrls),
+    queryKey: billingSummaryKeys.readiness(walletIdentities),
     enabled: enabled && wallets.length > 0,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {

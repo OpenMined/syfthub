@@ -236,20 +236,25 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
         })
       );
 
-      // One balance fetch per distinct credits_url. Multiple endpoints can
-      // share a wallet — paying once funds them all — but the gate UI lists
-      // each endpoint separately, so we need to know each row's status
-      // without re-hitting the same credits_url.
-      const distinctCreditsUrls = [...new Set(candidates.map((c) => c.policy.creditsUrl))];
-      const balanceByCreditsUrl = new Map<string, number | null>();
+      // One balance fetch per distinct wallet (walletKey), each using that
+      // wallet's own audience. Multiple endpoints can share a wallet — paying
+      // once funds them all — but the gate UI lists each endpoint separately,
+      // so we need each row's status without re-hitting the same wallet.
+      // Deduping by walletKey (not creditsUrl) keeps the audience paired with
+      // its wallet: two wallets could share a URL yet mint different tokens.
+      const walletSamples = new Map<string, XenditCandidate>();
+      for (const c of candidates) {
+        if (!walletSamples.has(c.policy.walletKey)) {
+          walletSamples.set(c.policy.walletKey, c);
+        }
+      }
+      const balanceByWalletKey = new Map<string, number | null>();
       await Promise.all(
-        distinctCreditsUrls.map(async (creditsUrl) => {
-          const sample = candidates.find((c) => c.policy.creditsUrl === creditsUrl);
-          if (!sample) return;
-          const token = tokenByAudience.get(sample.policy.audience);
+        [...walletSamples.values()].map(async (c) => {
+          const token = tokenByAudience.get(c.policy.audience);
           if (!token) return;
-          const balance = await fetchBalance(creditsUrl, token, signal);
-          balanceByCreditsUrl.set(creditsUrl, balance);
+          const balance = await fetchBalance(c.policy.creditsUrl, token, signal);
+          balanceByWalletKey.set(c.policy.walletKey, balance);
         })
       );
 
@@ -260,7 +265,7 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       // once.
       const out: PendingSubscription[] = [];
       for (const c of candidates) {
-        const balance = balanceByCreditsUrl.get(c.policy.creditsUrl);
+        const balance = balanceByWalletKey.get(c.policy.walletKey);
         if (balance === null || balance === undefined) continue;
         const threshold = c.policy.pricePerUnit ?? 1;
         if (balance >= threshold) continue;
