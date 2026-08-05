@@ -33,7 +33,8 @@ import {
   getSatelliteToken,
   isPrepaidPolicyType,
   parseXenditConfig,
-  resolveWalletAudience
+  resolveWalletAudience,
+  resolveWalletKey
 } from '@/lib/xendit-client';
 
 export type EndpointRole = 'model' | 'data_source';
@@ -104,8 +105,8 @@ function resolveXenditPolicy(policy: Policy, endpointOwner: string): ResolvedXen
     currency: parsed.currency,
     pricePerUnit: parsed.pricePerUnit,
     unit: parsed.unit,
-    walletKey: parsed.walletId ?? parsed.creditsUrl,
-    audience: resolveWalletAudience(parsed, endpointOwner)
+    walletKey: resolveWalletKey(parsed, policy.type, parsed.creditsUrl),
+    audience: resolveWalletAudience(parsed, policy.type, endpointOwner)
   };
 }
 

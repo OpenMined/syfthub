@@ -83,7 +83,10 @@ export default defineConfig({
   server: {
     host: config.server.host,
     port: config.server.port,
-    allowedHosts: true,
+    // Explicit allow-list (not `true`) keeps Vite's DNS-rebinding protection.
+    // `.localhost` covers every *.localhost dev hostname (station tenants,
+    // syfthub.localhost, …); host.k3d.internal is the hub as seen from k3d.
+    allowedHosts: ['.localhost', 'host.k3d.internal'],
     watch: {
       // Use polling for Docker bind mounts where inotify events may not propagate
       usePolling: true,

@@ -17,7 +17,8 @@ import {
   getSatelliteToken,
   openCheckoutWindow,
   parseXenditConfig,
-  POLL_INTERVAL_MS
+  POLL_INTERVAL_MS,
+  resolveWalletAudience
 } from '@/lib/xendit-client';
 import { useModalStore } from '@/stores/modal-store';
 
@@ -124,8 +125,11 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
   const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerUnit, unit } = parsed;
   // Satellite tokens go to the wallet's audience: the wallet-hosting account
-  // for station-hosted cluster wallets, the endpoint owner otherwise.
-  const audience = parsed.walletOwnerUsername ?? endpointOwner;
+  // for station-hosted cluster wallets, the endpoint owner otherwise. The
+  // provider IS the policy type, which gates who may name a foreign audience.
+  const audience = endpointOwner
+    ? resolveWalletAudience(parsed, provider, endpointOwner)
+    : undefined;
 
   const [subscription, setSubscription] = useState<SubscriptionState>({ state: 'loading' });
   const [purchase, setPurchase] = useState<PurchaseState>({ state: 'idle' });
@@ -265,7 +269,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
     if (!audience) {
       setPurchase({
         state: 'error',
-        message: 'Wallet owner unknown — cannot mint satellite token.'
+        message: 'Cannot determine the account to authorize payment with.'
       });
       return;
     }

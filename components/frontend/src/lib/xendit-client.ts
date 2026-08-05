@@ -26,6 +26,9 @@ export const POLL_INTERVAL_MS = 3000;
  */
 export const PREPAID_POLICY_TYPES = new Set<string>(['xendit', 'stripe', 'cluster']);
 
+/** The one policy type whose wallet claims are verified at publish time. */
+export const CLUSTER_POLICY_TYPE = 'cluster';
+
 export function isPrepaidPolicyType(type: string): boolean {
   return PREPAID_POLICY_TYPES.has(type.toLowerCase());
 }
@@ -144,17 +147,53 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
 }
 
 /**
+ * Whether a policy may carry a wallet identity (`wallet_id`,
+ * `wallet_owner_username`) of its own.
+ *
+ * Only `cluster` may. Its `wallet_owner` and every wallet URL are verified
+ * against that owner's registered domain when it is published, so the claim
+ * has been proven. Self-hosted (`xendit` / `stripe`) policy URLs are never
+ * domain-verified, so the same fields on one are ignored: honoring them would
+ * let a publisher group their endpoint into somebody else's wallet, or have
+ * buyers mint satellite tokens for an account they don't own and collect
+ * those tokens at a host they do.
+ *
+ * Gating on read — rather than trusting publish-time stripping alone — also
+ * neutralizes rows stored before that stripping existed.
+ */
+function mayCarryWalletIdentity(policyType: string): boolean {
+  return policyType.toLowerCase() === CLUSTER_POLICY_TYPE;
+}
+
+/**
  * The audience to mint a satellite token for when talking to this wallet's
- * gateway: the wallet-hosting account (cluster) or the endpoint owner
- * (self-hosted xendit/stripe). The station/space verifies `aud` against its
- * own account, so minting for the wrong party yields `audience_mismatch`
- * rejections that surface as permanently-null balances.
+ * gateway: the wallet-hosting account (verified cluster) or the endpoint
+ * owner. The station/space verifies `aud` against its own account, so minting
+ * for the wrong party yields `audience_mismatch` rejections that surface as
+ * permanently-null balances.
  */
 export function resolveWalletAudience(
   parsed: Pick<ParsedXenditConfig, 'walletOwnerUsername'>,
+  policyType: string,
   endpointOwner: string
 ): string {
+  if (!mayCarryWalletIdentity(policyType)) return endpointOwner;
   return parsed.walletOwnerUsername ?? endpointOwner;
+}
+
+/**
+ * Stable grouping key for a wallet: the published `wallet_id` (verified
+ * cluster) or the wallet's `credits_url`. Rows sharing a key share a balance
+ * — one payment funds them all — so an unverified `wallet_id` must never
+ * join a wallet the publisher does not own.
+ */
+export function resolveWalletKey(
+  parsed: Pick<ParsedXenditConfig, 'walletId'>,
+  policyType: string,
+  creditsUrl: string
+): string {
+  if (!mayCarryWalletIdentity(policyType)) return creditsUrl;
+  return parsed.walletId ?? creditsUrl;
 }
 
 export function formatUnitEstimate(amount: number, pricePerUnit: number, unit: PolicyUnit): string {
