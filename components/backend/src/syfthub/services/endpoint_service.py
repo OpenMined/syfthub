@@ -40,6 +40,7 @@ from syfthub.schemas.endpoint import (
     get_matching_types,
 )
 from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
+from syfthub.schemas.user import TUNNELING_PREFIX
 from syfthub.services.base import BaseService
 from syfthub.services.rag_service import RAGService, get_rag_service
 
@@ -173,12 +174,18 @@ class EndpointService(BaseService):
     def _inject_prepaid_tag(tags: list[str], policies: list[Policy]) -> list[str]:
         """Inject 'prepaid' tag if a prepaid-credits policy is present.
 
+        Uses the same traversal as cluster validation and billing
+        classification, so a prepaid policy nested inside a composite
+        wrapper tags the endpoint exactly like a top-level one, and a
+        disabled policy never does.
+
         Silently skips if the tags list already has 10 or more entries and
         'prepaid' is not present (preserves the 10-tag soft limit for
         user-supplied tags without rejecting the request).
         """
         has_prepaid_policy = any(
-            p.type.lower() in PREPAID_POLICY_TYPES for p in policies
+            ptype.lower() in PREPAID_POLICY_TYPES
+            for ptype, _ in EndpointService._iter_policy_configs(policies)
         )
         if has_prepaid_policy and "prepaid" not in tags:
             if len(tags) >= 10:
@@ -187,17 +194,21 @@ class EndpointService(BaseService):
         return tags
 
     @staticmethod
-    def _iter_policy_leaf_configs(policies: Any) -> Any:
-        """Yield ``(type, config)`` for every enabled leaf policy.
+    def _iter_policy_configs(policies: Any) -> Any:
+        """Yield ``(type, config)`` for every enabled policy, wrappers included.
 
         Accepts both shapes a policy arrives in: validated ``Policy`` models
         (top-level entries) and raw dicts (children that composite policies
         nest under ``config["policies"]``). Composite wrappers (``all_of`` /
-        ``any_of`` / …) are descended into rather than yielded — a billing
-        policy inside a wrapper is just as active as a top-level one, so
-        publish-time validation must see it exactly like the billing
-        classifier in ``collective_service`` does. A disabled policy (or
-        wrapper) skips its whole subtree.
+        ``any_of`` / …) are yielded too, then descended into — consumers
+        filter on ``type``, so wrapper entries are inert to them.
+
+        The parent is yielded even when it has children: a policy can carry
+        a billing ``type`` *and* a nested ``policies`` list, and consumers
+        that read policies at the top level would treat it as live billing —
+        skipping it here would let a publisher dodge cluster validation by
+        attaching a dummy child list. A disabled policy (or wrapper) skips
+        its whole subtree.
 
         Yielded configs are the live dicts: mutating one mutates the policy
         that will be stored.
@@ -213,11 +224,10 @@ class EndpointService(BaseService):
                 config = policy.config
             if not enabled or not isinstance(config, dict):
                 continue
+            yield str(ptype), config
             children = config.get("policies")
             if isinstance(children, list) and children:
-                yield from EndpointService._iter_policy_leaf_configs(children)
-            else:
-                yield str(ptype), config
+                yield from EndpointService._iter_policy_configs(children)
 
     @staticmethod
     def _host_under_domain(url: str, domain_host: str) -> bool:
@@ -261,7 +271,7 @@ class EndpointService(BaseService):
             when every cluster policy validates. Endpoints with no cluster
             policy always pass.
         """
-        for ptype, config in self._iter_policy_leaf_configs(policies):
+        for ptype, config in self._iter_policy_configs(policies):
             if ptype.lower() != CLUSTER_POLICY_TYPE:
                 continue
 
@@ -287,6 +297,14 @@ class EndpointService(BaseService):
                 return (
                     f"cluster wallet owner '{owner.username}' has no registered "
                     "domain on SyftHub; the wallet URLs cannot be verified"
+                )
+            if owner.domain.startswith(TUNNELING_PREFIX):
+                # Tunneling spaces have no public hostname, so host-based
+                # wallet URL verification can never succeed — reject clearly
+                # instead of failing against a bogus "tunneling" host.
+                return (
+                    f"cluster wallet owner '{owner.username}' uses a tunneling "
+                    "domain; cluster wallet URLs require a public http(s) domain"
                 )
             domain = owner.domain
             if "://" not in domain:

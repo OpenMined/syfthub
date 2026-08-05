@@ -1454,6 +1454,44 @@ def test_xendit_policy_auto_injects_prepaid_tag_on_update(
     assert "prepaid" in response.json()["tags"]
 
 
+def test_prepaid_policy_nested_in_wrapper_injects_prepaid_tag(
+    client: TestClient, user1_token: str
+) -> None:
+    """A prepaid policy inside a composite wrapper is active billing, so it
+    must tag the endpoint just like a top-level one."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    endpoint_data = {
+        "name": "Wrapped Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [
+            {
+                "type": "all_of",
+                "config": {"policies": [_XENDIT_POLICY_MINIMAL]},
+            }
+        ],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    assert "prepaid" in response.json()["tags"]
+
+
+def test_disabled_prepaid_policy_does_not_inject_prepaid_tag(
+    client: TestClient, user1_token: str
+) -> None:
+    """A disabled prepaid policy is not active billing — no tag."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    endpoint_data = {
+        "name": "Disabled Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [{**_XENDIT_POLICY_MINIMAL, "enabled": False}],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    assert "prepaid" not in response.json()["tags"]
+
+
 def test_xendit_auto_tag_skips_when_tag_limit_reached(
     client: TestClient, user1_token: str
 ) -> None:
@@ -2620,6 +2658,43 @@ def test_cluster_policy_rejects_url_outside_owner_domain(
     assert "credits_url" in response.json()["detail"]
 
 
+def test_cluster_policy_with_children_cannot_dodge_validation(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A nested ``policies`` list must not turn a cluster policy into a
+    skipped "wrapper" — that would store an unverified credits_url and an
+    attacker-chosen audience."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(
+        station_owner["id"],
+        credits_url="https://evil.example.com/balance",
+        policies=[{"type": "free", "version": "1.0", "enabled": True, "config": {}}],
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 422
+    assert "credits_url" in response.json()["detail"]
+
+
+def test_cluster_policy_with_children_is_still_enriched(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A valid cluster policy that also nests children keeps its own
+    validation + audience enrichment."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(
+        station_owner["id"],
+        policies=[{"type": "free", "version": "1.0", "enabled": True, "config": {}}],
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    assert config["wallet_owner_username"] == "station"
+
+
 def test_cluster_policy_rejects_owner_without_domain(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
@@ -2633,6 +2708,34 @@ def test_cluster_policy_rejects_owner_without_domain(
     response = client.post("/api/v1/endpoints", json=payload, headers=headers)
     assert response.status_code == 422
     assert "domain" in response.json()["detail"]
+
+
+def test_cluster_policy_rejects_tunneling_domain_owner(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """Tunneling spaces have no public hostname, so wallet URL verification
+    cannot work — the policy must be rejected with a clear message."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    me = client.get(
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {user2_token}"}
+    )
+    user2_id = me.json()["id"]
+
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
+
+    session = next(get_db_session())
+    try:
+        # update_domain does not commit; the caller owns the transaction.
+        UserRepository(session).update_domain(user2_id, "tunneling:user2")
+        session.commit()
+    finally:
+        session.close()
+
+    payload = _cluster_endpoint_payload(_cluster_policy(user2_id))
+    response = client.post("/api/v1/endpoints", json=payload, headers=headers)
+    assert response.status_code == 422
+    assert "tunneling" in response.json()["detail"]
 
 
 def test_cluster_policy_update_enriches_owner_username(
