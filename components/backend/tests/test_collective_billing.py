@@ -69,7 +69,7 @@ def test_parse_unit_defaults_to_request() -> None:
 
 
 def test_parse_prepaid_config_valid() -> None:
-    parsed = _parse_prepaid_config(_PREPAID_CONFIG)
+    parsed = _parse_prepaid_config(_PREPAID_CONFIG, "xendit")
     assert parsed is not None
     assert parsed["currency"] == "IDR"
     assert parsed["price_per_unit"] == 2500
@@ -86,7 +86,8 @@ def test_parse_prepaid_config_accepts_camel_case() -> None:
         {
             "paymentUrl": "https://pay.example.com/invoice",
             "creditsUrl": "https://pay.example.com/balance",
-        }
+        },
+        "xendit",
     )
     assert parsed is not None
     assert parsed["payment_url"] == "https://pay.example.com/invoice"
@@ -98,29 +99,38 @@ def test_parse_prepaid_config_legacy_price_key() -> None:
     config = {**_PREPAID_CONFIG}
     del config["price"]
     config["price_per_request"] = 999
-    parsed = _parse_prepaid_config(config)
+    parsed = _parse_prepaid_config(config, "xendit")
     assert parsed is not None
     assert parsed["price_per_unit"] == 999
 
 
 def test_parse_prepaid_config_requires_both_urls() -> None:
     # Missing credits_url → not settlable → None.
-    assert _parse_prepaid_config({"payment_url": "https://pay.example.com"}) is None
+    assert (
+        _parse_prepaid_config({"payment_url": "https://pay.example.com"}, "xendit")
+        is None
+    )
     # Missing payment_url → None.
-    assert _parse_prepaid_config({"credits_url": "https://pay.example.com"}) is None
+    assert (
+        _parse_prepaid_config({"credits_url": "https://pay.example.com"}, "xendit")
+        is None
+    )
     # Non-http values are rejected.
     assert (
-        _parse_prepaid_config({"payment_url": "ftp://x", "credits_url": "ftp://y"})
+        _parse_prepaid_config(
+            {"payment_url": "ftp://x", "credits_url": "ftp://y"}, "xendit"
+        )
         is None
     )
 
 
 def test_parse_prepaid_config_invoices_url_optional() -> None:
-    parsed = _parse_prepaid_config(_PREPAID_CONFIG)
+    parsed = _parse_prepaid_config(_PREPAID_CONFIG, "xendit")
     assert parsed is not None
     assert parsed["invoices_url"] is None
     parsed2 = _parse_prepaid_config(
-        {**_PREPAID_CONFIG, "invoices_url": "https://pay.example.com/invoices"}
+        {**_PREPAID_CONFIG, "invoices_url": "https://pay.example.com/invoices"},
+        "xendit",
     )
     assert parsed2 is not None
     assert parsed2["invoices_url"] == "https://pay.example.com/invoices"
@@ -222,17 +232,40 @@ def test_classify_stripe_provider_recorded() -> None:
 
 
 def test_parse_prepaid_config_cluster_wallet_fields() -> None:
-    parsed = _parse_prepaid_config(_CLUSTER_CONFIG)
+    parsed = _parse_prepaid_config(_CLUSTER_CONFIG, "cluster")
     assert parsed is not None
     assert parsed["wallet_id"] == "018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90"
     assert parsed["wallet_owner_username"] == "station"
 
 
 def test_parse_prepaid_config_wallet_fields_absent_for_self_hosted() -> None:
-    parsed = _parse_prepaid_config(_PREPAID_CONFIG)
+    parsed = _parse_prepaid_config(_PREPAID_CONFIG, "xendit")
     assert parsed is not None
     assert parsed["wallet_id"] is None
     assert parsed["wallet_owner_username"] is None
+
+
+def test_parse_prepaid_config_ignores_wallet_identity_on_self_hosted() -> None:
+    """A self-hosted policy carrying wallet identity fields — a row stored
+    before publish-time stripping existed. Its URLs were never domain-verified,
+    so the claim must be dropped on read: the identity would group the endpoint
+    into someone else's wallet and mint buyer tokens for an account the
+    publisher does not own."""
+    parsed = _parse_prepaid_config(_CLUSTER_CONFIG, "xendit")
+    assert parsed is not None
+    assert parsed["wallet_id"] is None
+    assert parsed["wallet_owner_username"] is None
+    # The self-hosted fields it legitimately owns still work.
+    assert parsed["payment_url"] == "https://pay.example.com/invoice"
+
+
+def test_classify_ignores_wallet_identity_on_self_hosted_policy() -> None:
+    """Same guard through the classifier the billing summary actually calls."""
+    detail = _classify_billing(_endpoint(_policy("xendit", _CLUSTER_CONFIG)))
+    assert detail.kind == "prepaid"
+    assert detail.provider == "xendit"
+    assert detail.wallet_id is None
+    assert detail.wallet_owner_username is None
 
 
 def test_classify_cluster_as_prepaid() -> None:

@@ -2710,6 +2710,89 @@ def test_cluster_policy_rejects_owner_without_domain(
     assert "domain" in response.json()["detail"]
 
 
+def test_non_cluster_prepaid_policy_strips_wallet_audience_fields(
+    client: TestClient, user1_token: str
+) -> None:
+    """Self-hosted prepaid URLs are not domain-verified, so wallet identity/
+    audience fields on them would let a publisher route satellite tokens
+    minted for an arbitrary account to a host they control."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = {
+        **_XENDIT_POLICY_MINIMAL,
+        "config": {
+            **_XENDIT_POLICY_MINIMAL["config"],
+            "wallet_id": "spoofed-wallet",
+            "walletId": "spoofed-wallet",
+            "wallet_owner": 42,
+            "walletOwner": 42,
+            "wallet_owner_username": "victim-station",
+            "walletOwnerUsername": "victim-station",
+        },
+    }
+    endpoint_data = {
+        "name": "Spoofing Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [policy],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    for key in (
+        "wallet_id",
+        "walletId",
+        "wallet_owner",
+        "walletOwner",
+        "wallet_owner_username",
+        "walletOwnerUsername",
+    ):
+        assert key not in config
+    # The legitimate self-hosted fields survive.
+    assert config["payment_url"] == _XENDIT_POLICY_MINIMAL["config"]["payment_url"]
+
+
+def test_cluster_policy_camelcase_config_is_canonicalized(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """camelCase spellings are accepted on input but stored as snake_case."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    base = f"{_STATION_DOMAIN}/api/v1/credits/{_STATION_WALLET_ID}"
+    policy = {
+        "type": "cluster",
+        "version": "1.0",
+        "enabled": True,
+        "config": {
+            "price": 2.5,
+            "unit_type": "request",
+            "walletId": _STATION_WALLET_ID,
+            "walletOwner": station_owner["id"],
+            "paymentUrl": f"{base}/invoices",
+            "invoicesUrl": f"{base}/invoices/me",
+            "creditsUrl": f"{base}/balance",
+        },
+    }
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    assert config["wallet_id"] == _STATION_WALLET_ID
+    assert config["wallet_owner"] == station_owner["id"]
+    assert config["wallet_owner_username"] == "station"
+    assert config["payment_url"] == f"{base}/invoices"
+    assert config["credits_url"] == f"{base}/balance"
+    assert config["invoices_url"] == f"{base}/invoices/me"
+    for camel_key in (
+        "walletId",
+        "walletOwner",
+        "walletOwnerUsername",
+        "paymentUrl",
+        "creditsUrl",
+        "invoicesUrl",
+    ):
+        assert camel_key not in config
+
+
 def test_cluster_policy_rejects_tunneling_domain_owner(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:

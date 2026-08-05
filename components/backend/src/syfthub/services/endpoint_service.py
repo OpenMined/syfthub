@@ -243,6 +243,22 @@ class EndpointService(BaseService):
         host = (urlparse(url).hostname or "").lower()
         return bool(host) and (host == domain_host or host.endswith("." + domain_host))
 
+    # Server-owned: names the satellite-token audience and is derived from the
+    # verified ``wallet_owner`` id. Publishers never send it (syft-space
+    # publishes the id), so any incoming value is dropped on every policy type
+    # before validation re-injects the real one.
+    _SERVER_OWNED_CONFIG_KEYS = ("wallet_owner_username", "walletOwnerUsername")
+
+    # Legitimately publisher-supplied, but only meaningful under a verified
+    # cluster claim; dropped from other prepaid policies (see
+    # _process_cluster_policies).
+    _CLUSTER_ONLY_CONFIG_KEYS = (
+        "wallet_id",
+        "walletId",
+        "wallet_owner",
+        "walletOwner",
+    )
+
     def _process_cluster_policies(self, policies: list[Policy]) -> Optional[str]:
         """Validate ``cluster`` (station-hosted shared wallet) policies in place.
 
@@ -263,7 +279,16 @@ class EndpointService(BaseService):
         server-derived ``wallet_owner_username`` — the audience the frontend
         mints satellite tokens for. Any client-supplied value is overwritten:
         usernames are mutable and reusable on SyftHub, so the id stays
-        canonical and the username is re-derived on every publish.
+        canonical and the username is re-derived on every publish. Accepted
+        camelCase spellings are rewritten to the canonical snake_case keys,
+        so stored configs always have one shape.
+
+        Non-``cluster`` prepaid policies get the wallet identity/audience
+        fields **stripped**: the frontend mints satellite tokens for
+        ``wallet_owner_username`` whenever it is present on any prepaid
+        policy, and self-hosted policy URLs are not domain-verified — left
+        in place, a publisher could route tokens minted for an arbitrary
+        account to a host they control (token exfiltration).
 
         Returns:
             The first failed check as a human-readable message (callers
@@ -272,7 +297,15 @@ class EndpointService(BaseService):
             policy always pass.
         """
         for ptype, config in self._iter_policy_configs(policies):
-            if ptype.lower() != CLUSTER_POLICY_TYPE:
+            # No publisher may name the token audience, on any policy type.
+            for key in self._SERVER_OWNED_CONFIG_KEYS:
+                config.pop(key, None)
+
+            ptype_lower = ptype.lower()
+            if ptype_lower != CLUSTER_POLICY_TYPE:
+                if ptype_lower in PREPAID_POLICY_TYPES:
+                    for key in self._CLUSTER_ONLY_CONFIG_KEYS:
+                        config.pop(key, None)
                 continue
 
             wallet_id = config.get("wallet_id") or config.get("walletId")
@@ -336,10 +369,26 @@ class EndpointService(BaseService):
                         f"wallet owner's registered domain '{domain_host}'"
                     )
 
-            # Server-derived enrichment: canonical id + current username. The
-            # frontend uses the username as the satellite-token audience.
+            # Canonicalize to snake_case + server-derived enrichment (the
+            # frontend uses the username as the satellite-token audience).
+            # camelCase spellings are dropped so stored configs have exactly
+            # one shape.
+            for camel_key in (
+                "walletId",
+                "walletOwner",
+                "walletOwnerUsername",
+                "paymentUrl",
+                "creditsUrl",
+                "invoicesUrl",
+            ):
+                config.pop(camel_key, None)
+            config["wallet_id"] = wallet_id
             config["wallet_owner"] = owner.id
             config["wallet_owner_username"] = owner.username
+            config["payment_url"] = payment_url
+            config["credits_url"] = credits_url
+            if invoices_url is not None:
+                config["invoices_url"] = invoices_url
 
         return None
 
