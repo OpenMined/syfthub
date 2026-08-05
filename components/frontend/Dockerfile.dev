@@ -9,6 +9,9 @@ FROM node:20-alpine
 WORKDIR /app/sdk/typescript
 COPY sdk/typescript ./
 
+# Build SDK so dist/ exists for the file: dependency
+RUN npm ci --ignore-scripts && npm run build
+
 # Set working directory for frontend (mirrors repo: components/frontend)
 WORKDIR /app/components/frontend
 

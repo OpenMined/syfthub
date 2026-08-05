@@ -23,6 +23,21 @@ function rewriteHiRoute(
   next();
 }
 
+// crypto.randomUUID only exists in secure contexts, so it is missing when the
+// dev server is reached over plain http on a non-localhost host (docker
+// hostname, LAN IP, tunnel). Polyfill it in dev only — production is https.
+const DEV_RANDOM_UUID_POLYFILL = `
+if (globalThis.crypto && !crypto.randomUUID) {
+  crypto.randomUUID = () => {
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 15) | 64;
+    b[8] = (b[8] & 63) | 128;
+    const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+  };
+}
+`;
+
 // https://vitejs.dev/config/
 export default defineConfig({
   resolve: {
@@ -42,6 +57,19 @@ export default defineConfig({
       },
     },
     {
+      name: 'dev-crypto-randomuuid-polyfill',
+      apply: 'serve',
+      transformIndexHtml() {
+        return [
+          {
+            tag: 'script',
+            injectTo: 'head-prepend',
+            children: DEV_RANDOM_UUID_POLYFILL,
+          },
+        ];
+      },
+    },
+    {
       name: 'dynamic-html',
       transformIndexHtml(html) {
         return html
@@ -55,6 +83,7 @@ export default defineConfig({
   server: {
     host: config.server.host,
     port: config.server.port,
+    allowedHosts: true,
     watch: {
       // Use polling for Docker bind mounts where inotify events may not propagate
       usePolling: true,

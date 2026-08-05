@@ -27,6 +27,48 @@ services:
       start_period: 10s
 
   # Backend API service (internal only)
+  # Wildcard DNS for backend/aggregator: answers every zone listed in
+  # DNS_WILDCARD_DOMAINS (apex + ALL subdomains) with the host-gateway IP, so
+  # new station tenant subdomains resolve without any extra_hosts edits. All
+  # other names are forwarded upstream via Docker's embedded DNS.
+  dns:
+    image: alpine:3.22
+    container_name: syfthub-dns-dev
+    restart: unless-stopped
+    environment:
+      # Space-separated zones to point at the host.
+      DNS_WILDCARD_DOMAINS: "station.localhost station.spaces.localhost"
+    extra_hosts:
+      # Injects the platform-correct host-gateway IP for the entrypoint to read.
+      - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        apk add --no-cache dnsmasq >/dev/null
+        # ahostsv4, not hosts: the latter can return the gateway's IPv6 first,
+        # which would leave the zones without A records.
+        GATEWAY="$$(getent ahostsv4 host.docker.internal | awk 'NR==1{print $$1}')"
+        set -- --keep-in-foreground --log-facility=- --port=53 \
+          --bind-dynamic --except-interface=lo --no-hosts
+        for domain in $$DNS_WILDCARD_DOMAINS; do
+          set -- "$$@" --address="/$$domain/$$GATEWAY"
+        done
+        exec dnsmasq "$$@"
+    networks:
+      syfthub-network:
+        # Static IP: the `dns:` entries on backend/aggregator only accept
+        # literal IPs. Requires the fixed subnet declared on the network.
+        ipv4_address: 172.28.0.53
+    healthcheck:
+      # Query via the container IP — dnsmasq deliberately doesn't bind lo
+      # (binding loopback would make it reject 127.0.0.11 as upstream).
+      test: ["CMD", "nslookup", "station.localhost", "172.28.0.53"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   backend:
     build:
       context: ../components/backend
@@ -49,6 +91,10 @@ services:
       # Named volume for RSA keys so the syfthub user (uid 1000) has write access
       # (bind-mounted parent dirs are created by Docker as root, blocking auto-generation)
       - rsa_keys_data:/app/data/rsa_keys
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Wildcard *.station.localhost etc. — see the dns service.
+    dns: 172.28.0.53
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
@@ -83,6 +129,8 @@ services:
       - syfthub-network
     depends_on:
       db:
+        condition: service_healthy
+      dns:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
@@ -222,10 +270,14 @@ services:
     # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Wildcard *.station.localhost etc. — see the dns service.
+    dns: 172.28.0.53
     networks:
       - syfthub-network
     depends_on:
       backend:
+        condition: service_healthy
+      dns:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
@@ -307,6 +359,10 @@ services:
 networks:
   syfthub-network:
     driver: bridge
+    ipam:
+      config:
+        # Fixed subnet so the dns service can hold a static IP.
+        - subnet: 172.28.0.0/16
 
 volumes:
   postgres_data:
