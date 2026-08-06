@@ -1454,6 +1454,44 @@ def test_xendit_policy_auto_injects_prepaid_tag_on_update(
     assert "prepaid" in response.json()["tags"]
 
 
+def test_prepaid_policy_nested_in_wrapper_injects_prepaid_tag(
+    client: TestClient, user1_token: str
+) -> None:
+    """A prepaid policy inside a composite wrapper is active billing, so it
+    must tag the endpoint just like a top-level one."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    endpoint_data = {
+        "name": "Wrapped Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [
+            {
+                "type": "all_of",
+                "config": {"policies": [_XENDIT_POLICY_MINIMAL]},
+            }
+        ],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    assert "prepaid" in response.json()["tags"]
+
+
+def test_disabled_prepaid_policy_does_not_inject_prepaid_tag(
+    client: TestClient, user1_token: str
+) -> None:
+    """A disabled prepaid policy is not active billing — no tag."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    endpoint_data = {
+        "name": "Disabled Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [{**_XENDIT_POLICY_MINIMAL, "enabled": False}],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    assert "prepaid" not in response.json()["tags"]
+
+
 def test_xendit_auto_tag_skips_when_tag_limit_reached(
     client: TestClient, user1_token: str
 ) -> None:
@@ -2455,3 +2493,398 @@ def test_uptime_rejects_window_over_cap(client: TestClient) -> None:
     assert any(
         "window_hours" in (err.get("loc") or []) for err in body.get("detail", [])
     ), body
+
+
+# ----------------------------------------------------------------------
+# Cluster (station-hosted shared wallet) policy validation + enrichment
+# ----------------------------------------------------------------------
+#
+# A ``cluster`` policy claims its wallet is hosted by another Hub account
+# (``wallet_owner``). Publish-time validation resolves that id to an active
+# user, requires every wallet URL host to fall under that user's registered
+# domain, and injects the server-derived ``wallet_owner_username`` (the
+# satellite-token audience) into the stored config.
+
+_STATION_DOMAIN = "https://spaces.openmined.org"
+_STATION_WALLET_ID = "018f2c3a-7b1e-4c2d-9a6f-3e8d5b1c4a90"
+
+
+@pytest.fixture
+def station_owner(client: TestClient) -> dict:
+    """Register the wallet-owning 'station' account with a registered domain."""
+    user_data = {
+        "username": "station",
+        "email": "station@example.com",
+        "full_name": "Station Owner",
+        "password": "stationpass123",
+    }
+    response = client.post("/api/v1/auth/register", json=user_data)
+    user_id = response.json()["user"]["id"]
+
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
+
+    session = next(get_db_session())
+    try:
+        # update_domain does not commit; the caller owns the transaction.
+        UserRepository(session).update_domain(user_id, _STATION_DOMAIN)
+        session.commit()
+    finally:
+        session.close()
+
+    return {"id": user_id, "username": "station"}
+
+
+def _cluster_policy(wallet_owner_id: int, **config_overrides: object) -> dict:
+    """A cluster policy payload matching the syft-space publish shape."""
+    base = f"{_STATION_DOMAIN}/api/v1/credits/{_STATION_WALLET_ID}"
+    config: dict = {
+        "price": 2.5,
+        "unit_type": "request",
+        "applied_to": ["*"],
+        "currency": "PHP",
+        "wallet_id": _STATION_WALLET_ID,
+        "wallet_owner": wallet_owner_id,
+        "bundles": [
+            {"name": "Starter", "amount": 100},
+            {"name": "Pro", "amount": 1000},
+        ],
+        "payment_url": f"{base}/invoices",
+        "invoices_url": f"{base}/invoices/me",
+        "credits_url": f"{base}/balance",
+    }
+    config.update(config_overrides)
+    return {
+        "type": "cluster",
+        "version": "1.0",
+        "enabled": True,
+        "description": "Pay per request",
+        "config": config,
+    }
+
+
+def _cluster_endpoint_payload(policy: dict, name: str = "Legal RAG") -> dict:
+    return {
+        "name": name,
+        "type": "model",
+        "visibility": "public",
+        "policies": [policy],
+    }
+
+
+def test_cluster_policy_create_enriches_owner_username(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """Valid cluster policy publishes, gets the audience injected + prepaid tag."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    payload = _cluster_endpoint_payload(_cluster_policy(station_owner["id"]))
+
+    response = client.post("/api/v1/endpoints", json=payload, headers=headers)
+    assert response.status_code == 201, response.text
+
+    data = response.json()
+    config = data["policies"][0]["config"]
+    assert config["wallet_owner"] == station_owner["id"]
+    assert config["wallet_owner_username"] == "station"
+    assert "prepaid" in data["tags"]
+
+
+def test_cluster_policy_owner_username_is_server_derived(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A client-supplied wallet_owner_username is overwritten, never trusted."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(station_owner["id"], wallet_owner_username="someone-else")
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    assert config["wallet_owner_username"] == "station"
+
+
+def test_cluster_policy_accepts_subdomain_of_owner_domain(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    sub = f"https://wallet.spaces.openmined.org/api/v1/credits/{_STATION_WALLET_ID}"
+    policy = _cluster_policy(
+        station_owner["id"],
+        payment_url=f"{sub}/invoices",
+        invoices_url=f"{sub}/invoices/me",
+        credits_url=f"{sub}/balance",
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_cluster_policy_rejects_unknown_wallet_owner(
+    client: TestClient, user1_token: str
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    payload = _cluster_endpoint_payload(_cluster_policy(999999))
+    response = client.post("/api/v1/endpoints", json=payload, headers=headers)
+    assert response.status_code == 422
+    assert "wallet_owner" in response.json()["detail"]
+
+
+def test_cluster_policy_rejects_missing_wallet_id(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(station_owner["id"])
+    del policy["config"]["wallet_id"]
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 422
+    assert "wallet_id" in response.json()["detail"]
+
+
+def test_cluster_policy_rejects_url_outside_owner_domain(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A credits_url on a foreign host would exfiltrate satellite tokens."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(
+        station_owner["id"], credits_url="https://evil.example.com/balance"
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 422
+    assert "credits_url" in response.json()["detail"]
+
+
+def test_cluster_policy_with_children_cannot_dodge_validation(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A nested ``policies`` list must not turn a cluster policy into a
+    skipped "wrapper" — that would store an unverified credits_url and an
+    attacker-chosen audience."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(
+        station_owner["id"],
+        credits_url="https://evil.example.com/balance",
+        policies=[{"type": "free", "version": "1.0", "enabled": True, "config": {}}],
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 422
+    assert "credits_url" in response.json()["detail"]
+
+
+def test_cluster_policy_with_children_is_still_enriched(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """A valid cluster policy that also nests children keeps its own
+    validation + audience enrichment."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = _cluster_policy(
+        station_owner["id"],
+        policies=[{"type": "free", "version": "1.0", "enabled": True, "config": {}}],
+    )
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    assert config["wallet_owner_username"] == "station"
+
+
+def test_cluster_policy_rejects_owner_without_domain(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """user2 exists but has no registered domain → URLs cannot be verified."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    me = client.get(
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {user2_token}"}
+    )
+    user2_id = me.json()["id"]
+    payload = _cluster_endpoint_payload(_cluster_policy(user2_id))
+    response = client.post("/api/v1/endpoints", json=payload, headers=headers)
+    assert response.status_code == 422
+    assert "domain" in response.json()["detail"]
+
+
+def test_non_cluster_prepaid_policy_strips_wallet_audience_fields(
+    client: TestClient, user1_token: str
+) -> None:
+    """Self-hosted prepaid URLs are not domain-verified, so wallet identity/
+    audience fields on them would let a publisher route satellite tokens
+    minted for an arbitrary account to a host they control."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    policy = {
+        **_XENDIT_POLICY_MINIMAL,
+        "config": {
+            **_XENDIT_POLICY_MINIMAL["config"],
+            "wallet_id": "spoofed-wallet",
+            "walletId": "spoofed-wallet",
+            "wallet_owner": 42,
+            "walletOwner": 42,
+            "wallet_owner_username": "victim-station",
+            "walletOwnerUsername": "victim-station",
+        },
+    }
+    endpoint_data = {
+        "name": "Spoofing Xendit Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [policy],
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    for key in (
+        "wallet_id",
+        "walletId",
+        "wallet_owner",
+        "walletOwner",
+        "wallet_owner_username",
+        "walletOwnerUsername",
+    ):
+        assert key not in config
+    # The legitimate self-hosted fields survive.
+    assert config["payment_url"] == _XENDIT_POLICY_MINIMAL["config"]["payment_url"]
+
+
+def test_cluster_policy_camelcase_config_is_canonicalized(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    """camelCase spellings are accepted on input but stored as snake_case."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    base = f"{_STATION_DOMAIN}/api/v1/credits/{_STATION_WALLET_ID}"
+    policy = {
+        "type": "cluster",
+        "version": "1.0",
+        "enabled": True,
+        "config": {
+            "price": 2.5,
+            "unit_type": "request",
+            "walletId": _STATION_WALLET_ID,
+            "walletOwner": station_owner["id"],
+            "paymentUrl": f"{base}/invoices",
+            "invoicesUrl": f"{base}/invoices/me",
+            "creditsUrl": f"{base}/balance",
+        },
+    }
+    response = client.post(
+        "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
+    )
+    assert response.status_code == 201, response.text
+    config = response.json()["policies"][0]["config"]
+    assert config["wallet_id"] == _STATION_WALLET_ID
+    assert config["wallet_owner"] == station_owner["id"]
+    assert config["wallet_owner_username"] == "station"
+    assert config["payment_url"] == f"{base}/invoices"
+    assert config["credits_url"] == f"{base}/balance"
+    assert config["invoices_url"] == f"{base}/invoices/me"
+    for camel_key in (
+        "walletId",
+        "walletOwner",
+        "walletOwnerUsername",
+        "paymentUrl",
+        "creditsUrl",
+        "invoicesUrl",
+    ):
+        assert camel_key not in config
+
+
+def test_cluster_policy_rejects_tunneling_domain_owner(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """Tunneling spaces have no public hostname, so wallet URL verification
+    cannot work — the policy must be rejected with a clear message."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    me = client.get(
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {user2_token}"}
+    )
+    user2_id = me.json()["id"]
+
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
+
+    session = next(get_db_session())
+    try:
+        # update_domain does not commit; the caller owns the transaction.
+        UserRepository(session).update_domain(user2_id, "tunneling:user2")
+        session.commit()
+    finally:
+        session.close()
+
+    payload = _cluster_endpoint_payload(_cluster_policy(user2_id))
+    response = client.post("/api/v1/endpoints", json=payload, headers=headers)
+    assert response.status_code == 422
+    assert "tunneling" in response.json()["detail"]
+
+
+def test_cluster_policy_update_enriches_owner_username(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    create = client.post(
+        "/api/v1/endpoints",
+        json={"name": "Plain Endpoint", "type": "model", "visibility": "public"},
+        headers=headers,
+    )
+    assert create.status_code == 201
+    endpoint_id = create.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/endpoints/{endpoint_id}",
+        json={"policies": [_cluster_policy(station_owner["id"])]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["policies"][0]["config"]["wallet_owner_username"] == "station"
+    assert "prepaid" in data["tags"]
+
+
+def test_cluster_policy_sync_enriches_owner_username(
+    client: TestClient, user1_token: str, station_owner: dict
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Legal RAG",
+                "slug": "legal-rag",
+                "type": "model",
+                "visibility": "public",
+                "policies": [_cluster_policy(station_owner["id"])],
+            }
+        ]
+    }
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200, response.text
+
+    data = response.json()
+    assert data["synced"] == 1
+    config = data["endpoints"][0]["policies"][0]["config"]
+    assert config["wallet_owner_username"] == "station"
+
+
+def test_cluster_policy_sync_rejects_invalid_wallet_owner(
+    client: TestClient, user1_token: str
+) -> None:
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Legal RAG",
+                "slug": "legal-rag",
+                "type": "model",
+                "visibility": "public",
+                "policies": [_cluster_policy(999999)],
+            }
+        ]
+    }
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "VALIDATION_ERROR"
+    assert detail["errors"][0]["field"] == "policies"

@@ -26,12 +26,14 @@ import { MppPolicyContent } from './mpp-policy-content';
 import { formatConfigKey } from './policy-format';
 import { XenditPolicyContent } from './xendit-policy-content';
 
-// Policy types that drive the prepaid-credits card. Both providers share the
+// Policy types that drive the prepaid-credits card. All providers share the
 // same config shape (bundles + currency + payment_url + credits_url +
-// invoices_url + price + unit_type), so the card and BundlePicker are reused.
-// Adding a future prepaid provider is one entry here plus a theme entry in
-// POLICY_TYPE_CONFIG.
-const PREPAID_BALANCE_TYPES = new Set<PrepaidProvider>(['xendit', 'stripe']);
+// invoices_url + price + unit_type), so the card and BundlePicker are reused;
+// `cluster` (a station-hosted wallet shared across spaces) additionally
+// carries wallet_id + wallet_owner_username. Adding a future prepaid provider
+// is one entry here plus a theme entry in POLICY_TYPE_CONFIG. Keep in
+// lockstep with the backend `PREPAID_POLICY_TYPES` in `schemas/endpoint.py`.
+const PREPAID_BALANCE_TYPES = new Set<PrepaidProvider>(['xendit', 'stripe', 'cluster']);
 function isPrepaidBalanceType(type: string): type is PrepaidProvider {
   return (PREPAID_BALANCE_TYPES as Set<string>).has(type);
 }
@@ -53,9 +55,12 @@ const MPP_PROVIDER_LABEL = 'Tempo';
 
 // Display name shown under a balance card's title, keyed by policy type (e.g.
 // "via Xendit", "via Tempo"). Returns null for non-balance policy types.
+// UX terminology: a cluster wallet surfaces as "Managed Wallet" — never
+// expose the internal "station"/"cluster" wording in the UI.
 const BALANCE_PROVIDER_LABELS: Record<string, string> = {
   xendit: 'Xendit',
   stripe: 'Stripe',
+  cluster: 'Managed Wallet',
   mpp: MPP_PROVIDER_LABEL
 };
 function getBalanceProviderLabel(policyType: string): string | null {
@@ -101,6 +106,16 @@ const POLICY_TYPE_CONFIG: Record<
     bgColor: 'bg-indigo-50 dark:bg-indigo-950/30',
     borderColor: 'border-indigo-200 dark:border-indigo-800',
     description: 'Top up credits to use this endpoint.'
+  },
+  // Station-hosted shared wallet: one balance backs every endpoint published
+  // against the same wallet_id, so topping up here funds all of them.
+  cluster: {
+    icon: CreditCard,
+    label: 'Prepaid credits',
+    color: 'text-teal-600 dark:text-teal-400',
+    bgColor: 'bg-teal-50 dark:bg-teal-950/30',
+    borderColor: 'border-teal-200 dark:border-teal-800',
+    description: 'Top up a shared wallet used across every endpoint it backs.'
   },
   // Access control policies
   public: {

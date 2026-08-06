@@ -41,7 +41,11 @@ class UserXenditSubscriptionModel(BaseModel, TimestampMixin):
     credits_url: Mapped[str] = mapped_column(Text, nullable=False)
     payment_url: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Display + auth metadata.
+    # Display + auth metadata. ``endpoint_owner`` is the satellite-token
+    # *audience* for the wallet: the wallet-hosting account for cluster
+    # (managed) wallets, the endpoint owner for self-hosted ones. The credits
+    # panel re-mints tokens for this username, and its dedupe-by-owner view
+    # collapses every endpoint backed by one shared wallet into a single row.
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="IDR")
     endpoint_owner: Mapped[str] = mapped_column(String(50), nullable=False)
     endpoint_slug: Mapped[Optional[str]] = mapped_column(

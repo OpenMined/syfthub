@@ -39,6 +39,18 @@ interface ProfileFormData {
 
 const BIO_MAX_LENGTH = 2000;
 
+// The backend requires a protocol on `domain`; default to https:// when the
+// user typed a bare host, but keep an explicit http:// (local dev) or
+// tunneling: prefix. Pasted schemes are lowercased — the backend matches
+// them case-sensitively.
+function normalizeDomainInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  const scheme = /^(https?:\/\/|tunneling:)/i.exec(trimmed)?.[0];
+  if (!scheme) return `https://${trimmed}`;
+  return scheme.toLowerCase() + trimmed.slice(scheme.length);
+}
+
 export function ProfileSettingsTab() {
   const { user, updateUser } = useAuth();
   const { closeSettings } = useSettingsModalStore();
@@ -235,10 +247,7 @@ export function ProfileSettingsTab() {
       updates.avatar_url = formData.avatar_url.trim();
     }
     if (formData.domain !== (user?.domain ?? '')) {
-      // Strip protocol if user accidentally included it
-      let domainValue = formData.domain.trim();
-      domainValue = domainValue.replace(/^https?:\/\//, '');
-      updates.domain = domainValue;
+      updates.domain = normalizeDomainInput(formData.domain);
     }
     if (formData.bio !== (user?.bio ?? '')) {
       updates.bio = formData.bio;
@@ -459,8 +468,8 @@ export function ProfileSettingsTab() {
               disabled={isLoading}
             />
             <p className='text-muted-foreground text-xs'>
-              Enter the base domain for your endpoints without the protocol (https:// will be added
-              automatically).
+              Enter the base domain for your endpoints. https:// is assumed unless you include a
+              protocol (e.g. http:// for local development).
             </p>
           </div>
         </div>

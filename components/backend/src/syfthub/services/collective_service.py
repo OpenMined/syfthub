@@ -46,6 +46,8 @@ from syfthub.schemas.collective import (
     slugify_shared_endpoint_name,
 )
 from syfthub.schemas.endpoint import (
+    CLUSTER_POLICY_TYPE,
+    PREPAID_POLICY_TYPES,
     Endpoint,
     EndpointType,
     EndpointVisibility,
@@ -69,8 +71,9 @@ _JOINABLE_ENDPOINT_TYPES: frozenset[str] = frozenset(
 
 # Policy ``type`` values that bill via publisher-side prepaid credits (the buyer
 # funds a wallet with the publisher and we read/charge it). These map onto the
-# chat PaymentGate / wallet-panel settlement UX.
-_PREPAID_PROVIDERS: frozenset[str] = frozenset({"xendit", "stripe"})
+# chat PaymentGate / wallet-panel settlement UX. Defined in ``schemas.endpoint``
+# as the single source of truth (also drives the 'prepaid' discovery tag).
+_PREPAID_PROVIDERS: frozenset[str] = PREPAID_POLICY_TYPES
 
 # The single canonical pay-as-you-go (MPP) policy ``type`` — billed per request
 # against the buyer's single Hub (MPP) wallet, with no upfront prepaid wallet per
@@ -108,12 +111,50 @@ def _parse_unit(config: dict[str, Any]) -> str:
     return "request"
 
 
-def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
+def _wallet_identity(
+    config: dict[str, Any], policy_type: str
+) -> tuple[Optional[str], Optional[str]]:
+    """The ``(wallet_id, wallet_owner_username)`` a policy may claim.
+
+    Only a ``cluster`` policy may carry a wallet identity of its own. Its
+    ``wallet_owner`` and every wallet URL are verified against that owner's
+    registered domain when it is published, so the claim has been proven.
+    Self-hosted (``xendit`` / ``stripe``) policy URLs are never
+    domain-verified, so the same fields on one are ignored: honouring them
+    would let a publisher group their endpoint into somebody else's wallet,
+    or have buyers mint satellite tokens for an account they don't own and
+    collect those tokens at a host they do.
+
+    Gating on read — rather than trusting publish-time stripping alone —
+    also neutralizes rows stored before that stripping existed.
+    """
+    if policy_type.lower() != CLUSTER_POLICY_TYPE:
+        return None, None
+    wallet_id = _pick(config, "wallet_id", "walletId")
+    wallet_owner_username = _pick(
+        config, "wallet_owner_username", "walletOwnerUsername"
+    )
+    return (
+        wallet_id if isinstance(wallet_id, str) and wallet_id else None,
+        (
+            wallet_owner_username
+            if isinstance(wallet_owner_username, str) and wallet_owner_username
+            else None
+        ),
+    )
+
+
+def _parse_prepaid_config(
+    config: dict[str, Any], policy_type: str
+) -> Optional[dict[str, Any]]:
     """Normalize a prepaid policy ``config`` into billing-detail kwargs.
 
     Returns ``None`` when the policy lacks the URLs needed to read a balance or
     purchase credits — such a policy can't drive settlement, so the member is
     treated as if it had no prepaid policy at all.
+
+    ``policy_type`` gates the wallet identity fields: only ``cluster`` may
+    carry them (see ``_wallet_identity``).
     """
     payment_url = _pick(config, "payment_url", "paymentUrl")
     credits_url = _pick(config, "credits_url", "creditsUrl")
@@ -141,6 +182,8 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
                     MoneyBundle(name=entry["name"], amount=float(entry["amount"]))
                 )
 
+    wallet_id, wallet_owner_username = _wallet_identity(config, policy_type)
+
     return {
         "currency": currency if isinstance(currency, str) else "IDR",
         "price_per_unit": float(price) if isinstance(price, (int, float)) else None,
@@ -149,6 +192,8 @@ def _parse_prepaid_config(config: dict[str, Any]) -> Optional[dict[str, Any]]:
         "credits_url": credits_url,
         "invoices_url": invoices_url if _is_url(invoices_url) else None,
         "bundles": bundles,
+        "wallet_id": wallet_id,
+        "wallet_owner_username": wallet_owner_username,
     }
 
 
@@ -226,7 +271,7 @@ def _classify_billing(endpoint: Endpoint) -> MemberBillingDetail:
         ptype = str(_policy_field(policy, "type", "")).lower()
         config = _policy_field(policy, "config", {}) or {}
         if ptype in _PREPAID_PROVIDERS:
-            parsed = _parse_prepaid_config(config)
+            parsed = _parse_prepaid_config(config, ptype)
             if parsed is not None:
                 return MemberBillingDetail(kind="prepaid", provider=ptype, **parsed)
         elif ptype in _MPP_POLICY_TYPES and mpp_config is None:

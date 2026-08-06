@@ -572,6 +572,13 @@ export interface MemberBillingDetail {
   credits_url: string | null;
   invoices_url: string | null;
   bundles: BillingMoneyBundle[];
+  /** Shared wallet id (cluster prepaid only) — stable grouping key. */
+  wallet_id?: string | null;
+  /**
+   * Wallet-hosting account = satellite-token audience (cluster prepaid
+   * only; audience falls back to the endpoint owner when absent).
+   */
+  wallet_owner_username?: string | null;
 }
 
 /** A member endpoint's identity plus its normalized billing detail. */

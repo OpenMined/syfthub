@@ -44,6 +44,21 @@ def get_matching_types(endpoint_type: EndpointType) -> list[str]:
         return [endpoint_type.value]
 
 
+# Policy ``type`` values that bill via publisher-side prepaid credits (the
+# buyer funds a wallet with the publisher and tops it up via ``payment_url``).
+# ``cluster`` is a station-hosted *shared* wallet: many spaces publish the same
+# ``wallet_id`` under one wallet-owner account, so one balance backs them all.
+# Single source of truth — keep in lockstep with the frontend
+# ``PREPAID_BALANCE_TYPES`` set in ``policy-item.tsx``.
+PREPAID_POLICY_TYPES: frozenset[str] = frozenset({"xendit", "stripe", "cluster"})
+
+# The station-hosted shared-wallet policy type. Unlike ``xendit``/``stripe``,
+# its config must name the wallet-owning Hub account (``wallet_owner``) so the
+# satellite-token audience can be derived; see
+# ``EndpointService._process_cluster_policies``.
+CLUSTER_POLICY_TYPE = "cluster"
+
+
 class Policy(BaseModel):
     """Policy configuration for endpoints.
 
