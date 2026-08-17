@@ -780,3 +780,89 @@ class TestGoogleLogin:
 
         assert exc_info.value.status_code == 401
         assert "missing user information" in exc_info.value.detail
+
+    def test_rejects_unknown_email_when_signup_disallowed(self, auth_service):
+        """allow_signup=False: an unknown email is rejected, never signed up."""
+        mock_idinfo = {
+            "sub": "gid-unknown",
+            "email": "stranger@example.com",
+            "name": "Stranger",
+        }
+
+        with (
+            patch.object(
+                auth_service, "_verify_google_token", return_value=mock_idinfo
+            ),
+            patch.object(
+                auth_service.user_repository, "get_by_google_id", return_value=None
+            ),
+            patch.object(
+                auth_service.user_repository, "get_by_email", return_value=None
+            ),
+            patch.object(auth_service.user_repository, "create_user") as mock_create,
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            auth_service.google_login("google_credential", allow_signup=False)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail["code"] == "account_not_found"
+        mock_create.assert_not_called()
+
+    def test_existing_user_signs_in_when_signup_disallowed(self, auth_service):
+        """allow_signup=False still admits an existing google-linked user."""
+        mock_idinfo = {
+            "sub": "gid-123",
+            "email": "guser@example.com",
+            "name": "Google User",
+        }
+        existing_user = self._make_user()
+
+        with (
+            patch.object(
+                auth_service, "_verify_google_token", return_value=mock_idinfo
+            ),
+            patch.object(
+                auth_service.user_repository,
+                "get_by_google_id",
+                return_value=existing_user,
+            ),
+            patch(
+                "syfthub.services.auth_service.create_access_token",
+                return_value="access",
+            ),
+            patch(
+                "syfthub.services.auth_service.create_refresh_token",
+                return_value="refresh",
+            ),
+        ):
+            result = auth_service.google_login("google_credential", allow_signup=False)
+
+        assert result.access_token == "access"
+        assert result.user["username"] == "guser"
+
+    def test_email_exists_still_409_when_signup_disallowed(self, auth_service):
+        """allow_signup=False does not bypass the unlinked-email 409 guard."""
+        mock_idinfo = {
+            "sub": "gid-new",
+            "email": "existing@example.com",
+            "name": "Existing User",
+        }
+        existing_by_email = self._make_user(email="existing@example.com")
+
+        with (
+            patch.object(
+                auth_service, "_verify_google_token", return_value=mock_idinfo
+            ),
+            patch.object(
+                auth_service.user_repository, "get_by_google_id", return_value=None
+            ),
+            patch.object(
+                auth_service.user_repository,
+                "get_by_email",
+                return_value=existing_by_email,
+            ),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            auth_service.google_login("fake-credential", allow_signup=False)
+
+        assert exc_info.value.status_code == 409
