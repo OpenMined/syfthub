@@ -432,18 +432,24 @@ class AuthService(BaseService):
         suffix = secrets.randbelow(9000) + 1000  # 1000-9999
         return f"{base_username}{suffix}"
 
-    def google_login(self, credential: str) -> AuthResponse:
-        """Authenticate or register user via Google OAuth.
+    def google_login(
+        self, credential: str, *, allow_signup: bool = True
+    ) -> AuthResponse:
+        """Authenticate (and, by default, register) a user via Google OAuth.
 
         This method handles both login and registration for Google OAuth:
         1. Verify the Google ID token
         2. Check if user exists by google_id
         3. If not, check if email belongs to an existing account (reject with 409)
-        4. If no user found, create a new account
+        4. If no user found, create a new account — unless ``allow_signup`` is
+           False, in which case reject with 401 (``code: account_not_found``)
         5. Return authentication tokens
 
         Args:
             credential: Google ID token from Google Sign-In
+            allow_signup: When False, an unknown email is rejected instead of
+                being signed up. For relying services that admit existing
+                users only; defaults True to preserve the Hub's own web login.
 
         Returns:
             AuthResponse with user info and tokens
@@ -483,6 +489,17 @@ class AuthService(BaseService):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="An account with this email already exists. Please log in with your original method and link Google from account settings.",
+                )
+            elif not allow_signup:
+                # Login-only caller: an unknown email is not signed up — the
+                # relying service admits existing users only.
+                logger.info("Rejected Google sign-in for unknown email: %s", email)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "code": "account_not_found",
+                        "message": "No SyftHub account for this Google email.",
+                    },
                 )
             else:
                 # Create new user

@@ -225,3 +225,12 @@ class GoogleAuthRequest(BaseModel):
         min_length=1,
         description="Google ID token (JWT) received from Google Sign-In",
     )
+    allow_signup: bool = Field(
+        default=True,
+        description=(
+            "When false, an unknown email is rejected (401) instead of creating "
+            "a new account. For relying services that sign in existing users "
+            "only. Defaults true — the Hub's own web login "
+            "signs up on first Google sign-in."
+        ),
+    )

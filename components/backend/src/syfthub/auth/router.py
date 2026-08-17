@@ -213,17 +213,20 @@ def google_login(
     google_data: GoogleAuthRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
-    """Authenticate or register user via Google OAuth.
+    """Authenticate (and, by default, register) a user via Google OAuth.
 
-    This endpoint handles both login and registration for Google OAuth:
-    - If the user exists (by Google ID or email), they are logged in
-    - If the user doesn't exist, a new account is created
-    - If email matches an existing account, the Google account is linked
-
-    The credential should be the Google ID token (JWT) received from
-    Google Sign-In on the frontend.
+    Given the Google ID token (JWT) from Google Sign-In on the frontend:
+    - Existing user (matched by Google ID) → logged in.
+    - Email already on an account not linked to Google → 409 (never
+      auto-linked; the user must link Google from account settings).
+    - Unknown email → a new account is created, UNLESS the request sets
+      ``allow_signup: false``, in which case it is rejected with 401
+      (``code: account_not_found``) — for relying services that admit
+      existing users only.
     """
-    return auth_service.google_login(google_data.credential)
+    return auth_service.google_login(
+        google_data.credential, allow_signup=google_data.allow_signup
+    )
 
 
 @router.post("/refresh", response_model=Token, dependencies=[_refresh_rate_limit])
