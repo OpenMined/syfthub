@@ -115,7 +115,8 @@ if RSA_PRIVATE_KEY_ENV:
         logger.error(
             f"Failed to load RSA_PRIVATE_KEY from environment: {e}. "
             "Falling back to ephemeral key pair generation. "
-            "Fix the RSA_PRIVATE_KEY environment variable to use a shared key."
+            "Fix the RSA_PRIVATE_KEY environment variable to use a shared key.",
+            exc_info=True,
         )
 
 if not _rsa_key_loaded:
