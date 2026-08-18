@@ -4,23 +4,41 @@ import logging
 from typing import Annotated, Union
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    status,
+)
 
 from syfthub.auth.db_dependencies import (
     OwnershipChecker,
     get_current_active_user,
     require_admin,
 )
+from syfthub.core.client_ip import get_client_ip
 from syfthub.core.config import settings
-from syfthub.database.dependencies import get_user_service
+from syfthub.database.dependencies import (
+    get_email_change_service,
+    get_user_service,
+)
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
+    AdminEmailUpdateResponse,
+    EmailUpdate,
     PublicUserProfile,
     TunnelCredentialsResponse,
     User,
     UserResponse,
     UserUpdate,
 )
+from syfthub.services.email_change_service import (
+    ADMIN_SET_EMAIL_TEMPLATE,
+    EmailChangeService,
+)
+from syfthub.services.email_service import send_otp_email
 from syfthub.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
@@ -178,7 +196,12 @@ def update_current_user_profile(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> UserResponse:
-    """Update current user's profile."""
+    """Update current user's profile.
+
+    Does not accept `email`; changing an address requires proving control of it.
+    Use `PUT /auth/me/email`. The response still reports `pending_email` so a
+    client can render an in-flight change from any profile read.
+    """
     return user_service.update_user_profile(current_user.id, user_data, current_user)
 
 
@@ -189,8 +212,63 @@ def update_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> UserResponse:
-    """Update a user by ID (admin or self only)."""
+    """Update a user by ID (admin or self only).
+
+    Does not accept `email` — see `PUT /users/{user_id}/email` for the admin
+    path, or `PUT /auth/me/email` for a user changing their own.
+    """
     return user_service.update_user_profile(user_id, user_data, current_user)
+
+
+@router.put("/{user_id}/email", response_model=AdminEmailUpdateResponse)
+def set_user_email(
+    user_id: int,
+    body: EmailUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    email_change_service: Annotated[
+        EmailChangeService, Depends(get_email_change_service)
+    ],
+) -> AdminEmailUpdateResponse:
+    """Set a user's email address outright (admin only).
+
+    Applies immediately and **clears `is_email_verified`**: an administrator has
+    not proven the new address belongs to its owner, so the verified flag must not
+    carry over from the old one.
+
+    A verification code is sent to the new address in the same request. That
+    email is what tells the user their address moved — the previous address stops
+    resolving, so without it the change would be silent. On their next sign-in
+    they are prompted for the code, and entering it both verifies the address and
+    completes the login; no session is needed at any point, which matters because
+    a never-verified user has none.
+
+    Refuses when the target is the caller: this path clears the verified flag and
+    login is refused while that is false, so an admin aiming it at their own
+    account would lock themselves out. Use `PUT /auth/me/email` for that, which
+    keeps the current address working until the new one is verified.
+    """
+    updated, address, code = email_change_service.admin_set_email(
+        user_id, body.email, current_user, requester_ip=get_client_ip(request)
+    )
+
+    if not code:
+        return AdminEmailUpdateResponse(
+            user=updated,
+            verification_sent_to=None,
+            message="Address unchanged; nothing was sent.",
+        )
+
+    background_tasks.add_task(send_otp_email, address, code, ADMIN_SET_EMAIL_TEMPLATE)
+    return AdminEmailUpdateResponse(
+        user=updated,
+        verification_sent_to=address,
+        message=(
+            f"Address set to {address} and a verification code sent there. "
+            "The user must enter it at next sign-in before they can log in again."
+        ),
+    )
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)

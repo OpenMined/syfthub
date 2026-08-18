@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 from syfthub.domain.exceptions import (
     ConflictError,
+    EmailNotUpdatableHereError,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
@@ -100,11 +101,19 @@ class UserService(BaseService):
             if existing_user and existing_user.id != user_id:
                 raise ConflictError("user", "username")
 
-        # Validate email uniqueness if being updated
-        if user_data.email and self.user_repository.email_exists(user_data.email):
-            existing_user = self.user_repository.get_by_email(user_data.email)
-            if existing_user and existing_user.id != user_id:
-                raise ConflictError("user", "email")
+        # A profile PUT cannot *change* an address: that would either apply an
+        # unproven one or accept a field it silently declines to write. Reject a
+        # change and point at the endpoints that can perform it.
+        #
+        # An address equal to the one already on the account is not a change, so
+        # it is allowed through as a no-op. Clients that round-trip a whole user
+        # object would otherwise be unable to update any field at all.
+        if user_data.email is not None:
+            target = self.user_repository.get_by_id(user_id)
+            if target is None:
+                raise NotFoundError("User")
+            if user_data.email.strip().lower() != target.email.lower():
+                raise EmailNotUpdatableHereError()
 
         # Update user
         updated_user = self.user_repository.update_user(user_id, user_data)

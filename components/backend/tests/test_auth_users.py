@@ -477,18 +477,38 @@ def test_update_profile_duplicate_username(
     assert detail["field"] == "username"
 
 
-def test_update_profile_duplicate_email(
+def test_update_profile_cannot_change_email(
     client: TestClient, regular_user_token: str, admin_user_token: str
 ) -> None:
-    """Test that updating profile with existing email fails."""
-    # Regular user tries to change email to admin's email
+    """A profile PUT cannot change an email address, taken or not.
+
+    Changing an address requires proving control of it, which this endpoint has
+    no way to do — so it rejects the attempt and points at the endpoint that
+    can. Whether the target address is already in use is beside the point here;
+    that is checked by PUT /auth/me/email (see test_email_change_endpoints.py).
+    """
     headers = {"Authorization": f"Bearer {regular_user_token}"}
-    update_data = {"email": "admin@example.com"}  # This email exists
-    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
-    assert response.status_code == 409
+    response = client.put(
+        "/api/v1/users/me", json={"email": "admin@example.com"}, headers=headers
+    )
+    assert response.status_code == 422
     detail = response.json()["detail"]
-    assert detail["code"] == "CONFLICT"
-    assert detail["field"] == "email"
+    assert detail["code"] == "EMAIL_NOT_UPDATABLE_HERE"
+    assert "/auth/me/email" in detail["message"]
+
+
+def test_update_profile_rejects_unused_email_too(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """The rejection is about the operation, not about availability."""
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    response = client.put(
+        "/api/v1/users/me",
+        json={"email": "nobody-has-this@example.com"},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "EMAIL_NOT_UPDATABLE_HERE"
 
 
 def test_update_profile_with_own_username(
@@ -508,7 +528,12 @@ def test_update_profile_with_own_username(
 def test_update_profile_with_own_email(
     client: TestClient, regular_user_token: str
 ) -> None:
-    """Test that updating profile with own email is allowed."""
+    """Echoing the address already on the account is not a change.
+
+    Clients that round-trip a whole user object must still be able to update
+    other fields, so an unchanged `email` passes through as a no-op rather than
+    being rejected alongside real changes.
+    """
     headers = {"Authorization": f"Bearer {regular_user_token}"}
     # Update with current email should not fail
     update_data = {"email": "regular@example.com", "full_name": "Updated Name"}

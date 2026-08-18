@@ -7,7 +7,7 @@ import pytest
 
 from syfthub.database.connection import get_db_session
 from syfthub.domain.exceptions import (
-    ConflictError,
+    EmailNotUpdatableHereError,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
@@ -212,26 +212,39 @@ class TestUserServiceUpdateProfile:
 
         assert exc_info.value.error_code == "PERMISSION_DENIED"
 
-    def test_update_user_profile_email_exists(self, user_service, sample_user):
-        """Test updating with existing email."""
-        update_data = UserUpdate(email="existing@example.com")
-        user_dict = sample_user.model_dump()
-        user_dict.update({"id": 3, "email": "existing@example.com"})
-        existing_user = User(**user_dict)
+    def test_update_user_profile_rejects_an_email_change(
+        self, user_service, sample_user
+    ):
+        """A different address is rejected, with a pointer to the right endpoint."""
+        update_data = UserUpdate(email="somewhere-else@example.com")
+
+        with patch.object(
+            user_service.user_repository, "get_by_id", return_value=sample_user
+        ):
+            with pytest.raises(EmailNotUpdatableHereError) as exc_info:
+                user_service.update_user_profile(1, update_data, sample_user)
+
+            assert exc_info.value.error_code == "EMAIL_NOT_UPDATABLE_HERE"
+            assert "/auth/me/email" in exc_info.value.message
+
+    def test_update_user_profile_allows_the_unchanged_email(
+        self, user_service, sample_user
+    ):
+        """An echo of the current address is a no-op, not a change."""
+        update_data = UserUpdate(email=sample_user.email.upper(), full_name="Renamed")
 
         with (
             patch.object(
-                user_service.user_repository, "email_exists", return_value=True
+                user_service.user_repository, "get_by_id", return_value=sample_user
             ),
             patch.object(
-                user_service.user_repository, "get_by_email", return_value=existing_user
+                user_service.user_repository, "update_user", return_value=sample_user
             ),
         ):
-            with pytest.raises(ConflictError) as exc_info:
-                user_service.update_user_profile(1, update_data, sample_user)
+            # Must not raise.
+            result = user_service.update_user_profile(1, update_data, sample_user)
 
-            assert exc_info.value.error_code == "CONFLICT"
-            assert exc_info.value.field == "email"
+        assert result.email == sample_user.email
 
     def test_update_user_profile_user_not_found(self, user_service, admin_user):
         """Test updating non-existent user."""

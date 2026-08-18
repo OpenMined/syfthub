@@ -28,6 +28,8 @@ _jinja_env = Environment(
 SUBJECTS = {
     "registration": "Your SyftHub verification code",
     "password_reset": "Your SyftHub password reset code",
+    "email_change": "Confirm your new SyftHub email address",
+    "admin_email_change": "Your SyftHub email address was changed",
 }
 
 _otp_template = _jinja_env.get_template("otp_email.html")
@@ -60,7 +62,9 @@ async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
     Args:
         to_email: Recipient email address.
         code: The plain-text 6-digit OTP code.
-        purpose: "registration" or "password_reset".
+        purpose: Selects subject line and body copy — "registration",
+            "password_reset", "email_change", or "admin_email_change".
+            Independent of the purpose an OTP is *stored* under.
     """
     if not settings.smtp_configured:
         logger.warning("Email not configured — skipping OTP email to %s", to_email)

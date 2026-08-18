@@ -161,6 +161,23 @@ class VerifyOTPRequest(BaseModel):
     )
 
 
+class EmailChangeVerifyRequest(BaseModel):
+    """Request to confirm a pending email change with its OTP code.
+
+    The address is not carried in the body: it is read from the authenticated
+    user's ``pending_email``, so a caller can only ever confirm their own
+    in-flight change.
+    """
+
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code sent to the pending address",
+    )
+
+
 class ResendOTPRequest(BaseModel):
     """Request to resend an OTP code."""
 

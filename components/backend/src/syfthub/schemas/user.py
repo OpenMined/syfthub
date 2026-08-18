@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -43,7 +44,17 @@ class UserCreate(UserBase):
 class User(UserBase):
     """User model."""
 
-    id: int = Field(..., description="User's unique identifier")
+    id: int = Field(
+        ..., description="User's internal identifier — never exposed externally"
+    )
+    # Stable, opaque external identifier. Backs the OIDC ``sub`` claim; ``id``
+    # must never be used for that. ``default_factory`` keeps this constructible
+    # without an explicit value (tests, in-memory fixtures) while
+    # ``model_validate`` picks up the real column for DB-backed users.
+    public_id: UUID = Field(
+        default_factory=uuid4,
+        description="Stable, opaque public identifier for external references",
+    )
     avatar_url: Optional[str] = Field(
         None, max_length=500, description="URL to user's avatar image"
     )
@@ -91,6 +102,10 @@ class User(UserBase):
     )
     is_email_public: bool = Field(
         False, description="Whether the user's email is visible on their public profile"
+    )
+    # Address requested but not yet proven; see EmailChangeService.
+    pending_email: Optional[EmailStr] = Field(
+        None, description="Email change awaiting OTP verification, if any"
     )
 
     model_config = {"from_attributes": True}
@@ -140,8 +155,43 @@ class UserResponse(BaseModel):
     is_email_public: bool = Field(
         False, description="Whether the user's email is visible on their public profile"
     )
+    # Non-null while an email change is awaiting OTP verification. `email` still
+    # holds the current, verified address until the code is confirmed.
+    pending_email: Optional[EmailStr] = Field(
+        None, description="Email change awaiting OTP verification, if any"
+    )
 
     model_config = {"from_attributes": True}
+
+
+class EmailUpdate(BaseModel):
+    """A new email address.
+
+    Used by ``PUT /auth/me/email`` to start a verified change, and by
+    ``PUT /users/{user_id}/email`` for an administrator to set one outright.
+    """
+
+    email: EmailStr = Field(..., description="The new email address")
+
+
+class AdminEmailUpdateResponse(BaseModel):
+    """Result of an administrator setting a user's email address.
+
+    Reports the consequence alongside the user, because the consequence is not
+    obvious from the record: the address is now unverified, which blocks the
+    user's password login until they enter the code sent to
+    ``verification_sent_to``.
+    """
+
+    user: UserResponse = Field(..., description="The updated user")
+    verification_sent_to: Optional[EmailStr] = Field(
+        None,
+        description=(
+            "Address a verification code was sent to, or null when the request "
+            "did not change anything"
+        ),
+    )
+    message: str = Field(..., description="Human-readable summary for the admin")
 
 
 class UserUpdate(BaseModel):
@@ -150,7 +200,20 @@ class UserUpdate(BaseModel):
     username: Optional[str] = Field(
         None, min_length=3, max_length=50, description="Unique username"
     )
-    email: Optional[EmailStr] = Field(None, description="User's email address")
+    # Kept in the schema, but always rejected, so the field is discoverable in
+    # OpenAPI with a pointer rather than being silently ignored as an unknown
+    # key. Changing an address requires proving control of it, which a profile
+    # PUT cannot express: use PUT /auth/me/email (self) or
+    # PUT /users/{user_id}/email (admin).
+    email: Optional[EmailStr] = Field(
+        None,
+        description=(
+            "Not updatable here — rejected with 422. Email changes require "
+            "verification: use PUT /api/v1/auth/me/email. Admins use "
+            "PUT /api/v1/users/{user_id}/email."
+        ),
+        deprecated=True,
+    )
     full_name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="User's full name"
     )

@@ -22,6 +22,7 @@ from syfthub.core.rate_limit import per_ip_rate_limit
 from syfthub.database.dependencies import (
     get_api_token_service,
     get_auth_service,
+    get_email_change_service,
     get_otp_service,
 )
 from syfthub.domain.exceptions import (
@@ -42,6 +43,7 @@ from syfthub.schemas.api_token import (
 from syfthub.schemas.auth import (
     AuthConfigResponse,
     AuthResponse,
+    EmailChangeVerifyRequest,
     GoogleAuthRequest,
     PasswordChange,
     PasswordResetConfirm,
@@ -53,9 +55,13 @@ from syfthub.schemas.auth import (
     UserRegister,
     VerifyOTPRequest,
 )
-from syfthub.schemas.user import User, UserResponse
+from syfthub.schemas.user import EmailUpdate, User, UserResponse
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
+from syfthub.services.email_change_service import (
+    EMAIL_CHANGE_PURPOSE,
+    EmailChangeService,
+)
 from syfthub.services.email_service import send_otp_email
 from syfthub.services.otp_service import OTPService
 
@@ -433,6 +439,127 @@ def confirm_password_reset(
         user_repo.set_email_verified(user.id)
 
     return {"message": "Password has been reset successfully."}
+
+
+# =============================================================================
+# Email Address (credential) — mirrors PUT /auth/me/password
+# =============================================================================
+# An email address is a credential here, not a profile field: it is a login
+# identifier, the password-reset delivery channel, and an identity claim that
+# relying parties consume. Changing one therefore requires proving control of
+# the new address, which a profile PUT cannot express — so it lives beside
+# /auth/me/password rather than on /users/me.
+
+
+@router.put(
+    "/me/email",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[_auth_rate_limit],
+    responses={
+        202: {"description": "Change accepted; a code was sent to the new address"},
+        409: {"description": "Another account already holds that address"},
+        422: {"description": "That is already your address"},
+        429: {"description": "Too many codes requested"},
+    },
+)
+def request_email_change(
+    body: EmailUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    email_change_service: Annotated[
+        EmailChangeService, Depends(get_email_change_service)
+    ],
+) -> dict[str, str]:
+    """Start a verified change of the current user's email address.
+
+    Returns **202**, not 200: nothing has changed yet. The address is held as
+    ``pending_email`` and a code is sent to it; the account keeps its current,
+    verified address — and keeps signing in with it — until
+    ``POST /auth/me/email/verify`` succeeds. A mistyped address therefore cannot
+    lock anyone out.
+    """
+    code = email_change_service.request_change(
+        current_user, body.email, requester_ip=get_client_ip(request)
+    )
+    pending = body.email.strip().lower()
+    background_tasks.add_task(send_otp_email, pending, code, EMAIL_CHANGE_PURPOSE)
+    return {
+        "message": f"A verification code was sent to {pending}.",
+        "pending_email": pending,
+    }
+
+
+@router.post(
+    "/me/email/verify",
+    response_model=UserResponse,
+    dependencies=[_auth_rate_limit],
+    responses={
+        400: {"description": "Invalid or expired verification code"},
+        409: {"description": "Another account claimed the address meanwhile"},
+        422: {"description": "No email change is pending"},
+    },
+)
+def verify_email_change(
+    body: EmailChangeVerifyRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    email_change_service: Annotated[
+        EmailChangeService, Depends(get_email_change_service)
+    ],
+) -> UserResponse:
+    """Confirm a pending email change with the code sent to the new address.
+
+    The address is not taken from the request body — it is read from the
+    authenticated user's ``pending_email``, so a caller can only ever confirm
+    their own in-flight change. A wrong code leaves the change pending so the
+    user can retry.
+    """
+    return email_change_service.confirm_change(current_user, body.code)
+
+
+@router.post(
+    "/me/email/resend",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[_auth_rate_limit],
+    responses={
+        422: {"description": "No email change is pending"},
+        429: {"description": "Too many codes requested"},
+    },
+)
+def resend_email_change_code(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    email_change_service: Annotated[
+        EmailChangeService, Depends(get_email_change_service)
+    ],
+) -> dict[str, str]:
+    """Send a fresh code to the address already pending.
+
+    Unlike the registration resend, this need not guard against email
+    enumeration: the caller is authenticated and the address is one they
+    nominated themselves, so a 422 or 429 reveals nothing new to them.
+    """
+    pending, code = email_change_service.resend_code(
+        current_user, requester_ip=get_client_ip(request)
+    )
+    background_tasks.add_task(send_otp_email, pending, code, EMAIL_CHANGE_PURPOSE)
+    return {"message": f"A new verification code was sent to {pending}."}
+
+
+@router.delete("/me/email", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_email_change(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    email_change_service: Annotated[
+        EmailChangeService, Depends(get_email_change_service)
+    ],
+) -> None:
+    """Abandon a pending email change. Idempotent.
+
+    Deletes the *pending* change, never the address on the account — there is no
+    operation here that can leave a user without an email.
+    """
+    email_change_service.cancel_change(current_user)
 
 
 # =============================================================================

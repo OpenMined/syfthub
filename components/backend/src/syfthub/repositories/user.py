@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import case, func, or_, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User, UserCreate, UserUpdate
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -133,8 +136,11 @@ class UserRepository(BaseRepository[UserModel]):
             # Update fields if provided
             if user_data.username is not None:
                 user_model.username = user_data.username.lower()
-            if user_data.email is not None:
-                user_model.email = user_data.email.lower()
+            # `email` is deliberately NOT written here. Overwriting it while
+            # leaving `is_email_verified` alone is what let a user hold a
+            # "verified" address they never proved control of. Email changes go
+            # through set_pending_email/confirm_pending_email (self-service, OTP
+            # proven) or set_email (admin, which clears the verified flag).
             if user_data.full_name is not None:
                 user_model.full_name = user_data.full_name
             if user_data.avatar_url is not None:
@@ -159,6 +165,104 @@ class UserRepository(BaseRepository[UserModel]):
             return User.model_validate(user_model)
         except Exception:
             self.session.rollback()
+            return None
+
+    def set_pending_email(self, user_id: int, email: str) -> bool:
+        """Record an email change awaiting verification.
+
+        Writes only ``pending_email``; ``email`` and ``is_email_verified`` are
+        left alone, so the user keeps their current verified address until they
+        prove control of the new one. Overwrites any earlier pending address.
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.pending_email = email.lower()
+            self.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            self.session.rollback()
+            logger.error(f"Failed to set pending email for user {user_id}: {e}")
+            return False
+
+    def clear_pending_email(self, user_id: int) -> bool:
+        """Discard an in-flight email change."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.pending_email = None
+            self.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            self.session.rollback()
+            logger.error(f"Failed to clear pending email for user {user_id}: {e}")
+            return False
+
+    def confirm_pending_email(self, user_id: int) -> Optional[User]:
+        """Promote ``pending_email`` to ``email`` and mark it verified.
+
+        Call only once the OTP sent to the pending address has been verified —
+        this method does no proving of its own, it records the outcome.
+
+        Returns None if there is no pending address, or if the address was
+        claimed by another account between the request and the confirmation
+        (the unique constraint on ``email`` is the arbiter, so two users racing
+        for the same address cannot both win).
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model or not user_model.pending_email:
+                return None
+
+            user_model.email = user_model.pending_email
+            user_model.pending_email = None
+            user_model.is_email_verified = True
+            self.session.commit()
+            self.session.refresh(user_model)
+            return User.model_validate(user_model)
+        except IntegrityError as e:
+            self.session.rollback()
+            logger.warning(
+                f"Pending email for user {user_id} was claimed by another "
+                f"account before confirmation: {e}"
+            )
+            return None
+        except SQLAlchemyError as e:
+            self.session.rollback()
+            logger.error(f"Failed to confirm pending email for user {user_id}: {e}")
+            return None
+
+    def set_email(self, user_id: int, email: str, *, verified: bool) -> Optional[User]:
+        """Set a user's email address directly.
+
+        For the admin path only. ``verified`` is explicit and callers should pass
+        False: an administrator changing someone else's address has not proven
+        that the new owner controls it, so the flag must not carry over from the
+        old address. Also clears any pending change, which the new address
+        supersedes.
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return None
+
+            user_model.email = email.lower()
+            user_model.pending_email = None
+            user_model.is_email_verified = verified
+            self.session.commit()
+            self.session.refresh(user_model)
+            return User.model_validate(user_model)
+        except IntegrityError as e:
+            self.session.rollback()
+            logger.warning(f"Email {email} already in use (user {user_id}): {e}")
+            return None
+        except SQLAlchemyError as e:
+            self.session.rollback()
+            logger.error(f"Failed to set email for user {user_id}: {e}")
             return None
 
     def update_password(self, user_id: int, new_password_hash: str) -> bool:

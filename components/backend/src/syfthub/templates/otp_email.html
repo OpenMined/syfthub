@@ -22,6 +22,10 @@
                             <p style="margin:0 0 16px;color:#3f3f46;font-size:15px;line-height:1.6;">
                                 {% if purpose == "registration" %}
                                     Use the code below to verify your email and complete your SyftHub registration.
+                                {% elif purpose == "admin_email_change" %}
+                                    An administrator changed the email address on your SyftHub account to this one. Enter the code below the next time you sign in to confirm it — you'll need to do this before you can sign in again, and your previous address will no longer work.
+                                {% elif purpose == "email_change" %}
+                                    Use the code below to confirm this address as your new SyftHub email. Your account keeps its current address until you do.
                                 {% else %}
                                     Use the code below to reset your SyftHub password.
                                 {% endif %}

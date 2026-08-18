@@ -21,6 +21,25 @@ class ValidationError(DomainException):
         super().__init__(message, "VALIDATION_ERROR")
 
 
+class EmailNotUpdatableHereError(ValidationError):
+    """Raised when a profile update tries to set ``email``.
+
+    An email change needs proof that the new address belongs to the user, so it
+    cannot be a plain profile field. Subclasses ``ValidationError`` purely to
+    inherit its 422 status mapping, while reporting its own error code so a
+    client can branch on it and follow the pointer.
+    """
+
+    def __init__(self) -> None:
+        """Initialize with a pointer to the endpoint that does support this."""
+        DomainException.__init__(
+            self,
+            "Email changes require verification of the new address. "
+            "Use PUT /api/v1/auth/me/email.",
+            "EMAIL_NOT_UPDATABLE_HERE",
+        )
+
+
 # ===========================================
 # IDENTITY PROVIDER (IdP) EXCEPTIONS
 # ===========================================
