@@ -229,6 +229,34 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
         except SQLAlchemyError:
             return []
 
+    def list_collectives_for_user(
+        self,
+        user_id: int,
+        statuses: Optional[Sequence[str]] = None,
+    ) -> List[CollectiveResponse]:
+        """List distinct collectives where any endpoint owned by user_id is a member.
+
+        Joins collective_members → endpoints to filter by endpoint owner, then
+        deduplicates via GROUP BY so a user with multiple endpoints in the same
+        collective only appears once. Ordered newest-first by collective creation.
+        """
+        try:
+            stmt = (
+                select(CollectiveModel)
+                .join(self.model, self.model.collective_id == CollectiveModel.id)
+                .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
+                .where(EndpointModel.user_id == user_id)
+            )
+            if statuses:
+                stmt = stmt.where(self.model.status.in_(list(statuses)))
+            stmt = stmt.group_by(CollectiveModel.id).order_by(
+                CollectiveModel.created_at.desc()
+            )
+            models = self.session.execute(stmt).scalars().all()
+            return [CollectiveResponse.model_validate(m) for m in models]
+        except SQLAlchemyError:
+            return []
+
     def count_members(self, collective_id: int, status: str) -> int:
         """Count a single collective's memberships with the given status."""
         try:

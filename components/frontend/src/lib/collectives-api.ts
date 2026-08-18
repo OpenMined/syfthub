@@ -198,20 +198,36 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export interface ListCollectivesParams {
   skip?: number;
   limit?: number;
-  ownerId?: number;
+  ownerUsername?: string;
   /** Server-side search over name, description and tags. */
   search?: string;
 }
 
-/** List collectives, newest first. Optionally filter by owning user / search. */
+/** List collectives, newest first. Optionally filter by owning username / search. */
 export async function listCollectives(params: ListCollectivesParams = {}): Promise<Collective[]> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
-  if (params.ownerId !== undefined) query.set('owner_id', String(params.ownerId));
+  if (params.ownerUsername) query.set('owner_username', params.ownerUsername);
   if (params.search?.trim()) query.set('search', params.search.trim());
   const suffix = query.toString();
   return request<Collective[]>(suffix ? `?${suffix}` : '');
+}
+
+/**
+ * List distinct approved collectives where any endpoint owned by `username` is
+ * a member. Public-readable. Returns an empty array when the user does not exist
+ * or has no approved memberships.
+ */
+export async function listCollectivesForUserEndpoints(username: string): Promise<Collective[]> {
+  const response = await fetch(`${BASE}/by-member-username/${encodeURIComponent(username)}`);
+  if (response.status === 404) return [];
+  if (!response.ok) {
+    throw new Error(
+      await errorMessage(response, `Failed to load collectives (${response.status})`)
+    );
+  }
+  return (await response.json()) as Collective[];
 }
 
 /** A page of collectives plus whether another page follows. */

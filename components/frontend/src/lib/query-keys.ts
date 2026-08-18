@@ -51,7 +51,8 @@ export const walletKeys = {
 
 export const collectiveKeys = {
   all: ['collectives'] as const,
-  list: (ownerId?: number) => [...collectiveKeys.all, 'list', ownerId ?? 'all'] as const,
+  list: (ownerUsername?: string) =>
+    [...collectiveKeys.all, 'list', ownerUsername ?? 'all'] as const,
   paginated: (page: number, limit: number, search?: string) =>
     [...collectiveKeys.all, 'list', 'paginated', page, limit, search ?? ''] as const,
   detail: (slug: string) => [...collectiveKeys.all, 'detail', slug] as const,
@@ -62,7 +63,9 @@ export const collectiveKeys = {
   invitation: (collectiveId: number, endpointId: number) =>
     [...collectiveKeys.all, 'invitation', collectiveId, endpointId] as const,
   byEndpoint: (owner: string, slug: string) =>
-    [...collectiveKeys.all, 'byEndpoint', owner, slug] as const
+    [...collectiveKeys.all, 'byEndpoint', owner, slug] as const,
+  byMemberUsername: (username: string) =>
+    [...collectiveKeys.all, 'byMemberUsername', username] as const
 };
 
 export const sharedEndpointKeys = {
