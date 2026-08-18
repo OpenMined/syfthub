@@ -92,8 +92,12 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
                 .returning(OTPCodeModel.attempts)
             )
             result = self.session.execute(stmt)
-            self.session.commit()
+            # Consume RETURNING before committing. Reading the cursor after the
+            # commit leaves it open, which on SQLite keeps a lock on the table.
+            # If the commit then fails, the except branch rolls back and returns
+            # 0 exactly as before, so nothing is lost by reading first.
             new_count = result.scalar()
+            self.session.commit()
             return new_count if new_count is not None else 0
         except Exception:
             self.session.rollback()
