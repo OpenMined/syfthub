@@ -1,9 +1,10 @@
 """User database model."""
 
+import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Index, String, Text
+from sqlalchemy import Boolean, DateTime, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
@@ -19,6 +20,21 @@ class UserModel(BaseModel, TimestampMixin):
 
     __tablename__ = "users"
 
+    # Stable, opaque public identifier. This — never ``id`` — is what leaves the
+    # backend as an external reference to a user (the OIDC ``sub`` claim), so
+    # relying parties never learn SyftHub's internal, sequential primary keys
+    # (see the privacy notes on EndpointPublicResponse). Immutable once assigned.
+    #
+    # The Python-side default covers ORM inserts, including SQLite in dev/tests.
+    # PostgreSQL additionally carries a ``gen_random_uuid()`` server default,
+    # applied in migration 022 rather than declared here: SQLite has no such
+    # function and would choke on it during ``create_all()``. The server default
+    # is what keeps signups working during a deploy, while the previous release
+    # — which knows nothing about this column — is still serving traffic.
+    public_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(), unique=True, nullable=False, default=uuid.uuid4
+    )
+
     # User fields
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
@@ -29,6 +45,14 @@ class UserModel(BaseModel, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_email_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="1"
+    )
+
+    # Address the user has asked to move to but has not yet proven control of.
+    # ``email`` is only overwritten once an OTP sent to this address verifies, so
+    # ``is_email_verified`` never ends up describing an unproven address. See
+    # EmailChangeService.
+    pending_email: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, default=None
     )
 
     # OAuth fields
