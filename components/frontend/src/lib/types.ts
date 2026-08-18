@@ -53,6 +53,12 @@ export interface User {
   is_email_public?: boolean;
   /** Timestamp of the user's last successful login (null/undefined if never) */
   last_login_at?: string;
+  /**
+   * An email change awaiting verification, or undefined when none is in flight.
+   * `email` stays the current, verified address until a code sent to this one
+   * is confirmed.
+   */
+  pending_email?: string;
 }
 
 // Authentication request schemas

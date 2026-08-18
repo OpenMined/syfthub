@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
+import type { User as FrontendUser } from '@/lib/types';
 import type { AvailabilityState } from './username-field';
 
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
@@ -18,12 +19,14 @@ import { useAuth } from '@/context/auth-context';
 import {
   checkEmailAvailability,
   checkUsernameAvailability,
+  requestEmailChangeAPI,
   updateUserProfileAPI
 } from '@/lib/sdk-client';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import { AvatarSection } from './avatar-section';
 import { DisplayNameField } from './display-name-field';
+import { PendingEmailCard } from './pending-email-card';
 import { StatusMessage } from './status-message';
 import { UsernameField } from './username-field';
 
@@ -51,8 +54,40 @@ function normalizeDomainInput(value: string): string {
   return scheme.toLowerCase() + trimmed.slice(scheme.length);
 }
 
+/**
+ * Collect only the profile fields that actually changed.
+ *
+ * `email` is deliberately absent: it is not a profile field, and the endpoint
+ * rejects it. An email change is dispatched separately by handleSubmit.
+ */
+function buildProfileUpdates(
+  formData: ProfileFormData,
+  user: FrontendUser | null
+): Record<string, string | boolean> {
+  const updates: Record<string, string | boolean> = {};
+  if (formData.username !== user?.username) {
+    updates.username = formData.username.trim().toLowerCase();
+  }
+  if (formData.full_name !== user?.full_name) {
+    updates.full_name = formData.full_name.trim();
+  }
+  if (formData.avatar_url !== (user?.avatar_url ?? '')) {
+    updates.avatar_url = formData.avatar_url.trim();
+  }
+  if (formData.domain !== (user?.domain ?? '')) {
+    updates.domain = normalizeDomainInput(formData.domain);
+  }
+  if (formData.bio !== (user?.bio ?? '')) {
+    updates.bio = formData.bio;
+  }
+  if (formData.is_email_public !== (user?.is_email_public ?? false)) {
+    updates.is_email_public = formData.is_email_public;
+  }
+  return updates;
+}
+
 export function ProfileSettingsTab() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, refreshUser } = useAuth();
   const { closeSettings } = useSettingsModalStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,32 +267,18 @@ export function ProfileSettingsTab() {
       return;
     }
 
-    // Build update payload (only changed fields)
-    const updates: Record<string, string | boolean> = {};
-    if (formData.username !== user?.username) {
-      updates.username = formData.username.trim().toLowerCase();
-    }
-    if (formData.email !== user?.email) {
-      updates.email = formData.email.trim().toLowerCase();
-    }
-    if (formData.full_name !== user?.full_name) {
-      updates.full_name = formData.full_name.trim();
-    }
-    if (formData.avatar_url !== (user?.avatar_url ?? '')) {
-      updates.avatar_url = formData.avatar_url.trim();
-    }
-    if (formData.domain !== (user?.domain ?? '')) {
-      updates.domain = normalizeDomainInput(formData.domain);
-    }
-    if (formData.bio !== (user?.bio ?? '')) {
-      updates.bio = formData.bio;
-    }
-    if (formData.is_email_public !== (user?.is_email_public ?? false)) {
-      updates.is_email_public = formData.is_email_public;
-    }
+    const updates = buildProfileUpdates(formData, user);
+
+    // An email change is a separate operation against a separate endpoint: it
+    // needs proof of the new address, so it cannot ride along with fields that
+    // apply immediately.
+    const newEmail =
+      formData.email.trim().toLowerCase() === (user?.email ?? '').toLowerCase()
+        ? null
+        : formData.email.trim().toLowerCase();
 
     // If nothing changed, show message
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && newEmail === null) {
       setSuccess('No changes to save');
       return;
     }
@@ -265,13 +286,20 @@ export function ProfileSettingsTab() {
     setIsLoading(true);
 
     try {
-      // Update profile and get the updated user directly from the response
-      const updatedUser = await updateUserProfileAPI(updates);
+      let updatedUser = user;
+      if (Object.keys(updates).length > 0) {
+        updatedUser = await updateUserProfileAPI(updates);
+        updateUser(updatedUser);
+      }
 
-      // Update auth context directly with the response data (no need for separate API call)
-      updateUser(updatedUser);
-
-      setSuccess('Profile updated successfully!');
+      if (newEmail === null) {
+        setSuccess('Profile updated successfully!');
+      } else {
+        const pending = await requestEmailChangeAPI(newEmail);
+        // Re-read so `pending_email` lands in the session and the card appears.
+        await refreshUser();
+        setSuccess(`Check ${pending} for a code to confirm your new address.`);
+      }
 
       // Clear success message after 3 seconds
       setTimeout(() => {
@@ -282,6 +310,25 @@ export function ProfileSettingsTab() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  /**
+   * Fold the outcome of a pending email change back into the session.
+   *
+   * A confirmed change hands back the updated user; a cancellation returns no
+   * body, so the user is re-read to drop the stale `pending_email`.
+   */
+  const handlePendingEmailResolved = async (updatedUser: FrontendUser | null) => {
+    if (updatedUser) {
+      updateUser(updatedUser);
+      setSuccess(`Your email address is now ${updatedUser.email}.`);
+    } else {
+      await refreshUser();
+      setSuccess('Email change cancelled.');
+    }
+    setTimeout(() => {
+      setSuccess(null);
+    }, 3000);
   };
 
   /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Defensive null checks */
@@ -380,6 +427,16 @@ export function ProfileSettingsTab() {
             </p>
           ) : null}
         </div>
+
+        {/* Email change awaiting verification. Driven by server state, so it is
+            here on reload, on a new session, and on another device. */}
+        {user?.pending_email ? (
+          <PendingEmailCard
+            pendingEmail={user.pending_email}
+            currentEmail={user.email}
+            onResolved={(updatedUser) => void handlePendingEmailResolved(updatedUser)}
+          />
+        ) : null}
 
         {/* Full Name */}
         <DisplayNameField

@@ -2,6 +2,7 @@
 // User Profile Utilities
 // ============================================================================
 
+import type { User as SdkUser } from '@syfthub/sdk';
 import type {
   AvailabilityResponse,
   User as FrontendUser,
@@ -269,8 +270,9 @@ function generateAvatarUrl(name: string): string {
  */
 export async function updateUserProfileAPI(profileData: UserUpdate): Promise<FrontendUser> {
   const sdkUser = await syftClient.users.update({
+    // `email` is deliberately not forwarded: the profile endpoint rejects it
+    // with 422. Email changes go through requestEmailChangeAPI below.
     username: profileData.username,
-    email: profileData.email,
     fullName: profileData.full_name,
     avatarUrl: profileData.avatar_url,
     domain: profileData.domain,
@@ -279,7 +281,16 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     isEmailPublic: profileData.is_email_public
   });
 
-  // Convert SDK User to frontend User format
+  return mapSdkUser(sdkUser);
+}
+
+/**
+ * Convert an SDK User into the frontend User shape.
+ *
+ * Shared by every call here that returns a user, so a newly added field only
+ * has to be mapped once.
+ */
+function mapSdkUser(sdkUser: SdkUser): FrontendUser {
   return {
     id: String(sdkUser.id),
     username: sdkUser.username,
@@ -294,8 +305,41 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     domain: sdkUser.domain ?? undefined,
     aggregator_url: sdkUser.aggregatorUrl ?? undefined,
     bio: sdkUser.bio ?? undefined,
-    is_email_public: sdkUser.isEmailPublic ?? false
+    is_email_public: sdkUser.isEmailPublic ?? false,
+    pending_email: sdkUser.pendingEmail ?? undefined
   };
+}
+
+/**
+ * Start a verified change of the current user's email address.
+ *
+ * Nothing changes on the account yet — the address is held as `pending_email`
+ * and a code is sent to it. Returns the address as the server normalised it.
+ */
+export async function requestEmailChangeAPI(email: string): Promise<string> {
+  const { pendingEmail } = await syftClient.auth.requestEmailChange(email);
+  return pendingEmail;
+}
+
+/**
+ * Confirm a pending email change with the code sent to the new address.
+ *
+ * Only on success does the address actually move; a wrong code leaves the
+ * pending change in place so the user can retry.
+ */
+export async function verifyEmailChangeAPI(code: string): Promise<FrontendUser> {
+  const sdkUser = await syftClient.auth.verifyEmailChange(code);
+  return mapSdkUser(sdkUser);
+}
+
+/** Send a fresh code to the address already pending. */
+export async function resendEmailChangeCodeAPI(): Promise<void> {
+  await syftClient.auth.resendEmailChangeCode();
+}
+
+/** Abandon a pending email change. Idempotent. */
+export async function cancelEmailChangeAPI(): Promise<void> {
+  await syftClient.auth.cancelEmailChange();
 }
 
 /**
