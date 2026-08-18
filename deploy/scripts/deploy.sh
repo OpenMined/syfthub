@@ -328,14 +328,17 @@ deploy_services() {
     # Rolling restart: MCP Server
     log INFO "Restarting MCP server..."
     docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate mcp
-    sleep 5
+    sleep 10
 
     # Wait for MCP to be healthy
+    # MCP has a longer startup time than other services (Python server with OAuth initialization)
+    # Use dedicated retries to give it enough time without slowing down the overall deployment
     log INFO "Waiting for MCP server to be healthy..."
-    retries=0
+    local mcp_retries=0
+    local mcp_max_retries=60
     while ! docker compose $COMPOSE_ARGS exec -T mcp curl -sf http://localhost:8002/health &> /dev/null; do
-        retries=$((retries + 1))
-        if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
+        mcp_retries=$((mcp_retries + 1))
+        if [[ $mcp_retries -ge $mcp_max_retries ]]; then
             die "MCP server failed health check after restart"
         fi
         sleep $HEALTH_CHECK_INTERVAL

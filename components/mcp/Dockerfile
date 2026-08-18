@@ -112,7 +112,7 @@ ENV ENVIRONMENT=production \
     # RSA_PRIVATE_KEY should be set via docker-compose or orchestrator secrets
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8002/health || exit 1
 
 # Expose port

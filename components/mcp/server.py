@@ -93,6 +93,7 @@ logger.info(f"API Base URL: {API_BASE_URL}")
 # Support both RSA_PRIVATE_KEY and RSA_PRIVATE_KEY_PEM for backwards compatibility
 RSA_PRIVATE_KEY_ENV = os.getenv("RSA_PRIVATE_KEY") or os.getenv("RSA_PRIVATE_KEY_PEM")
 
+_rsa_key_loaded = False
 if RSA_PRIVATE_KEY_ENV:
     # Load shared RSA key from environment variable (base64-encoded PEM)
     logger.info("Loading RSA private key from RSA_PRIVATE_KEY environment variable...")
@@ -108,22 +109,32 @@ if RSA_PRIVATE_KEY_ENV:
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
+        _rsa_key_loaded = True
         logger.info("RSA key pair loaded successfully from environment")
     except Exception as e:
-        logger.error(f"Failed to load RSA key from environment: {e}")
-        raise RuntimeError(
-            "Invalid RSA_PRIVATE_KEY environment variable. "
-            "Ensure it contains a valid base64-encoded PEM private key."
-        ) from e
-else:
+        logger.error(
+            f"Failed to load RSA_PRIVATE_KEY from environment: {e}. "
+            "Falling back to ephemeral key pair generation. "
+            "Fix the RSA_PRIVATE_KEY environment variable to use a shared key."
+        )
+
+if not _rsa_key_loaded:
     # Generate new RSA key pair (for development or single-worker deployments)
     environment = os.getenv("ENVIRONMENT", "development")
     if environment == "production":
-        logger.warning(
-            "⚠️  RSA_PRIVATE_KEY not set in production! Generating ephemeral key pair. "
-            "This will cause JWT validation failures in multi-worker deployments. "
-            "Set RSA_PRIVATE_KEY environment variable for production use."
-        )
+        if RSA_PRIVATE_KEY_ENV:
+            # Key was provided but failed to load — error already logged above
+            logger.warning(
+                "⚠️  RSA_PRIVATE_KEY is configured but invalid. Generating ephemeral key pair. "
+                "This will cause JWT validation failures in multi-worker deployments. "
+                "Fix the RSA_PRIVATE_KEY environment variable."
+            )
+        else:
+            logger.warning(
+                "⚠️  RSA_PRIVATE_KEY not set in production! Generating ephemeral key pair. "
+                "This will cause JWT validation failures in multi-worker deployments. "
+                "Set RSA_PRIVATE_KEY environment variable for production use."
+            )
     else:
         logger.info("Generating RSA key pair for JWT signing (development mode)...")
 
