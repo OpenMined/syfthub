@@ -98,6 +98,10 @@ RUN uv venv .venv && \
     sed -i '/\[tool.uv.sources\]/,/^$/d' pyproject.toml && \
     uv pip install -e . -e /sdk/python --python .venv/bin/python
 
+# Deps resolve fresh from PyPI (no uv.lock in this image), so a bad resolve builds
+# clean and dies at runtime. Fail here instead.
+RUN .venv/bin/python -c "from fastmcp import FastMCP"
+
 # Copy source code
 COPY --chown=syfthub:syfthub components/mcp/server.py ./
 COPY --chown=syfthub:syfthub components/mcp/syfthub_client.py ./

@@ -7,28 +7,27 @@ dependencies = [
     # Core MCP framework - pinned for security (CVE-2025-66416, GHSA-rj5c-58rq-j5g5, GHSA-fg6f-75jq-6523)
     # Note: auth extra deprecated in 2.14+, auth features now included by default
     "fastmcp>=2.14.3",
-    # MCP SDK with DNS rebinding protection (CVE-2025-66416)
-    "mcp>=1.23.0",
+    # MCP SDK with DNS rebinding protection (CVE-2025-66416).
+    # No ceiling: fastmcp declares the mcp range it supports.
+    "mcp>=1.24.0",
     # HTTP libraries with security fixes
-    "requests>=2.32.4",  # CVE-2024-47081: .netrc credentials leak
+    "requests>=2.32.4", # CVE-2024-47081: .netrc credentials leak
     "httpx>=0.27.0",
-    "aiohttp>=3.14.1",  # CVE-2025-69223 and related DoS vulnerabilities
-    "urllib3>=2.7.0",  # CVE-2025-66471, CVE-2026-21441: decompression bomb; GHSA-pq67-6m6q-mj2v: sensitive headers forwarded on cross-origin redirects
+    "aiohttp>=3.14.1", # CVE-2025-69223 and related DoS vulnerabilities
+    "urllib3>=2.7.0", # CVE-2025-66471, CVE-2026-21441: decompression bomb; GHSA-pq67-6m6q-mj2v: sensitive headers forwarded on cross-origin redirects
     # Web framework dependencies with security fixes
-    "starlette>=1.3.1",  # CVE-2025-62727: O(n^2) DoS via Range header
-    "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199: Windows device names
-    "authlib>=1.6.12",  # CVE-2025-68158, CVE-2026-28802, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498
+    "starlette>=1.3.1", # CVE-2025-62727: O(n^2) DoS via Range header
+    "werkzeug>=3.1.6", # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199: Windows device names
+    "authlib>=1.6.12", # CVE-2025-68158, CVE-2026-28802, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498
     # Pydantic (compatible with fastmcp>=2.14.3)
     "pydantic>=2.11.7",
     # Authentication and crypto
     "cryptography>=48.0.1",
-    "pyjwt>=2.13.0",  # CVE-2026-32597: accepts unknown crit header extensions
+    "pyjwt>=2.13.0", # CVE-2026-32597: accepts unknown crit header extensions
     # Utilities
-    "python-dotenv>=1.2.2",  # CVE-2025-67006: symlink following allows arbitrary file overwrite
+    "python-dotenv>=1.2.2", # CVE-2025-67006: symlink following allows arbitrary file overwrite
     "python-multipart>=0.0.31",
     "email-validator>=2.0.0",
-    # SyftHub integration
-    "syft-accounting-sdk @ git+https://git@github.com/OpenMined/accounting-sdk.git",
     "syfthub-sdk",
 ]
 
@@ -39,19 +38,22 @@ py-modules = ["server", "syfthub_client"]
 syfthub-sdk = { path = "../../sdk/python", editable = true }
 
 [tool.uv]
-override-dependencies = [
-    # Security overrides - force minimum secure versions even when transitive deps pin older versions
-    # NOTE: diskcache 5.6.3 (CVE-2025-69872) is a transitive dep via fastmcp -> py-key-value-aio[disk].
-    # No upstream fix is available. The cache directory is hardened in Dockerfile (chmod 700, owned by
-    # syfthub user only). Monitor https://github.com/grantjenks/python-diskcache for a patched release.
-    "requests>=2.32.4",  # CVE-2024-47081: syft-accounting-sdk pins 2.32.3
+# Security floors, as constraints rather than overrides: a constraint INTERSECTS
+# with what our dependencies declare, so it can raise a floor without deleting an
+# upstream ceiling. An override REPLACES, which is how an unbounded "mcp>=1.23.0"
+# once erased fastmcp's "mcp<2.0" and shipped mcp 2.0.0 to prod.
+#
+# NOTE: diskcache 5.6.3 (CVE-2025-69872) has no upstream fix; its cache dir is
+# hardened in the Dockerfile (chmod 700, syfthub-owned).
+constraint-dependencies = [
+    "requests>=2.32.4",  # CVE-2024-47081
     "urllib3>=2.7.0",  # CVE-2025-66471, CVE-2026-21441, GHSA-pq67-6m6q-mj2v
     "starlette>=1.3.1",  # CVE-2025-62727
     "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199
     "authlib>=1.6.12",  # CVE-2025-68158, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498, CVE-2026-28802
     "aiohttp>=3.14.1",  # CVE-2025-69223
-    "mcp>=1.23.0",  # CVE-2025-66416
-    "pydantic>=2.11.7",  # syft-accounting-sdk pins ==2.11.4; override for fastmcp compat
-    "python-dotenv>=1.2.2",  # CVE-2025-67006: syft-accounting-sdk pins ==1.1.0 (vulnerable)
-    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching
+    "mcp>=1.24.0",  # CVE-2025-66416; ceiling comes from fastmcp
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.2.2",  # CVE-2025-67006
+    "Pygments>=2.20.0",  # CVE-2025-68139
 ]
