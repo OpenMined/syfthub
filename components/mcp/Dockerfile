@@ -98,6 +98,12 @@ RUN uv venv .venv && \
     sed -i '/\[tool.uv.sources\]/,/^$/d' pyproject.toml && \
     uv pip install -e . -e /sdk/python --python .venv/bin/python
 
+# Fail the build on a bad dependency resolve. Deps here are resolved fresh from
+# PyPI (uv.lock is not used in this image), so an upstream release can silently
+# produce an image that builds clean and then dies on first import. Nothing else
+# in the build imports fastmcp, so without this the failure only surfaces in prod.
+RUN .venv/bin/python -c "from fastmcp import FastMCP"
+
 # Copy source code
 COPY --chown=syfthub:syfthub components/mcp/server.py ./
 COPY --chown=syfthub:syfthub components/mcp/syfthub_client.py ./

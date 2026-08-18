@@ -8,7 +8,8 @@ dependencies = [
     # Note: auth extra deprecated in 2.14+, auth features now included by default
     "fastmcp>=2.14.3",
     # MCP SDK with DNS rebinding protection (CVE-2025-66416)
-    "mcp>=1.23.0",
+    # <2.0: fastmcp's server extra is incompatible with the mcp 2.x restructure.
+    "mcp>=1.24.0,<2.0",
     # HTTP libraries with security fixes
     "requests>=2.32.4",  # CVE-2024-47081: .netrc credentials leak
     "httpx>=0.27.0",
@@ -50,7 +51,11 @@ override-dependencies = [
     "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199
     "authlib>=1.6.12",  # CVE-2025-68158, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498, CVE-2026-28802
     "aiohttp>=3.14.1",  # CVE-2025-69223
-    "mcp>=1.23.0",  # CVE-2025-66416
+    # CVE-2025-66416. The <2.0 ceiling is mandatory: this is an *override*, so it
+    # replaces (not intersects) fastmcp-slim[server]'s own "mcp<2.0,>=1.24.0".
+    # Without it the resolver takes mcp 2.0.0 and fastmcp's server layer fails to
+    # import at runtime ("FastMCP server support is not installed").
+    "mcp>=1.24.0,<2.0",
     "pydantic>=2.11.7",  # syft-accounting-sdk pins ==2.11.4; override for fastmcp compat
     "python-dotenv>=1.2.2",  # CVE-2025-67006: syft-accounting-sdk pins ==1.1.0 (vulnerable)
     "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching
