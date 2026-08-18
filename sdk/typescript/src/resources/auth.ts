@@ -269,6 +269,63 @@ export class AuthResource {
   }
 
   /**
+   * Start a verified change of the current user's email address.
+   *
+   * Nothing changes yet: the address is held as `pendingEmail` and a code is
+   * sent to it. The account keeps its current, verified address — and keeps
+   * signing in with it — until `verifyEmailChange()` succeeds, so a mistyped
+   * address cannot lock anyone out.
+   *
+   * Sits beside `changePassword()` because an address is a credential here: a
+   * login identifier, the password-reset channel, and an exported identity
+   * claim. `users.update()` will not change it.
+   *
+   * @param email - The new email address
+   * @returns The pending address, as normalised by the server
+   * @throws {ValidationError} If it is already the account's address
+   * @throws {ConflictError} If another account already holds it
+   */
+  async requestEmailChange(email: string): Promise<{ pendingEmail: string }> {
+    return this.http.put<{ pendingEmail: string }>('/api/v1/auth/me/email', { email });
+  }
+
+  /**
+   * Confirm a pending email change with the code sent to the new address.
+   *
+   * On success the pending address becomes the account's email and is marked
+   * verified. A wrong code leaves the pending change intact so the user can
+   * retry, and the current address stays usable throughout.
+   *
+   * The address is not passed in: the server reads it from the authenticated
+   * user's pending change, so a caller can only ever confirm their own.
+   *
+   * @param code - The 6-digit code sent to the pending address
+   * @returns The updated User, with `email` moved and `pendingEmail` cleared
+   * @throws {ValidationError} If no change is pending, or the code is malformed
+   */
+  async verifyEmailChange(code: string): Promise<User> {
+    return this.http.post<User>('/api/v1/auth/me/email/verify', { code });
+  }
+
+  /**
+   * Send a fresh code to the address already pending.
+   *
+   * @throws {ValidationError} If no email change is pending
+   */
+  async resendEmailChangeCode(): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/me/email/resend');
+  }
+
+  /**
+   * Abandon a pending email change. Idempotent.
+   *
+   * Deletes the pending change, never the address on the account.
+   */
+  async cancelEmailChange(): Promise<void> {
+    await this.http.delete<void>('/api/v1/auth/me/email');
+  }
+
+  /**
    * Request a password reset OTP.
    *
    * Always returns successfully to prevent email enumeration.

@@ -62,14 +62,36 @@ export class UsersResource {
   }
 
   /**
+   * Set a user's email address outright (admin only).
+   *
+   * Applies immediately and clears the verified flag: an administrator has not
+   * proven the new address belongs to its owner, so it cannot inherit the old
+   * address's verified status. The account holder re-proves it through the
+   * normal OTP flow.
+   *
+   * Admins changing their *own* address should use `auth.requestEmailChange()`,
+   * which keeps the current address working until the new one is verified.
+   *
+   * @param userId - The user whose address to set
+   * @param email - The new email address
+   * @returns The updated User
+   * @throws {ValidationError} If the caller is not an admin
+   * @throws {ConflictError} If another account already holds the address
+   */
+  async setEmail(userId: number, email: string): Promise<User> {
+    return this.http.put<User>(`/api/v1/users/${String(userId)}/email`, { email });
+  }
+
+  /**
    * Update the current user's profile.
    *
-   * Only provided fields will be updated.
+   * Only provided fields will be updated. `email` is not updatable here and is
+   * rejected with 422 — see `auth.requestEmailChange()`.
    *
    * @param input - Fields to update
    * @returns The updated User
    * @throws {AuthenticationError} If not authenticated
-   * @throws {ValidationError} If input validation fails
+   * @throws {ValidationError} If input validation fails, or `email` is supplied
    */
   async update(input: UserUpdateInput): Promise<User> {
     return this.http.put<User>('/api/v1/users/me', input);

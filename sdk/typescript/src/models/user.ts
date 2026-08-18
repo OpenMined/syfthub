@@ -21,6 +21,15 @@ export interface User {
   readonly bio?: string | null;
   /** Whether the user's email is shown on their public profile */
   readonly isEmailPublic?: boolean;
+  /**
+   * An email change awaiting verification, or null when none is in flight.
+   *
+   * Setting `email` via `users.update()` does not move the address: it is held
+   * here until a code sent to it is confirmed with
+   * `auth.verifyEmailChange()`. `email` remains the current, verified address
+   * throughout, so the account never presents an unproven address.
+   */
+  readonly pendingEmail?: string | null;
 }
 
 /**
@@ -61,7 +70,14 @@ export interface UserRegisterInput {
  */
 export interface UserUpdateInput {
   username?: string;
-  email?: string;
+  /**
+   * Not a profile field. Changing an address requires proving control of it, so
+   * `users.update()` rejects it with 422 — use `auth.requestEmailChange()`
+   * (self) or `users.setEmail()` (admin).
+   *
+   * @deprecated Use `auth.requestEmailChange()`.
+   */
+  email?: never;
   fullName?: string;
   avatarUrl?: string;
   /** Domain for endpoint URL construction (no protocol, e.g., "api.example.com:8080") */
