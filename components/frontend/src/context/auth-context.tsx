@@ -22,6 +22,7 @@ import {
   UserAlreadyExistsError,
   ValidationError
 } from '@/lib/sdk-client';
+import { useVerifyEmailBannerStore } from '@/stores/verify-email-banner-store';
 
 interface RegisterData {
   name: string;
@@ -374,11 +375,17 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       // Update state
       setUser(null);
       setError(null);
+
+      // A dismissed "verify your email" prompt must not outlive the session that
+      // dismissed it — it would follow the next sign-in, and could even hide the
+      // prompt from a different user on the same tab.
+      useVerifyEmailBannerStore.getState().reset();
     } catch (logoutError) {
       console.error('Logout error:', logoutError);
       // Even if logout fails, clear local state
       clearPersistedTokens();
       setUser(null);
+      useVerifyEmailBannerStore.getState().reset();
     } finally {
       setIsLoading(false);
     }
