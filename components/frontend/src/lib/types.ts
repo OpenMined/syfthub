@@ -53,6 +53,11 @@ export interface User {
   is_email_public?: boolean;
   /** Timestamp of the user's last successful login (null/undefined if never) */
   last_login_at?: string;
+  /** Whether the address on file has been proven. Gates nothing — it drives the
+   *  verified tick and the prompt to verify, not access. */
+  is_email_verified?: boolean;
+  /** When the address on file was proven, or undefined if it has not been. */
+  email_verified_at?: string;
 }
 
 // Authentication request schemas

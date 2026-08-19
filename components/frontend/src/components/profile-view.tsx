@@ -50,6 +50,37 @@ interface PasswordChangeData {
   confirm_password: string;
 }
 
+/**
+ * The account's address with its verified state.
+ *
+ * Unverified is a neutral fact here, not a warning: nothing is restricted by it.
+ * The nudge to act lives in the page-level banner.
+ */
+function EmailRow({ email, verified }: { readonly email: string; readonly verified: boolean }) {
+  return (
+    <div className='flex items-center gap-3'>
+      <Mail className='text-muted-foreground h-5 w-5' />
+      <div>
+        <p className='text-foreground flex items-center gap-1.5 text-sm font-medium'>
+          {email}
+          {verified ? (
+            <span
+              className='inline-flex items-center gap-0.5 text-xs font-normal text-green-600'
+              title='This address has been verified'
+            >
+              <Check className='h-3 w-3' aria-hidden='true' />
+              Verified
+            </span>
+          ) : null}
+        </p>
+        <p className='text-muted-foreground text-xs'>
+          {verified ? 'Email address' : 'Email address — not verified'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function ProfileView() {
   const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
@@ -301,13 +332,7 @@ export function ProfileView() {
               ) : (
                 /* View Mode */
                 <div className='space-y-4'>
-                  <div className='flex items-center gap-3'>
-                    <Mail className='text-muted-foreground h-5 w-5' />
-                    <div>
-                      <p className='text-foreground text-sm font-medium'>{user.email}</p>
-                      <p className='text-muted-foreground text-xs'>Email address</p>
-                    </div>
-                  </div>
+                  <EmailRow email={user.email} verified={user.is_email_verified ?? false} />
 
                   <div className='flex items-center gap-3'>
                     <Shield className='text-muted-foreground h-5 w-5' />

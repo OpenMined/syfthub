@@ -4,6 +4,7 @@ import User from 'lucide-react/dist/esm/icons/user';
 import { Link, Outlet } from 'react-router-dom';
 
 import { AuthModals } from '@/components/auth/auth-modals';
+import { VerifyEmailBanner } from '@/components/auth/verify-email-banner';
 import { BalanceIndicator } from '@/components/balance';
 import { ContextBar } from '@/components/context-bar';
 import { SettingsModal } from '@/components/settings/settings-modal';
@@ -120,6 +121,9 @@ export function MainLayout() {
 
       {/* Main content with left margin for sidebar */}
       <main id='main-content' className='ml-20'>
+        {/* A nudge to prove the address on the account. Renders nothing when
+            verified, dismissed, or when the server cannot send email. */}
+        <VerifyEmailBanner />
         <Outlet />
       </main>
 

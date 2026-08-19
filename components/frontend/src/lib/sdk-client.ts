@@ -2,6 +2,7 @@
 // User Profile Utilities
 // ============================================================================
 
+import type { AuthConfig, User as SdkUser } from '@syfthub/sdk';
 import type {
   AvailabilityResponse,
   User as FrontendUser,
@@ -279,7 +280,16 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     isEmailPublic: profileData.is_email_public
   });
 
-  // Convert SDK User to frontend User format
+  return mapSdkUser(sdkUser);
+}
+
+/**
+ * Convert an SDK User into the frontend User shape.
+ *
+ * Shared by every call here that returns a user, so a newly added field is
+ * mapped once rather than in each caller.
+ */
+function mapSdkUser(sdkUser: SdkUser): FrontendUser {
   return {
     id: String(sdkUser.id),
     username: sdkUser.username,
@@ -294,7 +304,9 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     domain: sdkUser.domain ?? undefined,
     aggregator_url: sdkUser.aggregatorUrl ?? undefined,
     bio: sdkUser.bio ?? undefined,
-    is_email_public: sdkUser.isEmailPublic ?? false
+    is_email_public: sdkUser.isEmailPublic ?? false,
+    is_email_verified: sdkUser.isEmailVerified ?? false,
+    email_verified_at: sdkUser.emailVerifiedAt?.toISOString()
   };
 }
 
@@ -421,6 +433,32 @@ export async function googleLoginAPI(credential: string): Promise<FrontendUser> 
     created_at: data.user.created_at,
     updated_at: data.user.created_at
   };
+}
+
+/**
+ * Read the server's public auth configuration.
+ *
+ * Used to tell whether email verification is even possible: with no mail
+ * transport configured, no code can arrive, so prompting for one would be a
+ * dead end.
+ */
+export async function getAuthConfigAPI(): Promise<AuthConfig> {
+  return syftClient.auth.getAuthConfig();
+}
+
+/**
+ * Confirm the address on the account with the code sent to it.
+ *
+ * A wrong code changes nothing and can be retried.
+ */
+export async function verifyEmailAPI(code: string): Promise<FrontendUser> {
+  const sdkUser = await syftClient.auth.verifyEmail(code);
+  return mapSdkUser(sdkUser);
+}
+
+/** Send a fresh verification code to the address on the account. */
+export async function resendEmailVerificationAPI(): Promise<void> {
+  await syftClient.auth.resendEmailVerification();
 }
 
 /**

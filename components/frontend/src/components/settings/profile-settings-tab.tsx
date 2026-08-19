@@ -370,6 +370,20 @@ export function ProfileSettingsTab() {
               </div>
             ) : null}
           </div>
+          {/* Verified state of the address as stored, not as typed. Changing the
+              field clears it server-side and a code is sent to the new address;
+              nothing is blocked in the meantime. */}
+          {user?.is_email_verified ? (
+            <p className='flex items-center gap-1 text-xs text-green-600'>
+              <Check className='h-3 w-3' aria-hidden='true' />
+              Verified
+            </p>
+          ) : (
+            <p className='text-muted-foreground text-xs'>
+              Not verified — check your inbox for a code, or use the banner at the top of the page
+              to send a new one.
+            </p>
+          )}
           {emailAvailability.message ? (
             <p
               className={`text-xs ${
