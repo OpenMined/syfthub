@@ -21,6 +21,15 @@ export interface User {
   readonly bio?: string | null;
   /** Whether the user's email is shown on their public profile */
   readonly isEmailPublic?: boolean;
+  /** Whether the address on file has been proven. Gates nothing. */
+  readonly isEmailVerified?: boolean;
+  /**
+   * When the address on file was proven, or null if it has not been. Cleared
+   * whenever the address changes — so changing an email leaves the account fully
+   * usable and merely unverified until a code sent to the new address is
+   * confirmed with `auth.verifyEmail()`.
+   */
+  readonly emailVerifiedAt?: Date | null;
 }
 
 /**

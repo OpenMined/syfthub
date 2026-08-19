@@ -269,6 +269,32 @@ export class AuthResource {
   }
 
   /**
+   * Confirm the email address on the account with the code sent to it.
+   *
+   * The address is not passed in: the server reads it from the authenticated
+   * user, so a caller can only ever verify their own. A wrong code changes
+   * nothing and can be retried.
+   *
+   * @param code - The 6-digit code sent to the address on the account
+   * @returns The updated User, with `emailVerifiedAt` set
+   * @throws {ValidationError} If the address is already verified
+   */
+  async verifyEmail(code: string): Promise<User> {
+    return this.http.post<User>('/api/v1/auth/me/email/verify', { code });
+  }
+
+  /**
+   * Send a fresh verification code to the address on the account.
+   *
+   * @throws {ValidationError} If already verified, or email delivery is not
+   *   configured on the server — in which case addresses cannot be proven at all
+   *   and nothing will ever be marked verified.
+   */
+  async resendEmailVerification(): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/me/email/resend');
+  }
+
+  /**
    * Request a password reset OTP.
    *
    * Always returns successfully to prevent email enumeration.
