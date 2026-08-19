@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 
 import type { VerifyOtpFormValues } from '@/lib/schemas';
 
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
+import { useResendCooldown } from '@/hooks/use-resend-cooldown';
 import { verifyOtpSchema } from '@/lib/schemas';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
@@ -28,8 +29,7 @@ export function VerifyOtpModal({
   onSwitchToLogin
 }: Readonly<VerifyOtpModalProperties>) {
   const { verifyOtp, resendOtp, isLoading, error, clearError } = useAuth();
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const timerReference = useRef<ReturnType<typeof setTimeout>>(null);
+  const cooldown = useResendCooldown();
 
   const {
     register,
@@ -51,36 +51,27 @@ export function VerifyOtpModal({
   };
 
   const handleResend = async () => {
-    if (resendCooldown > 0) return;
+    if (cooldown.isCoolingDown) return;
     try {
       clearError();
       await resendOtp(email);
-      // Start cooldown timer (60 seconds)
-      setResendCooldown(60);
+      cooldown.start();
     } catch {
       // Error displayed by auth context
     }
   };
 
-  // Cooldown timer — uses setTimeout chain to avoid re-running the effect on every tick
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    timerReference.current = setTimeout(() => {
-      setResendCooldown((previous) => previous - 1);
-    }, 1000);
-    return () => {
-      if (timerReference.current) clearTimeout(timerReference.current);
-    };
-  }, [resendCooldown]);
-
-  // Reset when modal closes
+  // Reset when modal closes. Depends on `cooldown.reset` rather than the whole
+  // `cooldown` object: the object's identity tracks the countdown, which ticks
+  // while the modal is open, and this effect only ever needs the reset function.
+  const resetCooldown = cooldown.reset;
   useEffect(() => {
     if (!isOpen) {
       reset();
       clearError();
-      setResendCooldown(0);
+      resetCooldown();
     }
-  }, [isOpen, reset, clearError]);
+  }, [isOpen, reset, clearError, resetCooldown]);
 
   const handleInputChange = () => {
     if (error) clearError();
@@ -131,10 +122,10 @@ export function VerifyOtpModal({
             <button
               type='button'
               onClick={() => void handleResend()}
-              disabled={resendCooldown > 0 || isLoading}
+              disabled={cooldown.isCoolingDown || isLoading}
               className='text-foreground hover:text-secondary font-medium underline disabled:no-underline disabled:opacity-50'
             >
-              {resendCooldown > 0 ? `Resend in ${String(resendCooldown)}s` : 'Resend code'}
+              {cooldown.isCoolingDown ? `Resend in ${String(cooldown.remaining)}s` : 'Resend code'}
             </button>
           </p>
         </div>
