@@ -32,12 +32,11 @@ class EmailNotUpdatableHereError(ValidationError):
 
     def __init__(self) -> None:
         """Initialize with a pointer to the endpoint that does support this."""
-        DomainException.__init__(
-            self,
+        super().__init__(
             "Email changes require verification of the new address. "
-            "Use PUT /api/v1/auth/me/email.",
-            "EMAIL_NOT_UPDATABLE_HERE",
+            "Use PUT /api/v1/auth/me/email."
         )
+        self.error_code = "EMAIL_NOT_UPDATABLE_HERE"
 
 
 # ===========================================
