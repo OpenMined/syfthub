@@ -310,10 +310,8 @@ class TestCancellingAChange:
         token = _register(client, "alice")
 
         for _ in range(2):
-            assert (
-                client.delete("/api/v1/auth/me/email", headers=_auth(token)).status_code
-                == 204
-            )
+            response = client.delete("/api/v1/auth/me/email", headers=_auth(token))
+            assert response.status_code == 204
 
 
 class TestResendingTheCode:
