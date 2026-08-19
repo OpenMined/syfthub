@@ -6,6 +6,7 @@ import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Edit3 from 'lucide-react/dist/esm/icons/edit-3';
 import Key from 'lucide-react/dist/esm/icons/key';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import Save from 'lucide-react/dist/esm/icons/save';
@@ -14,6 +15,8 @@ import UserIcon from 'lucide-react/dist/esm/icons/user';
 import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
+import { useEmailVerificationAvailable } from '@/hooks/use-auth-config';
+import { useEmailVerification } from '@/hooks/use-email-verification';
 import { formatDateLong } from '@/lib/date-utils';
 import { changePasswordAPI, updateUserProfileAPI } from '@/lib/sdk-client';
 
@@ -50,32 +53,119 @@ interface PasswordChangeData {
   confirm_password: string;
 }
 
+type Verification = ReturnType<typeof useEmailVerification>;
+
+/** The verified tick, or the action that starts proving the address. */
+function EmailStateBadge({
+  email,
+  verified,
+  v
+}: {
+  readonly email: string;
+  readonly verified: boolean;
+  readonly v: Verification;
+}) {
+  if (verified) {
+    return (
+      <span
+        className='inline-flex items-center gap-0.5 text-xs font-normal text-green-600'
+        title='This address has been verified'
+      >
+        <Check className='h-3 w-3' aria-hidden='true' />
+        Verified
+      </span>
+    );
+  }
+  return (
+    <Button
+      type='button'
+      variant='outline'
+      size='sm'
+      onClick={() => void v.send(email)}
+      disabled={!v.canSend}
+      className='h-6 px-2 text-xs font-medium'
+    >
+      {v.isSending ? <Loader2 className='h-3 w-3 animate-spin' aria-hidden='true' /> : null}
+      {v.codeRequested ? v.sendLabel : 'Verify now'}
+    </Button>
+  );
+}
+
+/** Code entry, revealed only once a code has been asked for. */
+function EmailCodeForm({ v }: { readonly v: Verification }) {
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void v.verify();
+      }}
+      className='mt-2 flex items-center gap-2'
+    >
+      <Input
+        value={v.code}
+        onChange={(event) => {
+          v.onCodeChange(event.target.value);
+        }}
+        placeholder='123456'
+        disabled={v.busy}
+        autoComplete='one-time-code'
+        inputMode='numeric'
+        maxLength={v.codeLength}
+        aria-label='Email verification code'
+        className='h-8 w-28'
+      />
+      <Button type='submit' size='sm' disabled={!v.canVerify}>
+        {v.isVerifying ? (
+          <Loader2 className='h-3.5 w-3.5 animate-spin' aria-hidden='true' />
+        ) : (
+          'Verify'
+        )}
+      </Button>
+    </form>
+  );
+}
+
 /**
  * The account's address with its verified state.
  *
- * Unverified is a neutral fact here, not a warning: nothing is restricted by it.
- * The nudge to act lives in the page-level banner.
+ * The tick and the "Verify now" action share one slot beside the address — same
+ * concept, same place — so the row never grows a third line. Code entry appears
+ * underneath once asked for, where there is room.
+ *
+ * Says nothing about verification when the server cannot send email: addresses
+ * cannot be proven in that deployment, so "not verified" would be a permanent
+ * complaint about something the reader cannot fix.
+ *
+ * Always present while unverified, so dismissing the page-level banner never
+ * removes the only way to verify.
  */
 function EmailRow({ email, verified }: { readonly email: string; readonly verified: boolean }) {
+  const showState = useEmailVerificationAvailable();
+  const v = useEmailVerification();
+  const unverified = showState && !verified;
+
   return (
-    <div className='flex items-center gap-3'>
-      <Mail className='text-muted-foreground h-5 w-5' />
+    <div className='flex items-start gap-3'>
+      <Mail className='text-muted-foreground mt-0.5 h-5 w-5' />
       <div>
-        <p className='text-foreground flex items-center gap-1.5 text-sm font-medium'>
+        <p className='text-foreground flex flex-wrap items-center gap-2 text-sm font-medium'>
           {email}
-          {verified ? (
-            <span
-              className='inline-flex items-center gap-0.5 text-xs font-normal text-green-600'
-              title='This address has been verified'
-            >
-              <Check className='h-3 w-3' aria-hidden='true' />
-              Verified
-            </span>
-          ) : null}
+          {showState ? <EmailStateBadge email={email} verified={verified} v={v} /> : null}
         </p>
         <p className='text-muted-foreground text-xs'>
-          {verified ? 'Email address' : 'Email address — not verified'}
+          {unverified ? 'Email address — not verified' : 'Email address'}
         </p>
+
+        {(v.error ?? v.notice) ? (
+          <p
+            className={`mt-1 text-xs ${v.error ? 'text-red-600' : 'text-green-600'}`}
+            role='status'
+          >
+            {v.error ?? v.notice}
+          </p>
+        ) : null}
+
+        {unverified && v.codeRequested ? <EmailCodeForm v={v} /> : null}
       </div>
     </div>
   );

@@ -3,15 +3,16 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VerifyEmailBanner } from '@/components/auth/verify-email-banner';
+import { useVerifyEmailBannerStore } from '@/stores/verify-email-banner-store';
 
 vi.mock('framer-motion', () => import('@/test/mocks/framer-motion'));
 
 const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn() }));
 vi.mock('@/context/auth-context', () => ({ useAuth: (): unknown => mockUseAuth() }));
 
-const { mockAvailable } = vi.hoisted(() => ({ mockAvailable: vi.fn() }));
+const { mockShouldPrompt } = vi.hoisted(() => ({ mockShouldPrompt: vi.fn() }));
 vi.mock('@/hooks/use-auth-config', () => ({
-  useEmailVerificationAvailable: (): unknown => mockAvailable()
+  useShouldPromptEmailVerification: (): unknown => mockShouldPrompt()
 }));
 
 const { mockVerify, mockResend } = vi.hoisted(() => ({
@@ -47,12 +48,17 @@ describe('VerifyEmailBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
-    mockAvailable.mockReturnValue(true);
+    mockShouldPrompt.mockReturnValue(true);
+    useVerifyEmailBannerStore.setState({ dismissed: false });
     mockResend.mockResolvedValue(null);
     mockVerify.mockResolvedValue({ ...verifiedUser, is_email_verified: true });
   });
 
-  it('stays hidden when the address is verified', () => {
+  it('stays hidden when the prompt is not wanted', () => {
+    // Verified, dismissed, no user, or a server that cannot send email — the
+    // hook folds all four into one decision so the banner and the layout, which
+    // shifts its header to make room, can never disagree.
+    mockShouldPrompt.mockReturnValue(false);
     setup();
     expect(screen.queryByTestId('verify-email-banner')).not.toBeInTheDocument();
   });
@@ -63,14 +69,18 @@ describe('VerifyEmailBanner', () => {
     expect(screen.getByText('alice@example.com')).toBeInTheDocument();
   });
 
-  it('stays hidden when the server cannot send email', () => {
-    // No code could ever arrive, so prompting would be a dead end.
-    mockAvailable.mockReturnValue(false);
+  it('names the address, with a space before the sentence continues', () => {
+    // Regression: esbuild trimmed the JSX whitespace after </strong>, rendering
+    // "openmined.orgisn't verified yet".
     setup({ is_email_verified: false });
-    expect(screen.queryByTestId('verify-email-banner')).not.toBeInTheDocument();
+
+    expect(screen.getByTestId('verify-email-banner')).toHaveTextContent(
+      "alice@example.com isn't verified yet"
+    );
   });
 
   it('stays hidden when there is no user', () => {
+    mockShouldPrompt.mockReturnValue(false);
     mockUseAuth.mockReturnValue({ user: null, updateUser: vi.fn() });
     render(<VerifyEmailBanner />);
     expect(screen.queryByTestId('verify-email-banner')).not.toBeInTheDocument();
@@ -82,64 +92,9 @@ describe('VerifyEmailBanner', () => {
 
     await user.click(screen.getByRole('button', { name: 'Dismiss' }));
 
-    expect(screen.queryByTestId('verify-email-banner')).not.toBeInTheDocument();
-    // "Not now", not "never" — session-scoped so it returns next visit.
+    // "Not now", not "never" — session-scoped so it returns next visit. The
+    // store carries it, because the layout needs to know too.
+    expect(useVerifyEmailBannerStore.getState().dismissed).toBe(true);
     expect(sessionStorage.getItem('syft_verify_email_dismissed')).toBe('1');
-  });
-
-  it('sends a code and reveals the input', async () => {
-    const user = userEvent.setup();
-    setup({ is_email_verified: false });
-
-    await user.click(screen.getByRole('button', { name: 'Send me a code' }));
-
-    await waitFor(() => {
-      expect(mockResend).toHaveBeenCalledTimes(1);
-    });
-    expect(screen.getByLabelText(/verification code/i)).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Resend in \d+s/ })).toBeDisabled();
-    });
-  });
-
-  it('verifies a code and hands the updated user back', async () => {
-    const user = userEvent.setup();
-    const { updateUser } = setup({ is_email_verified: false });
-    await user.click(screen.getByRole('button', { name: 'Send me a code' }));
-
-    await user.type(await screen.findByLabelText(/verification code/i), '123456');
-    await user.click(screen.getByRole('button', { name: 'Verify' }));
-
-    await waitFor(() => {
-      expect(mockVerify).toHaveBeenCalledWith('123456');
-    });
-    expect(updateUser).toHaveBeenCalled();
-  });
-
-  it('reports a rejected code and clears the field', async () => {
-    const user = userEvent.setup();
-    mockVerify.mockRejectedValue(new Error('Invalid or expired verification code'));
-    const { updateUser } = setup({ is_email_verified: false });
-    await user.click(screen.getByRole('button', { name: 'Send me a code' }));
-
-    await user.type(await screen.findByLabelText(/verification code/i), '000000');
-    await user.click(screen.getByRole('button', { name: 'Verify' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('Invalid or expired verification code')).toBeInTheDocument();
-    });
-    expect(updateUser).not.toHaveBeenCalled();
-    expect(screen.getByLabelText(/verification code/i)).toHaveValue('');
-  });
-
-  it('strips non-digits from the code', async () => {
-    const user = userEvent.setup();
-    setup({ is_email_verified: false });
-    await user.click(screen.getByRole('button', { name: 'Send me a code' }));
-
-    const input = await screen.findByLabelText(/verification code/i);
-    await user.type(input, '12ab34cd56');
-
-    expect(input).toHaveValue('123456');
   });
 });

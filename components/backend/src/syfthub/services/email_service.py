@@ -25,8 +25,20 @@ _jinja_env = Environment(
 )
 
 
+# Subject templates per purpose. ``{code}`` is substituted where the code is
+# safe to expose in a subject line.
+#
+# Leading with the code lets Gmail and iOS surface it in the notification and the
+# inbox list, so the common case never involves opening the message — the closest
+# thing to a "copy" affordance an email can have, since mail clients strip all
+# scripting and a real clipboard button would be inert.
+#
+# Deliberately NOT done for password reset: a subject line is visible on a locked
+# screen, and proving you own an address is a much smaller thing to leak that way
+# than a credential-reset code.
 SUBJECTS = {
-    "registration": "Your SyftHub verification code",
+    "registration": "{code} is your SyftHub verification code",
+    "email_change": "{code} is your SyftHub verification code",
     "password_reset": "Your SyftHub password reset code",
 }
 
@@ -74,7 +86,7 @@ async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
         purpose=purpose,
         expiry_minutes=settings.otp_expiry_minutes,
     )
-    subject = SUBJECTS.get(purpose, "Your SyftHub verification code")
+    subject = SUBJECTS.get(purpose, "Your SyftHub verification code").format(code=code)
     plain_text = (
         f"Your SyftHub verification code is: {code}\n"
         f"This code expires in {settings.otp_expiry_minutes} minutes."

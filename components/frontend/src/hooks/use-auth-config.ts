@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { useAuth } from '@/context/auth-context';
 import { authKeys } from '@/lib/query-keys';
 import { getAuthConfigAPI } from '@/lib/sdk-client';
+import { useVerifyEmailBannerStore } from '@/stores/verify-email-banner-store';
 
 /**
  * The server's public auth configuration.
@@ -29,4 +31,19 @@ export function useAuthConfig() {
 export function useEmailVerificationAvailable(): boolean {
   const { data } = useAuthConfig();
   return data?.smtpConfigured ?? false;
+}
+
+/**
+ * Whether the "verify your email" prompt should be on screen.
+ *
+ * Shared by the banner and by the layout, which needs it to shift its floating
+ * header down so the two do not overlap. Keeping the decision in one place stops
+ * the two disagreeing.
+ */
+export function useShouldPromptEmailVerification(): boolean {
+  const { user } = useAuth();
+  const dismissed = useVerifyEmailBannerStore((state) => state.dismissed);
+  const canVerify = useEmailVerificationAvailable();
+
+  return Boolean(user) && !user?.is_email_verified && !dismissed && canVerify;
 }
