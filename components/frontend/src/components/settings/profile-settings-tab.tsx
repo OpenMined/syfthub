@@ -286,9 +286,8 @@ export function ProfileSettingsTab() {
     setIsLoading(true);
 
     try {
-      let updatedUser = user;
       if (Object.keys(updates).length > 0) {
-        updatedUser = await updateUserProfileAPI(updates);
+        const updatedUser = await updateUserProfileAPI(updates);
         updateUser(updatedUser);
       }
 
