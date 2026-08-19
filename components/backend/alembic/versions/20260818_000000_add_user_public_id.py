@@ -67,9 +67,7 @@ def _backfill_public_ids(bind: sa.engine.Connection) -> None:
     ).fetchall()
     for (user_id,) in rows:
         bind.execute(
-            _users.update()
-            .where(_users.c.id == user_id)
-            .values(public_id=uuid.uuid4())
+            _users.update().where(_users.c.id == user_id).values(public_id=uuid.uuid4())
         )
 
 
@@ -86,8 +84,7 @@ def upgrade() -> None:
     if is_postgresql:
         op.execute(
             sa.text(
-                "UPDATE users SET public_id = gen_random_uuid() "
-                "WHERE public_id IS NULL"
+                "UPDATE users SET public_id = gen_random_uuid() WHERE public_id IS NULL"
             )
         )
     else:

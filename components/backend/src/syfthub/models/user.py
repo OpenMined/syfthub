@@ -43,9 +43,28 @@ class UserModel(BaseModel, TimestampMixin):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    is_email_verified: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="1"
+    # When the address currently in ``email`` was proven, or NULL if it has not
+    # been. Cleared on every change of address and set when a code sent to that
+    # address is confirmed, so it describes the address on file and nothing else.
+    #
+    # This gates nothing — login does not consult it. Its one job is to be a
+    # truthful answer to "is this address proven?", which is what an OIDC
+    # ``email_verified`` claim needs. The boolean it replaces also carried the
+    # login gate, which is why changing an address used to lock people out.
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
     )
+
+    @property
+    def is_email_verified(self) -> bool:
+        """Whether the address on file has been proven.
+
+        Derived, not stored. Kept because it reads better at call sites and is
+        the shape the API and the admin dashboard already expose. Query filters
+        must use ``email_verified_at`` directly — a Python property is invisible
+        to SQL.
+        """
+        return self.email_verified_at is not None
 
     # OAuth fields
     auth_provider: Mapped[str] = mapped_column(

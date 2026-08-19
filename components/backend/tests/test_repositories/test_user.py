@@ -17,7 +17,7 @@ def _make_user(username: str, **overrides) -> UserModel:
         "full_name": f"{username.title()} User",
         "role": "user",
         "is_active": True,
-        "is_email_verified": True,
+        "email_verified_at": datetime.now(timezone.utc),
         "auth_provider": "local",
         "password_hash": "x",
     }
@@ -55,7 +55,7 @@ class TestListUsersAdmin:
             [
                 _make_user("alice", role="admin"),
                 _make_user("bob", is_active=False),
-                _make_user("carol", is_email_verified=False),
+                _make_user("carol", email_verified_at=None),
                 _make_user("dave"),
             ]
         )

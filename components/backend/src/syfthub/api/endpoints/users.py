@@ -1,18 +1,29 @@
 """User management endpoints."""
 
 import logging
-from typing import Annotated, Union
+from typing import Annotated, Optional, Union
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    status,
+)
 
 from syfthub.auth.db_dependencies import (
     OwnershipChecker,
     get_current_active_user,
     require_admin,
 )
+from syfthub.core.client_ip import get_client_ip
 from syfthub.core.config import settings
-from syfthub.database.dependencies import get_user_service
+from syfthub.database.dependencies import (
+    get_email_verification_service,
+    get_user_service,
+)
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
     PublicUserProfile,
@@ -20,6 +31,11 @@ from syfthub.schemas.user import (
     User,
     UserResponse,
     UserUpdate,
+)
+from syfthub.services.email_service import send_email_changed_notice, send_otp_email
+from syfthub.services.email_verification_service import (
+    EMAIL_VERIFY_PURPOSE,
+    EmailVerificationService,
 )
 from syfthub.services.user_service import UserService
 
@@ -172,25 +188,95 @@ def get_user(
     return user_profile
 
 
+def _after_email_change(
+    updated: UserResponse,
+    previous_email: Optional[str],
+    request: Request,
+    background_tasks: BackgroundTasks,
+    verification: EmailVerificationService,
+) -> None:
+    """Send what an address change owes the user, if it changed at all.
+
+    Two messages, to two different inboxes, for two different reasons:
+
+    - a code to the **new** address, so the account can claim it is verified
+      again (the write cleared that state); and
+    - a notice to the **old** address, the only inbox the account holder is known
+      to control at this moment. Without it the change is silent, and a typo goes
+      unnoticed until a password reset can no longer reach them.
+
+    Both are best-effort background sends, and both are skipped when email
+    delivery is not configured — in that deployment the address simply stays
+    unverified, which is the honest state rather than a claimed proof.
+    """
+    if previous_email is None:
+        return
+
+    background_tasks.add_task(send_email_changed_notice, previous_email, updated.email)
+
+    if not settings.smtp_configured:
+        return
+
+    code = verification.otp_service.generate_otp(
+        updated.email, EMAIL_VERIFY_PURPOSE, requester_ip=get_client_ip(request)
+    )
+    background_tasks.add_task(send_otp_email, updated.email, code, EMAIL_VERIFY_PURPOSE)
+
+
 @router.put("/me", response_model=UserResponse)
 def update_current_user_profile(
     user_data: UserUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
+    verification: Annotated[
+        EmailVerificationService, Depends(get_email_verification_service)
+    ],
 ) -> UserResponse:
-    """Update current user's profile."""
-    return user_service.update_user_profile(current_user.id, user_data, current_user)
+    """Update current user's profile.
+
+    `email` is an ordinary field here and applies immediately. Doing so clears
+    its verified state, sends a code to the new address, and tells the old
+    address it was replaced. Nothing is gated on being verified — the account
+    keeps working either way — so `is_email_verified` in the response is the
+    signal for a client to prompt.
+    """
+    updated, previous_email = user_service.update_user_profile(
+        current_user.id, user_data, current_user
+    )
+    _after_email_change(
+        updated, previous_email, request, background_tasks, verification
+    )
+    return updated
 
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(
     user_id: int,
     user_data: UserUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
+    verification: Annotated[
+        EmailVerificationService, Depends(get_email_verification_service)
+    ],
 ) -> UserResponse:
-    """Update a user by ID (admin or self only)."""
-    return user_service.update_user_profile(user_id, user_data, current_user)
+    """Update a user by ID (admin or self only).
+
+    An admin changing someone else's `email` behaves exactly as a user changing
+    their own: it applies, the verified state is cleared, and the same two
+    messages go out. There is no separate admin mechanism, and no way for this to
+    lock the target out.
+    """
+    updated, previous_email = user_service.update_user_profile(
+        user_id, user_data, current_user
+    )
+    _after_email_change(
+        updated, previous_email, request, background_tasks, verification
+    )
+    return updated
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)

@@ -22,10 +22,10 @@ from syfthub.core.rate_limit import per_ip_rate_limit
 from syfthub.database.dependencies import (
     get_api_token_service,
     get_auth_service,
+    get_email_verification_service,
     get_otp_service,
 )
 from syfthub.domain.exceptions import (
-    EmailNotVerifiedError,
     InvalidOTPError,
     OTPMaxAttemptsError,
     OTPRateLimitedError,
@@ -42,6 +42,7 @@ from syfthub.schemas.api_token import (
 from syfthub.schemas.auth import (
     AuthConfigResponse,
     AuthResponse,
+    EmailVerifyRequest,
     GoogleAuthRequest,
     PasswordChange,
     PasswordResetConfirm,
@@ -57,6 +58,10 @@ from syfthub.schemas.user import User, UserResponse
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.email_service import send_otp_email
+from syfthub.services.email_verification_service import (
+    EMAIL_VERIFY_PURPOSE,
+    EmailVerificationService,
+)
 from syfthub.services.otp_service import OTPService
 
 logger = logging.getLogger(__name__)
@@ -175,17 +180,14 @@ def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
-    """OAuth2 compatible token login, get an access token for future requests."""
-    try:
-        return auth_service.login(form_data.username, form_data.password)
-    except EmailNotVerifiedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
-            },
-        ) from e
+    """OAuth2 compatible token login, get an access token for future requests.
+
+    An unverified email address does not block sign-in. Whether the address on
+    file is proven is a claim about the address, not a permission on the account;
+    clients surface it as a prompt to verify. Gating login on it meant every
+    address change locked the user out.
+    """
+    return auth_service.login(form_data.username, form_data.password)
 
 
 @router.post(
@@ -433,6 +435,68 @@ def confirm_password_reset(
         user_repo.set_email_verified(user.id)
 
     return {"message": "Password has been reset successfully."}
+
+
+# =============================================================================
+# Email verification — proving the address on the account
+# =============================================================================
+# Changing an address is an ordinary profile write (PUT /users/me), which clears
+# its verified state. These endpoints set it again. Verification gates nothing:
+# an unverified address costs the user a tick in the UI, not access to their
+# account.
+#
+# A user who has never verified and has no session yet uses the unauthenticated
+# POST /auth/register/{resend-otp,verify-otp} pair above instead. Both share the
+# same OTP purpose, so they are two doors onto one mechanism, not two mechanisms.
+
+
+@router.post(
+    "/me/email/verify",
+    response_model=UserResponse,
+    dependencies=[_auth_rate_limit],
+    responses={
+        400: {"description": "Invalid or expired code"},
+        422: {"description": "The address is already verified"},
+    },
+)
+def verify_current_email(
+    body: EmailVerifyRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    verification: Annotated[
+        EmailVerificationService, Depends(get_email_verification_service)
+    ],
+) -> UserResponse:
+    """Confirm the address on the account with the code sent to it.
+
+    The address comes from the authenticated user, never the request body, so a
+    caller can only verify their own. A wrong code changes nothing.
+    """
+    return verification.confirm(current_user, body.code)
+
+
+@router.post(
+    "/me/email/resend",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[_auth_rate_limit],
+    responses={
+        422: {"description": "Already verified, or email delivery is not configured"},
+        429: {"description": "Too many codes requested"},
+    },
+)
+def resend_current_email_code(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    verification: Annotated[
+        EmailVerificationService, Depends(get_email_verification_service)
+    ],
+) -> dict[str, str]:
+    """Send a fresh code to the address on the account."""
+    address, code = verification.send_code(
+        current_user, requester_ip=get_client_ip(request)
+    )
+    background_tasks.add_task(send_otp_email, address, code, EMAIL_VERIFY_PURPOSE)
+    return {"message": f"A verification code was sent to {address}."}
 
 
 # =============================================================================

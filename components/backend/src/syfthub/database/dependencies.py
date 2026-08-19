@@ -19,6 +19,7 @@ from syfthub.services.admin_stats_service import AdminStatsService
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.collective_service import CollectiveService
+from syfthub.services.email_verification_service import EmailVerificationService
 from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.otp_service import OTPService
 from syfthub.services.user_service import UserService
@@ -102,6 +103,13 @@ def get_collective_service(
 ) -> CollectiveService:
     """Get CollectiveService dependency."""
     return CollectiveService(session)
+
+
+def get_email_verification_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> EmailVerificationService:
+    """Get EmailVerificationService dependency."""
+    return EmailVerificationService(session)
 
 
 def get_otp_service(

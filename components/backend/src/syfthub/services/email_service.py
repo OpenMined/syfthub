@@ -30,7 +30,10 @@ SUBJECTS = {
     "password_reset": "Your SyftHub password reset code",
 }
 
+EMAIL_CHANGED_SUBJECT = "The email address on your SyftHub account was changed"
+
 _otp_template = _jinja_env.get_template("otp_email.html")
+_email_changed_template = _jinja_env.get_template("email_changed_notice.html")
 _invitation_template = _jinja_env.get_template("collective_invitation_email.html")
 
 
@@ -190,3 +193,46 @@ async def send_collective_invitation_email(ctx: InvitationEmailContext) -> None:
         plain_text,
         context="collective_invitation",
     )
+
+
+def _mask_address(address: str) -> str:
+    """Partially hide an address for a notice sent to a different inbox.
+
+    The old address is told *that* it was replaced without being handed the new
+    address in full: if the change was not authorised, the person reading this
+    should not also learn the attacker's inbox.
+    """
+    local, _, domain = address.partition("@")
+    if not domain:
+        return "***"
+    shown = local[:1] if local else ""
+    return f"{shown}{'*' * max(len(local) - 1, 1)}@{domain}"
+
+
+async def send_email_changed_notice(to_email: str, new_email: str) -> None:
+    """Tell a former address that it is no longer on the account.
+
+    Sent to the address being replaced, which is the only inbox the account
+    holder is known to control at that moment. Without it an address change is
+    silent, and a typo — or someone else's change — goes unnoticed until the user
+    needs a password reset that can no longer reach them.
+
+    Designed for FastAPI BackgroundTasks; failures are logged, never raised.
+    """
+    if not settings.smtp_configured:
+        logger.warning("Email not configured — skipping change notice to %s", to_email)
+        return
+
+    html_body = _email_changed_template.render(
+        masked_new_email=_mask_address(new_email),
+        old_email=to_email,
+    )
+    plain_text = (
+        f"The email address on your SyftHub account was changed from {to_email} "
+        f"to {_mask_address(new_email)}.\n"
+        "If you did not make this change, contact support immediately."
+    )
+    try:
+        await _send_via_resend(to_email, EMAIL_CHANGED_SUBJECT, html_body, plain_text)
+    except Exception:
+        logger.exception("Failed to send email-changed notice to %s", to_email)
