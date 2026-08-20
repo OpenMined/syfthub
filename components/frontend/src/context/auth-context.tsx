@@ -10,6 +10,8 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { RegisterResult, User as SdkUser } from '@/lib/sdk-client';
 import type { User } from '@/lib/types';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 import {
   APIError,
   AuthenticationError,
@@ -185,6 +187,9 @@ interface AuthProviderProperties {
 }
 
 export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
+  // Read from the surrounding provider rather than importing the app singleton,
+  // so tests (and any second client) clear the client their tree actually uses.
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
@@ -387,9 +392,15 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       setUser(null);
       useVerifyEmailBannerStore.getState().reset();
     } finally {
+      // Drop every cached query, on the success and failure paths alike. Query
+      // keys carry no user identity, so anything member-only still in the cache
+      // — station URLs, publisher payment links, pending memberships — would
+      // otherwise keep rendering after logout and be handed to whoever signs in
+      // next on this tab. Mounted queries refetch immediately, now unauthed.
+      queryClient.clear();
       setIsLoading(false);
     }
-  }, []);
+  }, [queryClient]);
 
   const clearError = useCallback(() => {
     setError(null);
