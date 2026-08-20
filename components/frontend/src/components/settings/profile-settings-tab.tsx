@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/context/auth-context';
+import { useEmailVerificationAvailable } from '@/hooks/use-auth-config';
 import {
   checkEmailAvailability,
   checkUsernameAvailability,
@@ -51,8 +52,26 @@ function normalizeDomainInput(value: string): string {
   return scheme.toLowerCase() + trimmed.slice(scheme.length);
 }
 
+function EmailVerifiedHint({ verified }: { readonly verified: boolean }) {
+  if (verified) {
+    return (
+      <p className='flex items-center gap-1 text-xs text-green-600'>
+        <Check className='h-3 w-3' aria-hidden='true' />
+        Verified
+      </p>
+    );
+  }
+  return (
+    <p className='text-muted-foreground text-xs'>
+      Not verified — check your inbox for a code, or use the banner at the top of the page to send a
+      new one.
+    </p>
+  );
+}
+
 export function ProfileSettingsTab() {
   const { user, updateUser } = useAuth();
+  const canVerifyEmail = useEmailVerificationAvailable();
   const { closeSettings } = useSettingsModalStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -370,6 +389,15 @@ export function ProfileSettingsTab() {
               </div>
             ) : null}
           </div>
+          {/* Verified state of the address as stored, not as typed. Changing the
+              field clears it server-side and a code is sent to the new address;
+              nothing is blocked in the meantime.
+
+              Silent when the server cannot send email: addresses cannot be proven
+              in that deployment, so neither a tick nor a complaint is meaningful. */}
+          {canVerifyEmail ? (
+            <EmailVerifiedHint verified={user?.is_email_verified ?? false} />
+          ) : null}
           {emailAvailability.message ? (
             <p
               className={`text-xs ${

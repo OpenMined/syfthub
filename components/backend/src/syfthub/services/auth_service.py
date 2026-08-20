@@ -15,7 +15,6 @@ from syfthub.auth.security import (
 )
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
-    EmailNotVerifiedError,
     UserAlreadyExistsError,
 )
 from syfthub.repositories.user import UserRepository
@@ -52,7 +51,7 @@ class AuthService(BaseService):
             user: The user model instance.
 
         Returns:
-            Dictionary with the 7 standard user fields.
+            Dictionary with the standard user fields.
         """
         return {
             "id": user.id,
@@ -62,6 +61,10 @@ class AuthService(BaseService):
             "role": user.role,
             "is_active": user.is_active,
             "created_at": user.created_at.isoformat(),
+            # Included so a client can decide whether to prompt for verification
+            # straight from the login or register response, without a follow-up
+            # call to /auth/me.
+            "is_email_verified": user.is_email_verified,
         }
 
     @staticmethod
@@ -136,16 +139,22 @@ class AuthService(BaseService):
         # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
 
-        # Email verification is required when Resend is configured
-        require_verification = settings.smtp_configured
+        # A code is sent when email delivery is configured. It does not block
+        # anything: verification is a claim about the address, not a gate on the
+        # account, so registration always hands back tokens and the client nudges
+        # the user to verify. Blocking here would be the same gate login used to
+        # apply, and equally bypassable — the user could just log in instead.
+        verification_sent = settings.smtp_configured
 
-        # Create user data
+        # Never verified at creation: nothing has been proven yet. With no email
+        # delivery configured it simply stays unverified, which is the honest
+        # answer rather than claiming a proof that never happened.
         user_data = UserCreate(
             username=username,
             email=register_data.email,
             full_name=register_data.full_name,
             is_active=True,
-            is_email_verified=not require_verification,
+            is_email_verified=False,
         )
 
         # Create user in database
@@ -160,20 +169,6 @@ class AuthService(BaseService):
                 detail="Failed to create user account",
             )
 
-        if require_verification:
-            # Return response WITHOUT tokens — client must verify OTP first
-            logger.info(
-                f"Registered user {user.username} — email verification required"
-            )
-            return RegistrationResponse(
-                user=self._build_user_dict(user),
-                access_token=None,
-                refresh_token=None,
-                token_type="bearer",
-                requires_email_verification=True,
-            )
-
-        # No verification required — issue tokens immediately
         access_token = create_access_token(
             data={"sub": str(user.id), "username": user.username, "role": user.role}
         )
@@ -181,14 +176,19 @@ class AuthService(BaseService):
             data={"sub": str(user.id), "username": user.username}
         )
 
-        logger.info(f"Successfully registered user: {user.username} ({user.email})")
+        logger.info(
+            "Successfully registered user: %s (%s), verification email sent: %s",
+            user.username,
+            user.email,
+            verification_sent,
+        )
 
         return RegistrationResponse(
             user=self._build_user_dict(user),
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
-            requires_email_verification=False,
+            requires_email_verification=verification_sent,
         )
 
     def login_user(self, login_data: UserLogin) -> AuthResponse:
@@ -227,9 +227,10 @@ class AuthService(BaseService):
                 detail="Account is deactivated",
             )
 
-        # Check email verification when Resend is configured
-        if settings.smtp_configured and not user.is_email_verified:
-            raise EmailNotVerifiedError()
+        # Deliberately no email-verification gate. Whether the address on file
+        # is proven says nothing about whether this person may use their own
+        # account, and tying the two together meant any address change locked
+        # the user out. `email_verified_at` is a claim, not a permission.
 
         # Best-effort: stamp last successful login. Never breaks the login flow
         # (update_last_login swallows its own errors and returns a bool).

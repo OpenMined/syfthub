@@ -212,15 +212,3 @@ class OTPRateLimitedError(DomainException):
             "Too many code requests. Please wait before requesting a new code.",
             "OTP_RATE_LIMITED",
         )
-
-
-class EmailNotVerifiedError(DomainException):
-    """Raised when an unverified user attempts to log in."""
-
-    def __init__(self) -> None:
-        """Initialize email not verified error."""
-        super().__init__(
-            "Email address has not been verified. "
-            "Please check your inbox for a verification code.",
-            "EMAIL_NOT_VERIFIED",
-        )

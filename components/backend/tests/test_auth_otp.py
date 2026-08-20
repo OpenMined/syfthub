@@ -80,14 +80,25 @@ def test_register_without_verification(client: TestClient) -> None:
 
 
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
-def test_register_with_verification(mock_send, client: TestClient, monkeypatch) -> None:
-    """Registration withholds tokens when verification is enabled."""
+def test_register_issues_tokens_and_asks_for_verification(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """Registration hands back tokens and *asks* for verification.
+
+    It does not withhold them. Verification is a claim about the address, not a
+    permission on the account, so blocking here would be the same gate login used
+    to apply — and just as bypassable, since the user could simply log in.
+    `requires_email_verification` now means "a code was sent", a cue for the
+    client to prompt.
+    """
     monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     result = _register_user(client)
-    assert result["access_token"] is None
-    assert result["refresh_token"] is None
+    assert result["access_token"] is not None
+    assert result["refresh_token"] is not None
     assert result["requires_email_verification"] is True
     assert result["user"]["email"] == "otp@example.com"
+    # The address itself is not verified — nothing has been proven yet.
+    assert result["user"]["is_email_verified"] is False
 
 
 # =============================================================================
@@ -213,8 +224,15 @@ def test_resend_otp_nonexistent_email(client: TestClient) -> None:
 # POST /login with email verification
 # =============================================================================
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
-def test_login_blocked_unverified(mock_send, client: TestClient, monkeypatch) -> None:
-    """Login with unverified email returns 403."""
+def test_login_allowed_while_unverified(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """An unverified address does not block sign-in.
+
+    Whether the address on file is proven says nothing about whether this person
+    may use their own account. Gating the two together meant every address change
+    locked the user out; clients now surface the unverified state as a prompt.
+    """
     monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     _register_user(client)
 
@@ -222,8 +240,9 @@ def test_login_blocked_unverified(mock_send, client: TestClient, monkeypatch) ->
         "/api/v1/auth/login",
         data={"username": "otpuser", "password": "testpass123"},
     )
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "EMAIL_NOT_VERIFIED"
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    assert response.json()["user"]["is_email_verified"] is False
 
 
 # =============================================================================

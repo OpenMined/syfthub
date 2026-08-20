@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ThemeProvider } from '@/context/theme-context';
+import { useVerifyEmailBannerStore } from '@/stores/verify-email-banner-store';
 import { createMockSdkUser } from '@/test/mocks/fixtures';
 import {
   AuthenticationError,
@@ -348,6 +349,29 @@ describe('auth-context', () => {
 
       expect(result.current.user).toBeNull();
       expect(clearPersistedTokens).toHaveBeenCalled();
+    });
+
+    it('clears a dismissed verify-email prompt', async () => {
+      // sessionStorage outlives an app-level logout, so without this the
+      // dismissal would follow the next sign-in — and could hide the prompt from
+      // a different user signing in on the same tab. Dismissing must mean
+      // "not now", never "never".
+      vi.mocked(syftClient.auth.login).mockResolvedValue(createMockSdkUser() as never);
+      const { result } = renderHook(() => useAuth(), { wrapper });
+      await waitFor(() => {
+        expect(result.current.isInitializing).toBe(false);
+      });
+      await act(async () => {
+        await result.current.login({ email: 'test@example.com', password: 'password' });
+      });
+      useVerifyEmailBannerStore.getState().dismiss();
+      expect(useVerifyEmailBannerStore.getState().dismissed).toBe(true);
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(useVerifyEmailBannerStore.getState().dismissed).toBe(false);
     });
 
     it('clears state even if SDK logout throws', async () => {

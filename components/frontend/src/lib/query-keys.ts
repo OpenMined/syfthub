@@ -27,6 +27,11 @@ export const userKeys = {
   publicProfile: (username: string) => [...userKeys.all, 'public', username] as const
 };
 
+export const authKeys = {
+  all: ['auth'] as const,
+  config: () => [...authKeys.all, 'config'] as const
+};
+
 export const modelKeys = {
   all: ['models'] as const,
   chat: (limit: number, isAuthenticated: boolean) =>

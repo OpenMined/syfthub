@@ -108,7 +108,9 @@ class UserRepository(BaseRepository[UserModel]):
                 full_name=user_data.full_name,
                 password_hash=password_hash,
                 is_active=True,
-                is_email_verified=user_data.is_email_verified,
+                email_verified_at=(
+                    datetime.now(timezone.utc) if user_data.is_email_verified else None
+                ),
                 auth_provider=auth_provider,
                 google_id=google_id,
                 avatar_url=avatar_url,
@@ -134,7 +136,15 @@ class UserRepository(BaseRepository[UserModel]):
             if user_data.username is not None:
                 user_model.username = user_data.username.lower()
             if user_data.email is not None:
-                user_model.email = user_data.email.lower()
+                normalized = user_data.email.lower()
+                if normalized != user_model.email:
+                    # A new address has proven nothing, so the timestamp is
+                    # cleared. Nothing gates on it, so this cannot lock
+                    # anyone out — it only stops the account claiming an
+                    # address nobody proved. Sending the code is the
+                    # service's job, not the repository's.
+                    user_model.email = normalized
+                    user_model.email_verified_at = None
             if user_data.full_name is not None:
                 user_model.full_name = user_data.full_name
             if user_data.avatar_url is not None:
@@ -196,7 +206,7 @@ class UserRepository(BaseRepository[UserModel]):
             if not user_model:
                 return False
 
-            user_model.is_email_verified = True
+            user_model.email_verified_at = datetime.now(timezone.utc)
             self.session.commit()
             return True
         except Exception:
@@ -343,10 +353,10 @@ class UserRepository(BaseRepository[UserModel]):
                 func.count(case((self.model.is_active.is_(False), 1))).label(
                     "inactive"
                 ),
-                func.count(case((self.model.is_email_verified.is_(True), 1))).label(
+                func.count(case((self.model.email_verified_at.is_not(None), 1))).label(
                     "verified"
                 ),
-                func.count(case((self.model.is_email_verified.is_(False), 1))).label(
+                func.count(case((self.model.email_verified_at.is_(None), 1))).label(
                     "unverified"
                 ),
                 func.count(case((self.model.role == UserRole.ADMIN.value, 1))).label(
@@ -385,7 +395,13 @@ class UserRepository(BaseRepository[UserModel]):
             if is_active is not None:
                 stmt = stmt.where(self.model.is_active == is_active)
             if is_email_verified is not None:
-                stmt = stmt.where(self.model.is_email_verified == is_email_verified)
+                # Filter on the column, not the derived property, which SQL
+                # cannot see.
+                stmt = stmt.where(
+                    self.model.email_verified_at.is_not(None)
+                    if is_email_verified
+                    else self.model.email_verified_at.is_(None)
+                )
             if role is not None:
                 stmt = stmt.where(self.model.role == role)
             result = self.session.execute(stmt)
@@ -503,7 +519,11 @@ class UserRepository(BaseRepository[UserModel]):
         if is_active is not None:
             conditions.append(self.model.is_active == is_active)
         if is_email_verified is not None:
-            conditions.append(self.model.is_email_verified == is_email_verified)
+            conditions.append(
+                self.model.email_verified_at.is_not(None)
+                if is_email_verified
+                else self.model.email_verified_at.is_(None)
+            )
         return conditions
 
     def list_users_for_export(

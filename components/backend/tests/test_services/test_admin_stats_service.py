@@ -16,7 +16,7 @@ def _make_user(username: str, **overrides) -> UserModel:
         "full_name": f"{username.title()} User",
         "role": "user",
         "is_active": True,
-        "is_email_verified": True,
+        "email_verified_at": datetime.now(timezone.utc),
         "auth_provider": "local",
         "password_hash": "x",
     }
@@ -77,7 +77,7 @@ class TestAggregationCorrectness:
                 _make_user(
                     "user2",
                     is_active=False,
-                    is_email_verified=False,
+                    email_verified_at=None,
                     last_login_at=now - timedelta(days=45),
                 ),
                 # guest, active, verified, local, never logged in

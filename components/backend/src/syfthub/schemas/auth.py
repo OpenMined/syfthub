@@ -161,6 +161,22 @@ class VerifyOTPRequest(BaseModel):
     )
 
 
+class EmailVerifyRequest(BaseModel):
+    """Request to confirm the address currently on the authenticated account.
+
+    The address is not in the body: it is read from the authenticated user, so a
+    caller can only ever verify their own.
+    """
+
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit code sent to the address on the account",
+    )
+
+
 class ResendOTPRequest(BaseModel):
     """Request to resend an OTP code."""
 

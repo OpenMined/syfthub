@@ -170,14 +170,21 @@ class TestUserServiceUpdateProfile:
                 user_service.user_repository, "email_exists", return_value=False
             ),
             patch.object(
+                user_service.user_repository, "get_by_id", return_value=sample_user
+            ),
+            patch.object(
                 user_service.user_repository, "update_user", return_value=updated_user
             ),
         ):
-            result = user_service.update_user_profile(1, update_data, sample_user)
+            result, previous_email = user_service.update_user_profile(
+                1, update_data, sample_user
+            )
 
             assert isinstance(result, UserResponse)
             assert result.full_name == "Updated Name"
             assert result.avatar_url == "https://example.com/avatar.png"
+            # The address did not move, so there is nothing for the caller to send.
+            assert previous_email is None
 
     def test_update_user_profile_admin_updates_other(
         self, user_service, sample_user, admin_user
@@ -193,12 +200,46 @@ class TestUserServiceUpdateProfile:
                 user_service.user_repository, "email_exists", return_value=False
             ),
             patch.object(
+                user_service.user_repository, "get_by_id", return_value=sample_user
+            ),
+            patch.object(
                 user_service.user_repository, "update_user", return_value=updated_user
             ),
         ):
-            result = user_service.update_user_profile(1, update_data, admin_user)
+            result, previous_email = user_service.update_user_profile(
+                1, update_data, admin_user
+            )
 
             assert result.full_name == "Admin Updated"
+            assert previous_email is None
+
+    def test_update_user_profile_reports_a_changed_address(
+        self, user_service, sample_user
+    ):
+        """A moved address is reported back, so the caller can send the code and
+        warn the address it replaced."""
+        update_data = UserUpdate(email="moved@example.com")
+        user_dict = sample_user.model_dump()
+        user_dict.update({"email": "moved@example.com", "email_verified_at": None})
+        updated_user = User(**user_dict)
+
+        with (
+            patch.object(
+                user_service.user_repository, "email_exists", return_value=False
+            ),
+            patch.object(
+                user_service.user_repository, "get_by_id", return_value=sample_user
+            ),
+            patch.object(
+                user_service.user_repository, "update_user", return_value=updated_user
+            ),
+        ):
+            result, previous_email = user_service.update_user_profile(
+                1, update_data, sample_user
+            )
+
+            assert result.email == "moved@example.com"
+            assert previous_email == sample_user.email
 
     def test_update_user_profile_permission_denied(self, user_service, sample_user):
         """Test permission denied when updating another user's profile."""

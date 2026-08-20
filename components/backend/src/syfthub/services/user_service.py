@@ -86,8 +86,20 @@ class UserService(BaseService):
 
     def update_user_profile(
         self, user_id: int, user_data: UserUpdate, current_user: User
-    ) -> UserResponse:
-        """Update user profile."""
+    ) -> tuple[UserResponse, Optional[str]]:
+        """Update user profile.
+
+        Returns ``(user, previous_email)``, where ``previous_email`` is set only
+        when the address actually moved. The caller uses it to send a
+        verification code to the new address and to tell the old address it was
+        replaced — neither of which this service does itself, since it has no
+        business knowing about mail transport.
+
+        Changing an address clears its verified state (see
+        ``UserRepository.update_user``). That is safe here because nothing gates
+        on it: an unverified address costs the user a tick in the UI, not access
+        to their account.
+        """
         # Check permissions - users can only update their own profile, admins can update any
         if current_user.id != user_id and current_user.role != "admin":
             raise PermissionDeniedError("Can only update your own profile")
@@ -106,12 +118,21 @@ class UserService(BaseService):
             if existing_user and existing_user.id != user_id:
                 raise ConflictError("user", "email")
 
-        # Update user
+        # Read the address before the write so the caller can tell whether it
+        # moved, and what it moved from.
+        before = self.user_repository.get_by_id(user_id)
+        if before is None:
+            raise NotFoundError("User")
+        previous_email = before.email
+
         updated_user = self.user_repository.update_user(user_id, user_data)
         if not updated_user:
             raise NotFoundError("User")
 
-        return UserResponse.model_validate(updated_user)
+        changed = updated_user.email.lower() != previous_email.lower()
+        return UserResponse.model_validate(updated_user), (
+            previous_email if changed else None
+        )
 
     def deactivate_user(self, user_id: int, current_user: User) -> bool:
         """Deactivate a user account."""

@@ -72,6 +72,12 @@ class User(UserBase):
         None,
         description="Timestamp of the user's last successful login (null if never)",
     )
+    # When the address in `email` was proven, or null if it has not been. The
+    # `is_email_verified` boolean on UserBase is derived from this; both are
+    # carried so a response can report either without a second read.
+    email_verified_at: Optional[datetime] = Field(
+        None, description="When the address on file was proven, or null"
+    )
     # MPP wallet fields (Tempo blockchain)
     wallet_address: Optional[str] = Field(
         None, description="Tempo wallet address (Ethereum-format)"
@@ -107,7 +113,14 @@ class UserResponse(BaseModel):
     role: UserRole = Field(..., description="User role")
     is_active: bool = Field(..., description="Whether the user is active")
     is_email_verified: bool = Field(
-        ..., description="Whether the user has verified their email"
+        ..., description="Whether the address on file has been proven"
+    )
+    email_verified_at: Optional[datetime] = Field(
+        None,
+        description=(
+            "When the address on file was proven, or null if it has not been. "
+            "Cleared whenever the address changes. Gates nothing."
+        ),
     )
     auth_provider: AuthProvider = Field(..., description="Authentication provider")
     created_at: datetime = Field(..., description="When the user was created")

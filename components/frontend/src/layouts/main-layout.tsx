@@ -4,6 +4,7 @@ import User from 'lucide-react/dist/esm/icons/user';
 import { Link, Outlet } from 'react-router-dom';
 
 import { AuthModals } from '@/components/auth/auth-modals';
+import { VerifyEmailBanner } from '@/components/auth/verify-email-banner';
 import { BalanceIndicator } from '@/components/balance';
 import { ContextBar } from '@/components/context-bar';
 import { SettingsModal } from '@/components/settings/settings-modal';
@@ -12,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ModeToggle } from '@/components/ui/mode-toggle';
 import { useAuth } from '@/context/auth-context';
+import { useShouldPromptEmailVerification } from '@/hooks/use-auth-config';
 import { useModalStore } from '@/stores/modal-store';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
@@ -27,6 +29,9 @@ import { useSettingsModalStore } from '@/stores/settings-modal-store';
  */
 export function MainLayout() {
   const { user, logout, isInitializing } = useAuth();
+  // The header floats, so it would sit on top of the banner. Drop it below the
+  // banner's height while the banner is up.
+  const promptingEmailVerification = useShouldPromptEmailVerification();
   const { openLogin, openRegister } = useModalStore();
   const { openSettings } = useSettingsModalStore();
 
@@ -53,7 +58,11 @@ export function MainLayout() {
       <Sidebar />
 
       {/* User Menu - Top Right */}
-      <div className='fixed top-4 right-4 z-40 flex items-center gap-3'>
+      <div
+        className={`fixed right-4 z-40 flex items-center gap-3 transition-[top] duration-200 ${
+          promptingEmailVerification ? 'top-16' : 'top-4'
+        }`}
+      >
         {user ? (
           <>
             {/* Balance Indicator */}
@@ -116,6 +125,14 @@ export function MainLayout() {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* A nudge to prove the address on the account. Renders nothing when
+          verified, dismissed, or when the server cannot send email. Sits above
+          the content in the flow so it pushes the page down rather than covering
+          it; the floating header offsets itself to match. */}
+      <div className='ml-20'>
+        <VerifyEmailBanner />
       </div>
 
       {/* Main content with left margin for sidebar */}
