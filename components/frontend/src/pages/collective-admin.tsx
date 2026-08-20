@@ -832,10 +832,8 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               className='mt-1'
             />
             <p className='text-muted-foreground mt-1 text-xs'>
-              Optional. If you host Spaces for people who want to join, put that station's URL here
-              — the collective page then invites visitors to set one up there and join with the
-              endpoint it publishes. Leave it empty if you don't offer hosting. Anyone who visits
-              the collective can see it.
+              A station where you'll host Spaces for people who want to join. Shown to everyone;
+              leave empty if you offer none.
             </p>
           </div>
           <div>

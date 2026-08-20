@@ -511,8 +511,7 @@ function SharedEndpointCard({
             </div>
             <CopyableValue value={stationUrl} label='station URL' />
             <p className='text-muted-foreground mt-1 text-[11px] leading-snug'>
-              Nowhere to run your Space? This collective hosts them here — set one up at this
-              station and join with the endpoint it publishes.
+              Nowhere to run a Space? Host one here and join with its endpoint.
             </p>
           </div>
         )}
