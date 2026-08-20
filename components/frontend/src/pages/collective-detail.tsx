@@ -116,15 +116,16 @@ export default function CollectiveDetailPage() {
       );
   }, [members]);
 
-  // The station URL is a members-only resource, so only ask for it when the
-  // viewer is signed in and belongs here — the owner, or the owner of one of
-  // the approved member endpoints. `owners` is built from approved
-  // memberships only, so it is exactly that set.
-  const isMember =
-    user != null &&
-    (Number(user.id) === collective?.owner_id ||
-      owners.some((owner) => owner.username === user.username));
-  const { data: stationUrl } = useCollectiveStation(slug, isMember);
+  const { data: stationUrl } = useCollectiveStation(slug);
+
+  // Membership gate for the station URL, disabled while the route is public.
+  // `owners` is built from approved memberships only, so this is exactly
+  // "signed in and a member" — pass it to useCollectiveStation to restore.
+  //
+  // const isMember =
+  //   user != null &&
+  //   (Number(user.id) === collective?.owner_id ||
+  //     owners.some((owner) => owner.username === user.username));
 
   if (isLoading) {
     return (
@@ -480,8 +481,8 @@ function SharedEndpointCard({
   endpointCount: number;
   /**
    * Station hosting the collective, or null when there is none to show. Comes
-   * from the members-only station resource, which the page requests only for a
-   * signed-in member — so this component needs no permission check of its own.
+   * from the station resource, which decides who may read it — this component
+   * renders whatever it is handed.
    */
   stationUrl: string | null;
 }>) {
@@ -507,9 +508,6 @@ function SharedEndpointCard({
             <div className='text-muted-foreground mb-1 flex items-center gap-1.5 text-xs font-medium'>
               <Server className='h-3.5 w-3.5' aria-hidden='true' />
               Station
-              <Badge variant='secondary' className='text-[10px]'>
-                Members only
-              </Badge>
             </div>
             <CopyableValue value={stationUrl} label='station URL' />
           </div>

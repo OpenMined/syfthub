@@ -101,16 +101,19 @@ def list_collectives_for_endpoint(
 @router.get("/by-slug/{slug}/station", response_model=CollectiveStationResponse)
 def get_collective_station(
     slug: str,
-    current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    # Members-only gate, disabled for now — the station URL is public. Restore
+    # by uncommenting this dependency and passing it to get_station().
+    # current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> CollectiveStationResponse:
-    """Get the collective's station URL. Members only.
+    """Get the collective's station URL. Publicly readable.
 
-    Its own resource rather than a field on the (public) collective payload:
-    the owner, admins, and owners of approved member endpoints get it, everyone
-    else gets 403. A null ``station_url`` therefore means "none set".
+    Kept as its own resource rather than a field on the collective payload:
+    restricting it to members is still on the table, and re-gating a separate
+    route is additive, where re-gating a payload field would mean redacting it
+    on every read path again. A null ``station_url`` means none is set.
     """
-    return service.get_station(slug, current_user)
+    return service.get_station(slug)
 
 
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])

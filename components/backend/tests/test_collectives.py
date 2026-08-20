@@ -264,7 +264,7 @@ def test_delete_collective_owner_only(
 
 
 # ----------------------------------------------------------------------
-# station_url — owner-editable, readable only through the members-only
+# station_url — owner-editable, readable only through the
 # ``/by-slug/{slug}/station`` resource
 # ----------------------------------------------------------------------
 
@@ -282,11 +282,10 @@ def _get_station(client: TestClient, slug: str, headers: dict | None = None):
 def test_station_url_is_absent_from_the_collective_payload(
     client: TestClient, owner_headers: dict
 ) -> None:
-    """The public collective payload never carries the station URL.
+    """The collective payload never carries the station URL.
 
-    It lives on its own members-only resource, so there is no field to redact
-    on the list/detail routes — not even for the owner, who reads it from the
-    station route like every other member.
+    It lives on its own resource, so gating it later stays a change to one
+    route rather than a redaction on every read path.
     """
     created = _create_collective(client, owner_headers, station_url=STATION)
     assert "station_url" not in created
@@ -312,56 +311,75 @@ def test_station_route_serves_the_owner(
     assert resp.json()["station_url"] == STATION
 
 
-def test_station_route_refuses_anonymous_and_non_members(
+def test_station_route_serves_anonymous_and_non_members(
     client: TestClient, owner_headers: dict, member_headers: dict
 ) -> None:
-    """Anonymous callers are unauthorized; signed-in non-members get 403."""
+    """The station URL is public for now — no membership required."""
     created = _create_collective(client, owner_headers, station_url=STATION)
     slug = created["slug"]
 
-    assert _get_station(client, slug).status_code in (401, 403)
-    # member_headers owns no endpoint in this collective yet.
-    assert _get_station(client, slug, member_headers).status_code == 403
+    anonymous = _get_station(client, slug)
+    assert anonymous.status_code == 200
+    assert anonymous.json()["station_url"] == STATION
+
+    # member_headers owns no endpoint in this collective — still served.
+    non_member = _get_station(client, slug, member_headers)
+    assert non_member.status_code == 200
+    assert non_member.json()["station_url"] == STATION
 
 
-def test_station_route_needs_an_approved_membership(
-    client: TestClient, owner_headers: dict, member_headers: dict
-) -> None:
-    """A pending membership is refused; approval grants access."""
-    collective = _create_collective(
-        client, owner_headers, auto_approve=False, station_url=STATION
-    )
-    cid, slug = collective["id"], collective["slug"]
-    endpoint_id = _create_endpoint(client, member_headers, "member-source")
-
-    resp = client.post(
-        f"{API}/collectives/{cid}/members",
-        json={"endpoint_id": endpoint_id},
-        headers=member_headers,
-    )
-    assert resp.status_code == 201
-    assert resp.json()["status"] == "pending"
-    assert _get_station(client, slug, member_headers).status_code == 403
-
-    approve = client.post(
-        f"{API}/collectives/{cid}/members/{endpoint_id}/review",
-        json={"decision": "approve"},
-        headers=owner_headers,
-    )
-    assert approve.status_code == 200
-
-    granted = _get_station(client, slug, member_headers)
-    assert granted.status_code == 200
-    assert granted.json()["station_url"] == STATION
+# The members-only gate these covered is commented out — see
+# ``CollectiveService.get_station``. Restore them with it.
+#
+# def test_station_route_refuses_anonymous_and_non_members(
+#     client: TestClient, owner_headers: dict, member_headers: dict
+# ) -> None:
+#     """Anonymous callers are unauthorized; signed-in non-members get 403."""
+#     created = _create_collective(client, owner_headers, station_url=STATION)
+#     slug = created["slug"]
+#
+#     assert _get_station(client, slug).status_code in (401, 403)
+#     # member_headers owns no endpoint in this collective yet.
+#     assert _get_station(client, slug, member_headers).status_code == 403
+#
+#
+# def test_station_route_needs_an_approved_membership(
+#     client: TestClient, owner_headers: dict, member_headers: dict
+# ) -> None:
+#     """A pending membership is refused; approval grants access."""
+#     collective = _create_collective(
+#         client, owner_headers, auto_approve=False, station_url=STATION
+#     )
+#     cid, slug = collective["id"], collective["slug"]
+#     endpoint_id = _create_endpoint(client, member_headers, "member-source")
+#
+#     resp = client.post(
+#         f"{API}/collectives/{cid}/members",
+#         json={"endpoint_id": endpoint_id},
+#         headers=member_headers,
+#     )
+#     assert resp.status_code == 201
+#     assert resp.json()["status"] == "pending"
+#     assert _get_station(client, slug, member_headers).status_code == 403
+#
+#     approve = client.post(
+#         f"{API}/collectives/{cid}/members/{endpoint_id}/review",
+#         json={"decision": "approve"},
+#         headers=owner_headers,
+#     )
+#     assert approve.status_code == 200
+#
+#     granted = _get_station(client, slug, member_headers)
+#     assert granted.status_code == 200
+#     assert granted.json()["station_url"] == STATION
 
 
 def test_station_route_reports_an_unset_url_as_null(
     client: TestClient, owner_headers: dict
 ) -> None:
-    """A member gets 200 + null when no station URL is set.
+    """200 + null when no station URL is set.
 
-    Not a 404: the resource exists, the value is simply absent. Because
-    non-members are refused outright, null is unambiguous.
+    Not a 404: the resource exists, the value is simply absent.
     """
     created = _create_collective(client, owner_headers)
     resp = _get_station(client, created["slug"], owner_headers)

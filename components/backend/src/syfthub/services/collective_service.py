@@ -337,19 +337,21 @@ class CollectiveService(BaseService):
         collective = self._get_collective_by_slug_or_404(slug)
         return self._with_counts(collective)
 
-    def get_station(self, slug: str, current_user: User) -> CollectiveStationResponse:
-        """Return the collective's station URL. Members only.
+    def get_station(self, slug: str) -> CollectiveStationResponse:
+        """Return the collective's station URL. Publicly readable.
 
-        Entitled callers are the owner, platform admins, and any user who owns
-        an approved member endpoint. Everyone else gets 403 — so a ``null``
-        ``station_url`` here means "none set", never "not yours".
+        The members-only gate below is disabled for now: who counts as a member
+        is unsettled while membership is per-endpoint (a user with no endpoints
+        cannot join at all, so they could never see the station they might need
+        in order to connect one). Restore by taking ``current_user`` again and
+        uncommenting the check.
         """
         collective = self._get_collective_by_slug_or_404(slug)
-        if not self._is_member(collective, current_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only collective members can view the station URL",
-            )
+        # if not self._is_member(collective, current_user):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_403_FORBIDDEN,
+        #         detail="Only collective members can view the station URL",
+        #     )
         return CollectiveStationResponse(
             station_url=self.collective_repo.get_station_url(collective.id)
         )
@@ -977,19 +979,22 @@ class CollectiveService(BaseService):
             )
         return collective
 
-    def _is_member(self, collective: CollectiveResponse, user: User) -> bool:
-        """Whether the user is a member of the collective.
-
-        The owner and platform admins count as members; so does any user who
-        owns an endpoint with an approved membership.
-        """
-        if self._is_admin(user) or collective.owner_id == user.id:
-            return True
-        return self.member_repo.user_owns_member_endpoint(
-            user_id=user.id,
-            collective_id=collective.id,
-            status=MembershipStatus.APPROVED.value,
-        )
+    # Membership test for the station route, disabled with it — see
+    # ``get_station``. Kept so restoring the gate is a matter of uncommenting.
+    #
+    # def _is_member(self, collective: CollectiveResponse, user: User) -> bool:
+    #     """Whether the user is a member of the collective.
+    #
+    #     The owner and platform admins count as members; so does any user who
+    #     owns an endpoint with an approved membership.
+    #     """
+    #     if self._is_admin(user) or collective.owner_id == user.id:
+    #         return True
+    #     return self.member_repo.user_owns_member_endpoint(
+    #         user_id=user.id,
+    #         collective_id=collective.id,
+    #         status=MembershipStatus.APPROVED.value,
+    #     )
 
     def _get_endpoint_or_404(self, endpoint_id: int) -> Endpoint:
         """Load an active endpoint or raise 404."""

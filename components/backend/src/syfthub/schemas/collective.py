@@ -94,9 +94,7 @@ def slugify_collective_name(name: str) -> str:
 
 
 # Reused across the create/update/response schemas.
-_STATION_URL_DESCRIPTION = (
-    "Base URL of the station hosting the collective. Members only."
-)
+_STATION_URL_DESCRIPTION = "Base URL of the station hosting the collective."
 
 
 def _validate_slug(v: str) -> str:
@@ -251,13 +249,12 @@ class CollectiveResponse(BaseModel):
 
 
 class CollectiveStationResponse(BaseModel):
-    """The station URL of a collective, served only to its members.
+    """The station URL of a collective. Publicly readable for now.
 
     Deliberately its own resource rather than a field on ``CollectiveResponse``:
-    the collective payload is public, so carrying a member-only field there
-    would mean redacting it on every read path — one forgotten path leaks it.
-    Non-members are refused outright, so a ``null`` here means "no station URL
-    is set", never "you may not see it".
+    narrowing it to members is still on the table, and gating a separate route
+    is additive, where gating a payload field means redacting it on every read
+    path — one forgotten path leaks it. A ``null`` here means none is set.
     """
 
     station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)

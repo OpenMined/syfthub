@@ -723,10 +723,9 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const [autoApprove, setAutoApprove] = useState(collective.auto_approve);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // The station URL is not part of the collective payload — it is a
-  // members-only resource. This page is owner-only, and the owner is always a
-  // member, so the fetch is unconditional here.
-  const { data: savedStationUrl } = useCollectiveStation(collective.slug, true);
+  // The station URL is not part of the collective payload — it is its own
+  // resource, fetched here to seed the field.
+  const { data: savedStationUrl } = useCollectiveStation(collective.slug);
   const [stationUrl, setStationUrl] = useState('');
   const stationSeeded = useRef(false);
 
@@ -833,7 +832,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               className='mt-1'
             />
             <p className='text-muted-foreground mt-1 text-xs'>
-              Optional. Visible only to members of this collective — not shown publicly.
+              Optional. Shown on the collective page to anyone who visits it.
             </p>
           </div>
           <div>

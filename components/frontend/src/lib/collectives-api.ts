@@ -92,9 +92,9 @@ export interface CollectiveUpdateInput {
 
 /**
  * Body of `GET /collectives/by-slug/{slug}/station` — the station URL as its
- * own members-only resource, deliberately not a field on `Collective`. Only
- * fetch it for a signed-in member; the backend refuses everyone else, so a
- * `null` here means "no station URL is set".
+ * own resource, deliberately not a field on `Collective` so it can be narrowed
+ * to members later without redacting a payload field. A `null` means no
+ * station URL is set.
  */
 export interface CollectiveStation {
   station_url: string | null;
@@ -284,26 +284,15 @@ export async function getCollectiveBySlug(slug: string): Promise<Collective | nu
 }
 
 /**
- * Fetch a collective's station URL. Members only — call this only for a
- * signed-in member (see `useCollectiveStation`).
+ * Fetch a collective's station URL. Public for now.
  *
- * A `403` means the caller is not a member, which the client-side gate should
- * already have prevented; it is reported as "no station" rather than an error
- * so a membership revoked mid-session degrades quietly instead of painting the
- * card red.
+ * `401`/`403` are still folded into `null` rather than thrown: if the route is
+ * narrowed to members again, a caller that isn't one should quietly see no
+ * station instead of an error.
  */
 export async function getCollectiveStation(slug: string): Promise<string | null> {
   const path = `/by-slug/${encodeURIComponent(slug)}/station`;
-  let response = await sendRequest(path, 'GET', undefined, true);
-  if (response.status === 401) {
-    try {
-      await syftClient.auth.refresh();
-      persistTokens();
-      response = await sendRequest(path, 'GET', undefined, true);
-    } catch {
-      return null;
-    }
-  }
+  const response = await sendRequest(path, 'GET', undefined, true);
   if (response.status === 401 || response.status === 403 || response.status === 404) {
     return null;
   }

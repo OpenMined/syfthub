@@ -56,8 +56,8 @@ class CollectiveModel(BaseModel, TimestampMixin):
     auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     icon_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     # Base URL of the station that hosts this collective. Never part of a
-    # collective payload — read only through the members-only station route,
-    # via ``CollectiveService.get_station``.
+    # collective payload — read through the station route only, via
+    # ``CollectiveService.get_station``.
     station_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     tags: Mapped[List[str]] = mapped_column(
         JSONType, nullable=False, default=lambda: []

@@ -329,31 +329,33 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
         except SQLAlchemyError:
             return {}
 
-    def user_owns_member_endpoint(
-        self, *, user_id: int, collective_id: int, status: str
-    ) -> bool:
-        """Whether the user owns an endpoint in the collective with ``status``.
-
-        This is the membership test behind the station-URL route: a user counts
-        as a member of a collective when at least one endpoint they own has an
-        approved membership in it.
-        """
-        try:
-            stmt = (
-                select(self.model.id)
-                .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
-                .where(
-                    and_(
-                        self.model.collective_id == collective_id,
-                        self.model.status == status,
-                        EndpointModel.user_id == user_id,
-                    )
-                )
-                .limit(1)
-            )
-            return self.session.execute(stmt).first() is not None
-        except SQLAlchemyError:
-            return False
+    # Backed the members-only station gate, disabled for now — see
+    # ``CollectiveService.get_station``. Kept so restoring it is uncommenting.
+    #
+    # def user_owns_member_endpoint(
+    #     self, *, user_id: int, collective_id: int, status: str
+    # ) -> bool:
+    #     """Whether the user owns an endpoint in the collective with ``status``.
+    #
+    #     A user counts as a member of a collective when at least one endpoint
+    #     they own has an approved membership in it.
+    #     """
+    #     try:
+    #         stmt = (
+    #             select(self.model.id)
+    #             .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
+    #             .where(
+    #                 and_(
+    #                     self.model.collective_id == collective_id,
+    #                     self.model.status == status,
+    #                     EndpointModel.user_id == user_id,
+    #                 )
+    #             )
+    #             .limit(1)
+    #         )
+    #         return self.session.execute(stmt).first() is not None
+    #     except SQLAlchemyError:
+    #         return False
 
     def create_membership(
         self,
