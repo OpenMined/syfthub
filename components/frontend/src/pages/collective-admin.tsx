@@ -724,8 +724,9 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // The station URL is not part of the collective payload — it is its own
-  // resource, fetched here to seed the field.
-  const { data: savedStationUrl } = useCollectiveStation(collective.slug);
+  // resource, fetched here to seed the field. This page is owner-only, so the
+  // route's signed-in requirement is already met.
+  const { data: savedStationUrl } = useCollectiveStation(collective.slug, true);
   const [stationUrl, setStationUrl] = useState('');
   const stationSeeded = useRef(false);
 
@@ -832,8 +833,8 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               className='mt-1'
             />
             <p className='text-muted-foreground mt-1 text-xs'>
-              A station where you'll host Spaces for people who want to join. Shown to everyone;
-              leave empty if you offer none.
+              A station where you'll host Spaces for people who want to join. Shown to signed-in
+              visitors; leave empty if you offer none.
             </p>
           </div>
           <div>

@@ -101,17 +101,16 @@ def list_collectives_for_endpoint(
 @router.get("/by-slug/{slug}/station", response_model=CollectiveStationResponse)
 def get_collective_station(
     slug: str,
+    # Signed-in callers only. The dependency is the whole gate — the identity
+    # isn't used, since the offer is open to any account, not just members.
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
-    # Members-only gate, disabled for now — the station URL is public. Restore
-    # by uncommenting this dependency and passing it to get_station().
-    # current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> CollectiveStationResponse:
-    """Get the collective's station URL. Publicly readable.
+    """Get the collective's station URL. Requires authentication.
 
-    Kept as its own resource rather than a field on the collective payload:
-    restricting it to members is still on the table, and re-gating a separate
-    route is additive, where re-gating a payload field would mean redacting it
-    on every read path again. A null ``station_url`` means none is set.
+    Its own resource rather than a field on the (public) collective payload:
+    gating one route is a dependency, where gating a payload field would mean
+    redacting it on every read path. A null ``station_url`` means none is set.
     """
     return service.get_station(slug)
 

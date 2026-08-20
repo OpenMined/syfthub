@@ -116,11 +116,13 @@ export default function CollectiveDetailPage() {
       );
   }, [members]);
 
-  const { data: stationUrl } = useCollectiveStation(slug);
+  // Signed-in visitors only — the route refuses anonymous callers, so don't
+  // ask on their behalf.
+  const { data: stationUrl } = useCollectiveStation(slug, user != null);
 
-  // Membership gate for the station URL, disabled while the route is public.
-  // `owners` is built from approved memberships only, so this is exactly
-  // "signed in and a member" — pass it to useCollectiveStation to restore.
+  // Tighter members-only gate, kept for when that decision lands. `owners` is
+  // built from approved memberships only, so this is exactly "signed in and a
+  // member" — pass it to useCollectiveStation in place of `user != null`.
   //
   // const isMember =
   //   user != null &&

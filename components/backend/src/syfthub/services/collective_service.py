@@ -338,13 +338,14 @@ class CollectiveService(BaseService):
         return self._with_counts(collective)
 
     def get_station(self, slug: str) -> CollectiveStationResponse:
-        """Return the collective's station URL. Publicly readable.
+        """Return the collective's station URL.
 
-        The members-only gate below is disabled for now: who counts as a member
-        is unsettled while membership is per-endpoint (a user with no endpoints
-        cannot join at all, so they could never see the station they might need
-        in order to connect one). Restore by taking ``current_user`` again and
-        uncommenting the check.
+        The route requires a signed-in caller; this method does not narrow
+        further. The stricter members-only gate below stays disabled: who
+        counts as a member is unsettled while membership is per-endpoint (a
+        user with no endpoints cannot join at all, so they could never see the
+        station they might need in order to connect one). Restore it by taking
+        ``current_user`` again and uncommenting the check.
         """
         collective = self._get_collective_by_slug_or_404(slug)
         # if not self._is_member(collective, current_user):

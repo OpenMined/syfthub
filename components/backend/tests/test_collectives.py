@@ -311,19 +311,22 @@ def test_station_route_serves_the_owner(
     assert resp.json()["station_url"] == STATION
 
 
-def test_station_route_serves_anonymous_and_non_members(
+def test_station_route_requires_a_signed_in_caller(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """Anonymous callers are refused; the URL is not public."""
+    created = _create_collective(client, owner_headers, station_url=STATION)
+    assert _get_station(client, created["slug"]).status_code in (401, 403)
+
+
+def test_station_route_serves_any_signed_in_user(
     client: TestClient, owner_headers: dict, member_headers: dict
 ) -> None:
-    """The station URL is public for now — no membership required."""
+    """Membership is not required — the hosting offer is open to any account."""
     created = _create_collective(client, owner_headers, station_url=STATION)
-    slug = created["slug"]
 
-    anonymous = _get_station(client, slug)
-    assert anonymous.status_code == 200
-    assert anonymous.json()["station_url"] == STATION
-
-    # member_headers owns no endpoint in this collective — still served.
-    non_member = _get_station(client, slug, member_headers)
+    # member_headers owns no endpoint in this collective, so is not a member.
+    non_member = _get_station(client, created["slug"], member_headers)
     assert non_member.status_code == 200
     assert non_member.json()["station_url"] == STATION
 

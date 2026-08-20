@@ -252,12 +252,13 @@ class CollectiveResponse(BaseModel):
 
 
 class CollectiveStationResponse(BaseModel):
-    """The station URL of a collective. Publicly readable for now.
+    """The station URL of a collective, served to signed-in callers.
 
     Deliberately its own resource rather than a field on ``CollectiveResponse``:
-    narrowing it to members is still on the table, and gating a separate route
-    is additive, where gating a payload field means redacting it on every read
-    path — one forgotten path leaks it. A ``null`` here means none is set.
+    the collective payload is public, so gating the station there would mean
+    redacting it on every read path — one forgotten path leaks it. Narrowing
+    further, to members only, stays a change to one route. A ``null`` here
+    means no station is offered.
     """
 
     station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)

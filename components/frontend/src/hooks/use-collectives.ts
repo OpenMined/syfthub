@@ -71,20 +71,18 @@ export function useCollectiveBySlug(slug: string | undefined) {
 }
 
 /**
- * Fetch a collective's station URL. Public for now; resolves to `null` when no
- * station URL is set.
+ * Fetch a collective's station URL. Signed-in callers only — the route refuses
+ * anonymous ones, so `isSignedIn` keeps the request from being sent at all.
+ * Resolves to `null` when no station is offered.
  *
- * When the route is narrowed to members again, pass the caller's membership
- * check back in so the request isn't sent for a visitor who can't read it:
- *
- *     export function useCollectiveStation(slug: string | undefined, isMember: boolean) {
- *       ... enabled: Boolean(slug) && isMember
+ * If the route is narrowed to members, tighten this argument to the caller's
+ * membership check rather than adding a second one.
  */
-export function useCollectiveStation(slug: string | undefined) {
+export function useCollectiveStation(slug: string | undefined, isSignedIn: boolean) {
   return useQuery({
     queryKey: collectiveKeys.station(slug ?? ''),
     queryFn: () => (slug ? getCollectiveStation(slug) : null),
-    enabled: Boolean(slug)
+    enabled: Boolean(slug) && isSignedIn
   });
 }
 
