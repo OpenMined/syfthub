@@ -72,6 +72,7 @@ export interface CollectiveCreateInput {
   about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
+  station_url?: string | null;
   tags?: string[];
   /** Optional — auto-generated from the name when omitted. */
   slug?: string;
@@ -84,7 +85,19 @@ export interface CollectiveUpdateInput {
   about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
+  /** `null` clears the stored URL; omit the key to leave it unchanged. */
+  station_url?: string | null;
   tags?: string[];
+}
+
+/**
+ * Body of `GET /collectives/by-slug/{slug}/station` — the station URL as its
+ * own resource, deliberately not a field on `Collective` so it can be narrowed
+ * to members later without redacting a payload field. A `null` means no
+ * station URL is set.
+ */
+export interface CollectiveStation {
+  station_url: string | null;
 }
 
 /** A collective owner's decision on a pending join request. */
@@ -268,6 +281,25 @@ export async function getCollectiveBySlug(slug: string): Promise<Collective | nu
     throw new Error(await errorMessage(response, `Failed to load collective (${response.status})`));
   }
   return (await response.json()) as Collective;
+}
+
+/**
+ * Fetch a collective's station URL. Public for now.
+ *
+ * `401`/`403` are still folded into `null` rather than thrown: if the route is
+ * narrowed to members again, a caller that isn't one should quietly see no
+ * station instead of an error.
+ */
+export async function getCollectiveStation(slug: string): Promise<string | null> {
+  const path = `/by-slug/${encodeURIComponent(slug)}/station`;
+  const response = await sendRequest(path, 'GET', undefined, true);
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, `Failed to load station (${response.status})`));
+  }
+  return ((await response.json()) as CollectiveStation).station_url;
 }
 
 /** Create a new collective owned by the current user. */

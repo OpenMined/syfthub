@@ -27,6 +27,7 @@ from syfthub.schemas.collective import (
     CollectiveSharedEndpointCreate,
     CollectiveSharedEndpointResponse,
     CollectiveSharedEndpointUpdate,
+    CollectiveStationResponse,
     CollectiveUpdate,
     MembershipStatus,
 )
@@ -95,6 +96,23 @@ def list_collectives_for_endpoint(
     member of any collective, or when the endpoint can't be resolved.
     """
     return service.list_collectives_for_endpoint(owner_username, slug)
+
+
+@router.get("/by-slug/{slug}/station", response_model=CollectiveStationResponse)
+def get_collective_station(
+    slug: str,
+    # Signed-in callers only. The dependency is the whole gate — the identity
+    # isn't used, since the offer is open to any account, not just members.
+    _current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveStationResponse:
+    """Get the collective's station URL. Requires authentication.
+
+    Its own resource rather than a field on the (public) collective payload:
+    gating one route is a dependency, where gating a payload field would mean
+    redacting it on every read path. A null ``station_url`` means none is set.
+    """
+    return service.get_station(slug)
 
 
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])

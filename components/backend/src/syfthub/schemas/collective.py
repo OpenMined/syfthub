@@ -11,7 +11,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from syfthub.schemas.endpoint import _validate_and_normalize_tags
 
@@ -86,6 +93,13 @@ def slugify_collective_name(name: str) -> str:
     return slug
 
 
+# Reused across the create/update/response schemas.
+_STATION_URL_DESCRIPTION = (
+    "Base URL of a station where the collective offers to host Spaces for "
+    "people who want to join. Null when it offers none."
+)
+
+
 def _validate_slug(v: str) -> str:
     """Validate a user-provided collective slug."""
     if v != v.lower():
@@ -124,6 +138,9 @@ class CollectiveBase(BaseModel):
     icon_url: Optional[str] = Field(
         None, max_length=500, description="URL to the collective's icon/image"
     )
+    station_url: Optional[HttpUrl] = Field(
+        None, max_length=500, description=_STATION_URL_DESCRIPTION
+    )
     tags: List[str] = Field(
         default_factory=list, description="Tags for categorizing the collective"
     )
@@ -160,6 +177,10 @@ class CollectiveUpdate(BaseModel):
     about: Optional[str] = Field(None, max_length=50000)
     auto_approve: Optional[bool] = None
     icon_url: Optional[str] = Field(None, max_length=500)
+    # Explicit null clears the stored URL; omitting the key leaves it alone.
+    station_url: Optional[HttpUrl] = Field(
+        None, max_length=500, description=_STATION_URL_DESCRIPTION
+    )
     tags: Optional[List[str]] = None
 
     @field_validator("tags")
@@ -167,6 +188,15 @@ class CollectiveUpdate(BaseModel):
     def validate_tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         """Normalize and validate the tag list when provided."""
         return None if v is None else _validate_and_normalize_tags(v)
+
+    @field_serializer("station_url")
+    def serialize_station_url(self, v: Optional[HttpUrl]) -> Optional[str]:
+        """Dump the URL as a plain string.
+
+        ``update_collective`` feeds ``model_dump()`` straight to the repository,
+        and the ``String`` column's driver cannot bind a ``Url`` object.
+        """
+        return None if v is None else str(v)
 
 
 class CollectiveResponse(BaseModel):
@@ -219,6 +249,19 @@ class CollectiveResponse(BaseModel):
         """
         self.shared_endpoint_path = f"collective/{self.slug}"
         return self
+
+
+class CollectiveStationResponse(BaseModel):
+    """The station URL of a collective, served to signed-in callers.
+
+    Deliberately its own resource rather than a field on ``CollectiveResponse``:
+    the collective payload is public, so gating the station there would mean
+    redacting it on every read path — one forgotten path leaks it. Narrowing
+    further, to members only, stays a change to one route. A ``null`` here
+    means no station is offered.
+    """
+
+    station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)
 
 
 class CollectiveMemberRequest(BaseModel):

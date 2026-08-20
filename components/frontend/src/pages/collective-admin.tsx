@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { InviteEndpointOption } from '@/components/collectives/invite-combobox';
 import type { InviteEndpointsByPathResult } from '@/hooks/use-collectives';
@@ -35,6 +35,7 @@ import { useAuth } from '@/context/auth-context';
 import {
   useCollectiveBySlug,
   useCollectiveMembers,
+  useCollectiveStation,
   useDeleteCollective,
   useInviteEndpointsByPath,
   useRemoveMember,
@@ -722,6 +723,22 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const [autoApprove, setAutoApprove] = useState(collective.auto_approve);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  // The station URL is not part of the collective payload — it is its own
+  // resource, fetched here to seed the field. This page is owner-only, so the
+  // route's signed-in requirement is already met.
+  const { data: savedStationUrl } = useCollectiveStation(collective.slug, true);
+  const [stationUrl, setStationUrl] = useState('');
+  const stationSeeded = useRef(false);
+
+  useEffect(() => {
+    // Seed the field once, when the fetch first resolves. Saving invalidates
+    // every collective query, station included, so re-seeding on later data
+    // would overwrite whatever the owner has since typed.
+    if (stationSeeded.current || savedStationUrl === undefined) return;
+    stationSeeded.current = true;
+    setStationUrl(savedStationUrl ?? '');
+  }, [savedStationUrl]);
+
   const handleSave = () => {
     updateCollective.mutate({
       id: collective.id,
@@ -730,6 +747,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
         description: description.trim(),
         about: about.trim(),
         icon_url: iconUrl.trim() || null,
+        station_url: stationUrl.trim() || null,
         auto_approve: autoApprove,
         tags: parseTags(tags)
       }
@@ -802,6 +820,22 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               placeholder='https://example.com/icon.png'
               className='mt-1'
             />
+          </div>
+          <div>
+            <Label htmlFor='station-url'>Station URL</Label>
+            <Input
+              id='station-url'
+              value={stationUrl}
+              onChange={(e) => {
+                setStationUrl(e.target.value);
+              }}
+              placeholder='https://station.example.com'
+              className='mt-1'
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              A station where you'll host Spaces for people who want to join. Shown to signed-in
+              visitors; leave empty if you offer none.
+            </p>
           </div>
           <div>
             <Label htmlFor='tags'>Tags</Label>

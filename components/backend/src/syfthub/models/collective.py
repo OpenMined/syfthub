@@ -55,6 +55,10 @@ class CollectiveModel(BaseModel, TimestampMixin):
     # must approve each request (see CollectiveMemberModel.status).
     auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     icon_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Base URL of a station where this collective offers to host Spaces, so
+    # someone with nowhere to run one can still join. Never part of a collective
+    # payload — read through the station route only (``get_station``).
+    station_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     tags: Mapped[List[str]] = mapped_column(
         JSONType, nullable=False, default=lambda: []
     )

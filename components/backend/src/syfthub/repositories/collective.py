@@ -106,6 +106,7 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
         about: str,
         auto_approve: bool,
         icon_url: Optional[str],
+        station_url: Optional[str],
         tags: List[str],
     ) -> Optional[CollectiveResponse]:
         """Create a new collective."""
@@ -118,6 +119,7 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
                 about=about,
                 auto_approve=auto_approve,
                 icon_url=icon_url,
+                station_url=station_url,
                 tags=tags,
             )
             self.session.add(model)
@@ -126,6 +128,18 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
             return CollectiveResponse.model_validate(model)
         except SQLAlchemyError:
             self.session.rollback()
+            return None
+
+    def get_station_url(self, collective_id: int) -> Optional[str]:
+        """Read just the station URL of a collective.
+
+        Its own query because ``station_url`` is no longer part of
+        ``CollectiveResponse`` — only the members-only station route reads it.
+        """
+        try:
+            stmt = select(self.model.station_url).where(self.model.id == collective_id)
+            return self.session.execute(stmt).scalar_one_or_none()
+        except SQLAlchemyError:
             return None
 
     def update_collective(
@@ -314,6 +328,34 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
             return {row[0]: row[1] for row in self.session.execute(stmt).all()}
         except SQLAlchemyError:
             return {}
+
+    # Backed the members-only station gate, disabled for now — see
+    # ``CollectiveService.get_station``. Kept so restoring it is uncommenting.
+    #
+    # def user_owns_member_endpoint(
+    #     self, *, user_id: int, collective_id: int, status: str
+    # ) -> bool:
+    #     """Whether the user owns an endpoint in the collective with ``status``.
+    #
+    #     A user counts as a member of a collective when at least one endpoint
+    #     they own has an approved membership in it.
+    #     """
+    #     try:
+    #         stmt = (
+    #             select(self.model.id)
+    #             .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
+    #             .where(
+    #                 and_(
+    #                     self.model.collective_id == collective_id,
+    #                     self.model.status == status,
+    #                     EndpointModel.user_id == user_id,
+    #                 )
+    #             )
+    #             .limit(1)
+    #         )
+    #         return self.session.execute(stmt).first() is not None
+    #     except SQLAlchemyError:
+    #         return False
 
     def create_membership(
         self,

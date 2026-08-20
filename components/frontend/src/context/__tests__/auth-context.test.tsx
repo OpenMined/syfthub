@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +16,7 @@ import {
   syftClient,
   UserAlreadyExistsError
 } from '@/test/mocks/sdk-client';
+import { createTestQueryClient } from '@/test/render-with-providers';
 
 import {
   AuthProvider,
@@ -26,12 +28,15 @@ import {
 // Mock the SDK client module before importing anything that uses it
 vi.mock('@/lib/sdk-client', () => import('@/test/mocks/sdk-client'));
 
-// Wrapper for renderHook
+// Wrapper for renderHook. AuthProvider reads the surrounding QueryClient so
+// logout can clear it, so the provider has to be in the tree here too.
 function wrapper({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider defaultTheme='light'>
-      <AuthProvider>{children}</AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={createTestQueryClient()}>
+      <ThemeProvider defaultTheme='light'>
+        <AuthProvider>{children}</AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -349,6 +354,41 @@ describe('auth-context', () => {
 
       expect(result.current.user).toBeNull();
       expect(clearPersistedTokens).toHaveBeenCalled();
+    });
+
+    it('clears the query cache so member-only data cannot outlive the session', async () => {
+      // Query keys carry no user identity, so anything cached while signed in —
+      // collective station URLs, publisher payment links, pending memberships —
+      // would otherwise keep rendering after logout and be served to whoever
+      // signs in next on this tab.
+      const client = createTestQueryClient();
+      // Shaped like the members-only station query (collectiveKeys.station).
+      client.setQueryData(['collectives', 'station', 'genomics'], 'https://station.example.com/');
+      expect(client.getQueryCache().getAll()).toHaveLength(1);
+
+      vi.mocked(syftClient.auth.login).mockResolvedValue(createMockSdkUser() as never);
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>
+            <ThemeProvider defaultTheme='light'>
+              <AuthProvider>{children}</AuthProvider>
+            </ThemeProvider>
+          </QueryClientProvider>
+        )
+      });
+      await waitFor(() => {
+        expect(result.current.isInitializing).toBe(false);
+      });
+      await act(async () => {
+        await result.current.login({ email: 'test@example.com', password: 'password' });
+      });
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(client.getQueryCache().getAll()).toHaveLength(0);
+      expect(client.getQueryData(['collectives', 'station', 'genomics'])).toBeUndefined();
     });
 
     it('clears a dismissed verify-email prompt', async () => {

@@ -9,6 +9,7 @@ import Check from 'lucide-react/dist/esm/icons/check';
 import Copy from 'lucide-react/dist/esm/icons/copy';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Layers from 'lucide-react/dist/esm/icons/layers';
+import Server from 'lucide-react/dist/esm/icons/server';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
@@ -32,6 +33,7 @@ import { useCollectiveBilling } from '@/hooks/use-collective-billing';
 import {
   useCollectiveBySlug,
   useCollectiveMembers,
+  useCollectiveStation,
   useRequestJoinMany
 } from '@/hooks/use-collectives';
 import { useMyEndpoints } from '@/hooks/use-endpoint-queries';
@@ -113,6 +115,19 @@ export default function CollectiveDetailPage() {
         (a, b) => b.endpointCount - a.endpointCount || a.username.localeCompare(b.username)
       );
   }, [members]);
+
+  // Signed-in visitors only — the route refuses anonymous callers, so don't
+  // ask on their behalf.
+  const { data: stationUrl } = useCollectiveStation(slug, user != null);
+
+  // Tighter members-only gate, kept for when that decision lands. `owners` is
+  // built from approved memberships only, so this is exactly "signed in and a
+  // member" — pass it to useCollectiveStation in place of `user != null`.
+  //
+  // const isMember =
+  //   user != null &&
+  //   (Number(user.id) === collective?.owner_id ||
+  //     owners.some((owner) => owner.username === user.username));
 
   if (isLoading) {
     return (
@@ -386,6 +401,7 @@ export default function CollectiveDetailPage() {
               collectiveSlug={collective.slug}
               path={collective.shared_endpoint_path}
               endpointCount={collective.member_count}
+              stationUrl={stationUrl ?? null}
             />
           </div>
         </div>
@@ -407,19 +423,12 @@ export default function CollectiveDetailPage() {
 }
 
 /**
- * Sidebar card showing the collective's unique shared-endpoint path
- * (`collective/<slug>`) — the single identifier that addresses every member
- * endpoint at once.
+ * A monospaced value with a copy button that flips to a checkmark for two
+ * seconds. `label` names the value for assistive tech, e.g. "station URL".
  */
-function SharedEndpointCard({
-  collectiveSlug,
-  path,
-  endpointCount
-}: Readonly<{ collectiveSlug: string; path: string; endpointCount: number }>) {
+function CopyableValue({ value, label }: Readonly<{ value: string; label: string }>) {
   const [copied, setCopied] = useState(false);
   const timerReference = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Default Collective API = all approved members (no shared slug).
-  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(collectiveSlug);
 
   useEffect(
     () => () => {
@@ -429,13 +438,58 @@ function SharedEndpointCard({
   );
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(path);
+    void navigator.clipboard.writeText(value);
     setCopied(true);
     if (timerReference.current) clearTimeout(timerReference.current);
     timerReference.current = setTimeout(() => {
       setCopied(false);
     }, 2000);
-  }, [path]);
+  }, [value]);
+
+  return (
+    <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>
+      <code className='text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs'>
+        {value}
+      </code>
+      <button
+        type='button'
+        onClick={handleCopy}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+        className='text-muted-foreground hover:text-foreground shrink-0 transition-colors'
+      >
+        {copied ? (
+          <Check className='h-3.5 w-3.5 text-green-600' aria-hidden='true' />
+        ) : (
+          <Copy className='h-3.5 w-3.5' aria-hidden='true' />
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Sidebar card showing the collective's unique shared-endpoint path
+ * (`collective/<slug>`) — the single identifier that addresses every member
+ * endpoint at once.
+ */
+function SharedEndpointCard({
+  collectiveSlug,
+  path,
+  endpointCount,
+  stationUrl
+}: Readonly<{
+  collectiveSlug: string;
+  path: string;
+  endpointCount: number;
+  /**
+   * Station hosting the collective, or null when there is none to show. Comes
+   * from the station resource, which decides who may read it — this component
+   * renders whatever it is handed.
+   */
+  stationUrl: string | null;
+}>) {
+  // Default Collective API = all approved members (no shared slug).
+  const { data: billing, isLoading: billingLoading } = useCollectiveBilling(collectiveSlug);
 
   return (
     <Card className='p-6'>
@@ -450,23 +504,19 @@ function SharedEndpointCard({
         this collective at once.
       </p>
       <div className='space-y-3'>
-        <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>
-          <code className='text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs'>
-            {path}
-          </code>
-          <button
-            type='button'
-            onClick={handleCopy}
-            aria-label={copied ? 'Collective API path copied' : 'Copy Collective API path'}
-            className='text-muted-foreground hover:text-foreground shrink-0 transition-colors'
-          >
-            {copied ? (
-              <Check className='h-3.5 w-3.5 text-green-600' aria-hidden='true' />
-            ) : (
-              <Copy className='h-3.5 w-3.5' aria-hidden='true' />
-            )}
-          </button>
-        </div>
+        <CopyableValue value={path} label='Collective API path' />
+        {stationUrl != null && stationUrl !== '' && (
+          <div>
+            <div className='text-muted-foreground mb-1 flex items-center gap-1.5 text-xs font-medium'>
+              <Server className='h-3.5 w-3.5' aria-hidden='true' />
+              Station
+            </div>
+            <CopyableValue value={stationUrl} label='station URL' />
+            <p className='text-muted-foreground mt-1 text-[11px] leading-snug'>
+              Nowhere to run a Space? Host one here and join with its endpoint.
+            </p>
+          </div>
+        )}
         <div>
           <CollectivePrice summary={billing} isLoading={billingLoading} showFreeCount={false} />
         </div>
