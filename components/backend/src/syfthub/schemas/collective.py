@@ -94,7 +94,11 @@ def slugify_collective_name(name: str) -> str:
 
 
 # Reused across the create/update/response schemas.
-_STATION_URL_DESCRIPTION = "Base URL of the station hosting the collective."
+_STATION_URL_DESCRIPTION = (
+    "Base URL of a station where the collective offers to host Spaces, for "
+    "people who want to join but have nowhere to run one. Null when the "
+    "collective offers no hosting."
+)
 
 
 def _validate_slug(v: str) -> str:
