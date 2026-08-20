@@ -221,7 +221,6 @@ class CollectiveResponse(BaseModel):
         ..., description="Whether join requests are auto-accepted"
     )
     icon_url: Optional[str] = Field(None, description="URL to the collective's icon")
-    station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)
     tags: List[str] = Field(..., description="Tags for categorization")
     verified: bool = Field(
         False,
@@ -249,6 +248,19 @@ class CollectiveResponse(BaseModel):
         """
         self.shared_endpoint_path = f"collective/{self.slug}"
         return self
+
+
+class CollectiveStationResponse(BaseModel):
+    """The station URL of a collective, served only to its members.
+
+    Deliberately its own resource rather than a field on ``CollectiveResponse``:
+    the collective payload is public, so carrying a member-only field there
+    would mean redacting it on every read path — one forgotten path leaks it.
+    Non-members are refused outright, so a ``null`` here means "no station URL
+    is set", never "you may not see it".
+    """
+
+    station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)
 
 
 class CollectiveMemberRequest(BaseModel):

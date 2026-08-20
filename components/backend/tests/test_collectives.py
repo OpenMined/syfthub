@@ -264,7 +264,8 @@ def test_delete_collective_owner_only(
 
 
 # ----------------------------------------------------------------------
-# station_url — owner-editable, member-only visibility
+# station_url — owner-editable, readable only through the members-only
+# ``/by-slug/{slug}/station`` resource
 # ----------------------------------------------------------------------
 
 # Already in HttpUrl's normalized form (trailing slash on a bare host), so it
@@ -272,57 +273,65 @@ def test_delete_collective_owner_only(
 STATION = "https://station.example.com/"
 
 
-def test_station_url_visible_to_owner_on_every_read_path(
+def _get_station(client: TestClient, slug: str, headers: dict | None = None):
+    """GET the station resource, with or without credentials."""
+    kwargs = {} if headers is None else {"headers": headers}
+    return client.get(f"{API}/collectives/by-slug/{slug}/station", **kwargs)
+
+
+def test_station_url_is_absent_from_the_collective_payload(
     client: TestClient, owner_headers: dict
 ) -> None:
-    """The owner sees ``station_url`` by ID, by slug, and in the listing."""
+    """The public collective payload never carries the station URL.
+
+    It lives on its own members-only resource, so there is no field to redact
+    on the list/detail routes — not even for the owner, who reads it from the
+    station route like every other member.
+    """
     created = _create_collective(client, owner_headers, station_url=STATION)
-    assert created["station_url"] == STATION
+    assert "station_url" not in created
 
     cid, slug = created["id"], created["slug"]
-    by_id = client.get(f"{API}/collectives/{cid}", headers=owner_headers)
-    assert by_id.json()["station_url"] == STATION
+    for resp in (
+        client.get(f"{API}/collectives/{cid}", headers=owner_headers),
+        client.get(f"{API}/collectives/by-slug/{slug}", headers=owner_headers),
+    ):
+        assert "station_url" not in resp.json()
 
-    by_slug = client.get(f"{API}/collectives/by-slug/{slug}", headers=owner_headers)
-    assert by_slug.json()["station_url"] == STATION
-
-    listing = client.get(f"{API}/collectives", headers=owner_headers)
-    listed = next(c for c in listing.json() if c["id"] == cid)
-    assert listed["station_url"] == STATION
+    listing = client.get(f"{API}/collectives", headers=owner_headers).json()
+    assert "station_url" not in next(c for c in listing if c["id"] == cid)
 
 
-def test_station_url_hidden_from_anonymous_and_non_members(
-    client: TestClient, owner_headers: dict, member_headers: dict
+def test_station_route_serves_the_owner(
+    client: TestClient, owner_headers: dict
 ) -> None:
-    """Non-members get null for ``station_url`` on every public read path."""
+    """The owner can read the station URL."""
     created = _create_collective(client, owner_headers, station_url=STATION)
-    cid, slug = created["id"], created["slug"]
-
-    # member_headers has no endpoint in this collective yet — a non-member.
-    for headers in (None, member_headers):
-        kwargs = {} if headers is None else {"headers": headers}
-        assert (
-            client.get(f"{API}/collectives/{cid}", **kwargs).json()["station_url"]
-            is None
-        )
-        assert (
-            client.get(f"{API}/collectives/by-slug/{slug}", **kwargs).json()[
-                "station_url"
-            ]
-            is None
-        )
-        listing = client.get(f"{API}/collectives", **kwargs).json()
-        assert next(c for c in listing if c["id"] == cid)["station_url"] is None
+    resp = _get_station(client, created["slug"], owner_headers)
+    assert resp.status_code == 200
+    assert resp.json()["station_url"] == STATION
 
 
-def test_station_url_visible_only_once_membership_is_approved(
+def test_station_route_refuses_anonymous_and_non_members(
     client: TestClient, owner_headers: dict, member_headers: dict
 ) -> None:
-    """A pending member sees null; approval reveals the station URL."""
+    """Anonymous callers are unauthorized; signed-in non-members get 403."""
+    created = _create_collective(client, owner_headers, station_url=STATION)
+    slug = created["slug"]
+
+    assert _get_station(client, slug).status_code in (401, 403)
+    # member_headers owns no endpoint in this collective yet.
+    assert _get_station(client, slug, member_headers).status_code == 403
+
+
+def test_station_route_needs_an_approved_membership(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A pending membership is refused; approval grants access."""
     collective = _create_collective(
         client, owner_headers, auto_approve=False, station_url=STATION
     )
-    cid = collective["id"]
+    cid, slug = collective["id"], collective["slug"]
     endpoint_id = _create_endpoint(client, member_headers, "member-source")
 
     resp = client.post(
@@ -332,10 +341,7 @@ def test_station_url_visible_only_once_membership_is_approved(
     )
     assert resp.status_code == 201
     assert resp.json()["status"] == "pending"
-
-    # Pending is not membership.
-    pending_view = client.get(f"{API}/collectives/{cid}", headers=member_headers)
-    assert pending_view.json()["station_url"] is None
+    assert _get_station(client, slug, member_headers).status_code == 403
 
     approve = client.post(
         f"{API}/collectives/{cid}/members/{endpoint_id}/review",
@@ -344,16 +350,30 @@ def test_station_url_visible_only_once_membership_is_approved(
     )
     assert approve.status_code == 200
 
-    approved_view = client.get(f"{API}/collectives/{cid}", headers=member_headers)
-    assert approved_view.json()["station_url"] == STATION
+    granted = _get_station(client, slug, member_headers)
+    assert granted.status_code == 200
+    assert granted.json()["station_url"] == STATION
 
-    # The by-endpoint route honours the same rule.
-    by_endpoint = client.get(
-        f"{API}/collectives/by-endpoint/member/member-source", headers=member_headers
-    )
-    assert [c["station_url"] for c in by_endpoint.json()] == [STATION]
-    anon = client.get(f"{API}/collectives/by-endpoint/member/member-source")
-    assert [c["station_url"] for c in anon.json()] == [None]
+
+def test_station_route_reports_an_unset_url_as_null(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """A member gets 200 + null when no station URL is set.
+
+    Not a 404: the resource exists, the value is simply absent. Because
+    non-members are refused outright, null is unambiguous.
+    """
+    created = _create_collective(client, owner_headers)
+    resp = _get_station(client, created["slug"], owner_headers)
+    assert resp.status_code == 200
+    assert resp.json()["station_url"] is None
+
+
+def test_station_route_404s_for_an_unknown_collective(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """404 is reserved for a collective that does not exist."""
+    assert _get_station(client, "no-such-collective", owner_headers).status_code == 404
 
 
 def test_station_url_update_validation_and_clear(
@@ -361,15 +381,19 @@ def test_station_url_update_validation_and_clear(
 ) -> None:
     """The owner can set, replace and clear the URL; junk is rejected."""
     collective = _create_collective(client, owner_headers)
-    cid = collective["id"]
-    assert collective["station_url"] is None
+    slug = collective["slug"]
 
     def patch(value: object) -> object:
         return client.patch(
-            f"{API}/collectives/{cid}",
+            f"{API}/collectives/{collective['id']}",
             json={"station_url": value},
             headers=owner_headers,
         )
+
+    def stored() -> object:
+        return _get_station(client, slug, owner_headers).json()["station_url"]
+
+    assert stored() is None
 
     # A relative or scheme-less value is not a station URL.
     assert patch("station.example.com").status_code == 422
@@ -380,18 +404,21 @@ def test_station_url_update_validation_and_clear(
     # Blank is not a URL — the settings form sends null to clear, not "".
     assert patch("   ").status_code == 422
 
-    assert patch(STATION).json()["station_url"] == STATION
-    assert patch(None).json()["station_url"] is None
+    assert patch(STATION).status_code == 200
+    assert stored() == STATION
+    assert patch(None).status_code == 200
+    assert stored() is None
 
     # HttpUrl normalizes what it stores: a bare host gains a trailing slash,
     # the host is lowercased, a default port is dropped. A port and path that
     # carry meaning are preserved.
-    for typed, stored in (
+    for typed, normalized in (
         ("https://Station.Example.com", "https://station.example.com/"),
         ("https://station.example.com:443", "https://station.example.com/"),
         ("http://192.168.1.10:8443/api", "http://192.168.1.10:8443/api"),
     ):
-        assert patch(typed).json()["station_url"] == stored
+        assert patch(typed).status_code == 200
+        assert stored() == normalized
 
 
 def test_station_url_update_is_owner_only(
@@ -405,9 +432,7 @@ def test_station_url_update_is_owner_only(
         headers=member_headers,
     )
     assert resp.status_code == 403
-    unchanged = client.get(
-        f"{API}/collectives/{collective['id']}", headers=owner_headers
-    )
+    unchanged = _get_station(client, collective["slug"], owner_headers)
     assert unchanged.json()["station_url"] == STATION
 
 

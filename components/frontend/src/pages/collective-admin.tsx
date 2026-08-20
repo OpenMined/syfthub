@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { InviteEndpointOption } from '@/components/collectives/invite-combobox';
 import type { InviteEndpointsByPathResult } from '@/hooks/use-collectives';
@@ -35,6 +35,7 @@ import { useAuth } from '@/context/auth-context';
 import {
   useCollectiveBySlug,
   useCollectiveMembers,
+  useCollectiveStation,
   useDeleteCollective,
   useInviteEndpointsByPath,
   useRemoveMember,
@@ -718,10 +719,25 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const [description, setDescription] = useState(collective.description);
   const [about, setAbout] = useState(collective.about);
   const [iconUrl, setIconUrl] = useState(collective.icon_url ?? '');
-  const [stationUrl, setStationUrl] = useState(collective.station_url ?? '');
   const [tags, setTags] = useState(collective.tags.join(', '));
   const [autoApprove, setAutoApprove] = useState(collective.auto_approve);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // The station URL is not part of the collective payload — it is a
+  // members-only resource. This page is owner-only, and the owner is always a
+  // member, so the fetch is unconditional here.
+  const { data: savedStationUrl } = useCollectiveStation(collective.slug, true);
+  const [stationUrl, setStationUrl] = useState('');
+  const stationSeeded = useRef(false);
+
+  useEffect(() => {
+    // Seed the field once, when the fetch first resolves. Saving invalidates
+    // every collective query, station included, so re-seeding on later data
+    // would overwrite whatever the owner has since typed.
+    if (stationSeeded.current || savedStationUrl === undefined) return;
+    stationSeeded.current = true;
+    setStationUrl(savedStationUrl ?? '');
+  }, [savedStationUrl]);
 
   const handleSave = () => {
     updateCollective.mutate({

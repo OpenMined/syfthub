@@ -33,6 +33,7 @@ import { useCollectiveBilling } from '@/hooks/use-collective-billing';
 import {
   useCollectiveBySlug,
   useCollectiveMembers,
+  useCollectiveStation,
   useRequestJoinMany
 } from '@/hooks/use-collectives';
 import { useMyEndpoints } from '@/hooks/use-endpoint-queries';
@@ -114,6 +115,16 @@ export default function CollectiveDetailPage() {
         (a, b) => b.endpointCount - a.endpointCount || a.username.localeCompare(b.username)
       );
   }, [members]);
+
+  // The station URL is a members-only resource, so only ask for it when the
+  // viewer is signed in and belongs here — the owner, or the owner of one of
+  // the approved member endpoints. `owners` is built from approved
+  // memberships only, so it is exactly that set.
+  const isMember =
+    user != null &&
+    (Number(user.id) === collective?.owner_id ||
+      owners.some((owner) => owner.username === user.username));
+  const { data: stationUrl } = useCollectiveStation(slug, isMember);
 
   if (isLoading) {
     return (
@@ -387,10 +398,7 @@ export default function CollectiveDetailPage() {
               collectiveSlug={collective.slug}
               path={collective.shared_endpoint_path}
               endpointCount={collective.member_count}
-              // Gated on the live session, not just the response: the cached
-              // collective outlives a logout (its query key carries no user
-              // identity), so a stale station URL must not survive it.
-              stationUrl={user == null ? null : collective.station_url}
+              stationUrl={stationUrl ?? null}
             />
           </div>
         </div>
@@ -471,10 +479,9 @@ function SharedEndpointCard({
   path: string;
   endpointCount: number;
   /**
-   * Station hosting the collective, or null when it must not be shown. Only
-   * ever populated for a signed-in member: the backend nulls it out for
-   * everyone else, and the caller additionally drops it when no one is signed
-   * in, so this component needs no permission check of its own.
+   * Station hosting the collective, or null when there is none to show. Comes
+   * from the members-only station resource, which the page requests only for a
+   * signed-in member — so this component needs no permission check of its own.
    */
   stationUrl: string | null;
 }>) {

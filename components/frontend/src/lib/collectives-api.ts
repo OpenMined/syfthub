@@ -33,13 +33,6 @@ export interface Collective {
   /** When true, join requests are approved immediately. */
   auto_approve: boolean;
   icon_url: string | null;
-  /**
-   * Base URL of the station hosting the collective. Member-only: the backend
-   * serves it as `null` to anyone who is not the owner, an admin, or the owner
-   * of an approved member endpoint — so a `null` here means "not visible to
-   * you", not necessarily "not set".
-   */
-  station_url: string | null;
   tags: string[];
   /** Platform-granted trust signal. Not user-settable. */
   verified: boolean;
@@ -95,6 +88,16 @@ export interface CollectiveUpdateInput {
   /** `null` clears the stored URL; omit the key to leave it unchanged. */
   station_url?: string | null;
   tags?: string[];
+}
+
+/**
+ * Body of `GET /collectives/by-slug/{slug}/station` — the station URL as its
+ * own members-only resource, deliberately not a field on `Collective`. Only
+ * fetch it for a signed-in member; the backend refuses everyone else, so a
+ * `null` here means "no station URL is set".
+ */
+export interface CollectiveStation {
+  station_url: string | null;
 }
 
 /** A collective owner's decision on a pending join request. */
@@ -278,6 +281,36 @@ export async function getCollectiveBySlug(slug: string): Promise<Collective | nu
     throw new Error(await errorMessage(response, `Failed to load collective (${response.status})`));
   }
   return (await response.json()) as Collective;
+}
+
+/**
+ * Fetch a collective's station URL. Members only — call this only for a
+ * signed-in member (see `useCollectiveStation`).
+ *
+ * A `403` means the caller is not a member, which the client-side gate should
+ * already have prevented; it is reported as "no station" rather than an error
+ * so a membership revoked mid-session degrades quietly instead of painting the
+ * card red.
+ */
+export async function getCollectiveStation(slug: string): Promise<string | null> {
+  const path = `/by-slug/${encodeURIComponent(slug)}/station`;
+  let response = await sendRequest(path, 'GET', undefined, true);
+  if (response.status === 401) {
+    try {
+      await syftClient.auth.refresh();
+      persistTokens();
+      response = await sendRequest(path, 'GET', undefined, true);
+    } catch {
+      return null;
+    }
+  }
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await errorMessage(response, `Failed to load station (${response.status})`));
+  }
+  return ((await response.json()) as CollectiveStation).station_url;
 }
 
 /** Create a new collective owned by the current user. */

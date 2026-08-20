@@ -34,6 +34,7 @@ from syfthub.schemas.collective import (
     CollectiveSharedEndpointMemberSummary,
     CollectiveSharedEndpointResponse,
     CollectiveSharedEndpointUpdate,
+    CollectiveStationResponse,
     CollectiveUpdate,
     InvitationDecision,
     InvitationEmailContext,
@@ -327,30 +328,31 @@ class CollectiveService(BaseService):
             )
         return self._with_counts(collective)
 
-    def get_collective(
-        self, collective_id: int, viewer: Optional[User] = None
-    ) -> CollectiveResponse:
-        """Get a collective by ID. Collectives are publicly viewable.
+    def get_collective(self, collective_id: int) -> CollectiveResponse:
+        """Get a collective by ID. Collectives are publicly viewable."""
+        return self._with_counts(self._get_collective_or_404(collective_id))
 
-        ``station_url`` is redacted unless ``viewer`` may see it.
+    def get_collective_by_slug(self, slug: str) -> CollectiveResponse:
+        """Get a collective by slug. Collectives are publicly viewable."""
+        collective = self._get_collective_by_slug_or_404(slug)
+        return self._with_counts(collective)
+
+    def get_station(self, slug: str, current_user: User) -> CollectiveStationResponse:
+        """Return the collective's station URL. Members only.
+
+        Entitled callers are the owner, platform admins, and any user who owns
+        an approved member endpoint. Everyone else gets 403 — so a ``null``
+        ``station_url`` here means "none set", never "not yours".
         """
-        collective = self._with_counts(self._get_collective_or_404(collective_id))
-        return self._redact_station_url(collective, viewer)
-
-    def get_collective_by_slug(
-        self, slug: str, viewer: Optional[User] = None
-    ) -> CollectiveResponse:
-        """Get a collective by slug. Collectives are publicly viewable.
-
-        ``station_url`` is redacted unless ``viewer`` may see it.
-        """
-        collective = self.collective_repo.get_by_slug(slug)
-        if collective is None:
+        collective = self._get_collective_by_slug_or_404(slug)
+        if not self._is_member(collective, current_user):
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Collective not found",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only collective members can view the station URL",
             )
-        return self._redact_station_url(self._with_counts(collective), viewer)
+        return CollectiveStationResponse(
+            station_url=self.collective_repo.get_station_url(collective.id)
+        )
 
     def get_collective_endpoint_paths(self, slug: str) -> List[str]:
         """Return owner/slug paths of all approved member endpoints.
@@ -516,12 +518,10 @@ class CollectiveService(BaseService):
         limit: int = 50,
         owner_id: Optional[int] = None,
         search: Optional[str] = None,
-        viewer: Optional[User] = None,
     ) -> List[CollectiveResponse]:
         """List collectives, newest first.
 
         Optionally filtered by ``owner_id`` and/or a ``search`` string.
-        ``station_url`` is redacted per row for collectives ``viewer`` isn't in.
         """
         collectives = self.collective_repo.list_collectives(
             skip, limit, owner_id, search
@@ -534,17 +534,16 @@ class CollectiveService(BaseService):
         for collective in collectives:
             collective.member_count = member_counts.get(collective.id, 0)
             collective.owner_count = owner_counts.get(collective.id, 0)
-        return self._redact_station_urls(collectives, viewer)
+        return collectives
 
     def list_collectives_for_endpoint(
-        self, owner_username: str, slug: str, viewer: Optional[User] = None
+        self, owner_username: str, slug: str
     ) -> List[CollectiveResponse]:
         """List approved collectives an ``owner/slug`` endpoint belongs to.
 
         Public-readable. Returns only ``APPROVED`` memberships so pending /
         invited / rejected state never leaks to non-owners — mirrors the
-        non-owner view of ``list_members``. ``station_url`` is redacted per row
-        for collectives ``viewer`` isn't in.
+        non-owner view of ``list_members``.
         """
         owner = self.user_repo.get_by_username(owner_username)
         if owner is None:
@@ -562,7 +561,7 @@ class CollectiveService(BaseService):
         for collective in collectives:
             collective.member_count = member_counts.get(collective.id, 0)
             collective.owner_count = owner_counts.get(collective.id, 0)
-        return self._redact_station_urls(collectives, viewer)
+        return collectives
 
     def update_collective(
         self, collective_id: int, data: CollectiveUpdate, current_user: User
@@ -968,41 +967,29 @@ class CollectiveService(BaseService):
             )
         return collective
 
-    def _redact_station_url(
-        self, collective: CollectiveResponse, viewer: Optional[User]
-    ) -> CollectiveResponse:
-        """Blank ``station_url`` unless the viewer is entitled to see it."""
-        return self._redact_station_urls([collective], viewer)[0]
-
-    def _redact_station_urls(
-        self, collectives: List[CollectiveResponse], viewer: Optional[User]
-    ) -> List[CollectiveResponse]:
-        """Blank ``station_url`` on every row the viewer isn't a member of.
-
-        Entitled viewers are the collective owner, platform admins, and any
-        user who owns an approved member endpoint. Anonymous callers never see
-        it. Membership is resolved in a single batched query.
-        """
-        pending = [c for c in collectives if c.station_url]
-        if not pending:
-            return collectives
-
-        if viewer is None:
-            member_ids: set[int] = set()
-        elif self._is_admin(viewer):
-            member_ids = {c.id for c in pending}
-        else:
-            member_ids = self.member_repo.collective_ids_for_member_user(
-                viewer.id,
-                [c.id for c in pending if c.owner_id != viewer.id],
-                MembershipStatus.APPROVED.value,
+    def _get_collective_by_slug_or_404(self, slug: str) -> CollectiveResponse:
+        """Load a collective by slug or raise 404."""
+        collective = self.collective_repo.get_by_slug(slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
             )
-            member_ids |= {c.id for c in pending if c.owner_id == viewer.id}
+        return collective
 
-        for collective in pending:
-            if collective.id not in member_ids:
-                collective.station_url = None
-        return collectives
+    def _is_member(self, collective: CollectiveResponse, user: User) -> bool:
+        """Whether the user is a member of the collective.
+
+        The owner and platform admins count as members; so does any user who
+        owns an endpoint with an approved membership.
+        """
+        if self._is_admin(user) or collective.owner_id == user.id:
+            return True
+        return self.member_repo.user_owns_member_endpoint(
+            user_id=user.id,
+            collective_id=collective.id,
+            status=MembershipStatus.APPROVED.value,
+        )
 
     def _get_endpoint_or_404(self, endpoint_id: int) -> Endpoint:
         """Load an active endpoint or raise 404."""

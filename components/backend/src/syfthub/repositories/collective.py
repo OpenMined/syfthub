@@ -130,6 +130,18 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
             self.session.rollback()
             return None
 
+    def get_station_url(self, collective_id: int) -> Optional[str]:
+        """Read just the station URL of a collective.
+
+        Its own query because ``station_url`` is no longer part of
+        ``CollectiveResponse`` — only the members-only station route reads it.
+        """
+        try:
+            stmt = select(self.model.station_url).where(self.model.id == collective_id)
+            return self.session.execute(stmt).scalar_one_or_none()
+        except SQLAlchemyError:
+            return None
+
     def update_collective(
         self, collective_id: int, fields: dict[str, Any]
     ) -> Optional[CollectiveResponse]:
@@ -317,33 +329,31 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
         except SQLAlchemyError:
             return {}
 
-    def collective_ids_for_member_user(
-        self, user_id: int, collective_ids: Sequence[int], status: str
-    ) -> set[int]:
-        """Return which of ``collective_ids`` the user is a member of.
+    def user_owns_member_endpoint(
+        self, *, user_id: int, collective_id: int, status: str
+    ) -> bool:
+        """Whether the user owns an endpoint in the collective with ``status``.
 
-        A user is a member of a collective when they own at least one endpoint
-        whose membership is in ``status``. One query for the whole batch, so
-        list endpoints stay a fixed number of round trips.
+        This is the membership test behind the station-URL route: a user counts
+        as a member of a collective when at least one endpoint they own has an
+        approved membership in it.
         """
-        if not collective_ids:
-            return set()
         try:
             stmt = (
-                select(func.distinct(self.model.collective_id))
-                .select_from(self.model)
+                select(self.model.id)
                 .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
                 .where(
                     and_(
-                        self.model.collective_id.in_(list(collective_ids)),
+                        self.model.collective_id == collective_id,
                         self.model.status == status,
                         EndpointModel.user_id == user_id,
                     )
                 )
+                .limit(1)
             )
-            return {row[0] for row in self.session.execute(stmt).all()}
+            return self.session.execute(stmt).first() is not None
         except SQLAlchemyError:
-            return set()
+            return False
 
     def create_membership(
         self,

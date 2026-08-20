@@ -362,9 +362,8 @@ describe('auth-context', () => {
       // would otherwise keep rendering after logout and be served to whoever
       // signs in next on this tab.
       const client = createTestQueryClient();
-      client.setQueryData(['collectives', 'detail', 'genomics'], {
-        station_url: 'https://station.example.com'
-      });
+      // Shaped like the members-only station query (collectiveKeys.station).
+      client.setQueryData(['collectives', 'station', 'genomics'], 'https://station.example.com/');
       expect(client.getQueryCache().getAll()).toHaveLength(1);
 
       vi.mocked(syftClient.auth.login).mockResolvedValue(createMockSdkUser() as never);
@@ -389,7 +388,7 @@ describe('auth-context', () => {
       });
 
       expect(client.getQueryCache().getAll()).toHaveLength(0);
-      expect(client.getQueryData(['collectives', 'detail', 'genomics'])).toBeUndefined();
+      expect(client.getQueryData(['collectives', 'station', 'genomics'])).toBeUndefined();
     });
 
     it('clears a dismissed verify-email prompt', async () => {

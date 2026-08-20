@@ -60,6 +60,7 @@ export const collectiveKeys = {
   paginated: (page: number, limit: number, search?: string) =>
     [...collectiveKeys.all, 'list', 'paginated', page, limit, search ?? ''] as const,
   detail: (slug: string) => [...collectiveKeys.all, 'detail', slug] as const,
+  station: (slug: string) => [...collectiveKeys.all, 'station', slug] as const,
   membersByCollective: (collectiveId: number) =>
     [...collectiveKeys.all, 'members', collectiveId] as const,
   members: (collectiveId: number, status?: string) =>

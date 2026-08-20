@@ -21,6 +21,7 @@ import {
   createCollective,
   deleteCollective,
   getCollectiveBySlug,
+  getCollectiveStation,
   getInvitation,
   inviteEndpoint,
   inviteEndpointByPath,
@@ -66,6 +67,22 @@ export function useCollectiveBySlug(slug: string | undefined) {
     queryKey: collectiveKeys.detail(slug ?? ''),
     queryFn: () => (slug ? getCollectiveBySlug(slug) : null),
     enabled: Boolean(slug)
+  });
+}
+
+/**
+ * Fetch a collective's station URL. Members only.
+ *
+ * `isMember` must be the caller's own check that the signed-in user belongs to
+ * this collective — the request is not sent otherwise, so a signed-out or
+ * non-member visitor never calls the endpoint at all. Resolves to `null` when
+ * no station URL is set.
+ */
+export function useCollectiveStation(slug: string | undefined, isMember: boolean) {
+  return useQuery({
+    queryKey: collectiveKeys.station(slug ?? ''),
+    queryFn: () => (slug ? getCollectiveStation(slug) : null),
+    enabled: Boolean(slug) && isMember
   });
 }
 
