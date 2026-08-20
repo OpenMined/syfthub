@@ -316,7 +316,8 @@ class CollectiveService(BaseService):
             about=data.about,
             auto_approve=data.auto_approve,
             icon_url=data.icon_url,
-            station_url=data.station_url,
+            # str(): HttpUrl can't bind to the String column.
+            station_url=None if data.station_url is None else str(data.station_url),
             tags=data.tags,
         )
         if collective is None:

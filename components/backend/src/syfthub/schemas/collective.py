@@ -10,9 +10,15 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
-from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from syfthub.schemas.endpoint import _validate_and_normalize_tags
 
@@ -87,6 +93,12 @@ def slugify_collective_name(name: str) -> str:
     return slug
 
 
+# Reused across the create/update/response schemas.
+_STATION_URL_DESCRIPTION = (
+    "Base URL of the station hosting the collective. Members only."
+)
+
+
 def _validate_slug(v: str) -> str:
     """Validate a user-provided collective slug."""
     if v != v.lower():
@@ -101,37 +113,6 @@ def _validate_slug(v: str) -> str:
             "Cannot start or end with a hyphen."
         )
     return v
-
-
-def _validate_station_url(v: Optional[str]) -> Optional[str]:
-    """Validate an optional station URL, normalizing blank input to ``None``.
-
-    Accepts only absolute ``http://`` / ``https://`` URLs with a hostname, so
-    a member reading the field can dial it without further parsing.
-    """
-    if v is None:
-        return None
-    v = v.strip()
-    if not v:
-        return None
-    if not v.startswith(("http://", "https://")):
-        raise ValueError("Station URL must start with http:// or https://")
-
-    parsed = urlparse(v)
-    if not parsed.netloc:
-        raise ValueError("Station URL must contain a valid hostname")
-    if not parsed.netloc.split(":")[0]:
-        raise ValueError("Station URL must contain a valid hostname, not just a port")
-    return v
-
-
-# Description reused across the create/update/response schemas so the
-# member-only visibility rule shows up everywhere the field does.
-_STATION_URL_DESCRIPTION = (
-    "Base URL of the station hosting the collective. Visible only to the "
-    "owner, admins, and owners of approved member endpoints — served as null "
-    "to everyone else."
-)
 
 
 class CollectiveBase(BaseModel):
@@ -156,7 +137,7 @@ class CollectiveBase(BaseModel):
     icon_url: Optional[str] = Field(
         None, max_length=500, description="URL to the collective's icon/image"
     )
-    station_url: Optional[str] = Field(
+    station_url: Optional[HttpUrl] = Field(
         None, max_length=500, description=_STATION_URL_DESCRIPTION
     )
     tags: List[str] = Field(
@@ -168,12 +149,6 @@ class CollectiveBase(BaseModel):
     def validate_tags(cls, v: List[str]) -> List[str]:
         """Normalize and validate the tag list (max 10, lowercase, hyphenated)."""
         return _validate_and_normalize_tags(v)
-
-    @field_validator("station_url")
-    @classmethod
-    def validate_station_url(cls, v: Optional[str]) -> Optional[str]:
-        """Validate the station URL, treating a blank string as unset."""
-        return _validate_station_url(v)
 
 
 class CollectiveCreate(CollectiveBase):
@@ -202,7 +177,7 @@ class CollectiveUpdate(BaseModel):
     auto_approve: Optional[bool] = None
     icon_url: Optional[str] = Field(None, max_length=500)
     # Explicit null clears the stored URL; omitting the key leaves it alone.
-    station_url: Optional[str] = Field(
+    station_url: Optional[HttpUrl] = Field(
         None, max_length=500, description=_STATION_URL_DESCRIPTION
     )
     tags: Optional[List[str]] = None
@@ -213,11 +188,14 @@ class CollectiveUpdate(BaseModel):
         """Normalize and validate the tag list when provided."""
         return None if v is None else _validate_and_normalize_tags(v)
 
-    @field_validator("station_url")
-    @classmethod
-    def validate_station_url(cls, v: Optional[str]) -> Optional[str]:
-        """Validate the station URL, treating a blank string as a clear."""
-        return _validate_station_url(v)
+    @field_serializer("station_url")
+    def serialize_station_url(self, v: Optional[HttpUrl]) -> Optional[str]:
+        """Dump the URL as a plain string.
+
+        ``update_collective`` feeds ``model_dump()`` straight to the repository,
+        and the ``String`` column's driver cannot bind a ``Url`` object.
+        """
+        return None if v is None else str(v)
 
 
 class CollectiveResponse(BaseModel):
@@ -243,7 +221,7 @@ class CollectiveResponse(BaseModel):
         ..., description="Whether join requests are auto-accepted"
     )
     icon_url: Optional[str] = Field(None, description="URL to the collective's icon")
-    station_url: Optional[str] = Field(None, description=_STATION_URL_DESCRIPTION)
+    station_url: Optional[HttpUrl] = Field(None, description=_STATION_URL_DESCRIPTION)
     tags: List[str] = Field(..., description="Tags for categorization")
     verified: bool = Field(
         False,

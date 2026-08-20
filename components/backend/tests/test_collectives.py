@@ -267,7 +267,9 @@ def test_delete_collective_owner_only(
 # station_url — owner-editable, member-only visibility
 # ----------------------------------------------------------------------
 
-STATION = "https://station.example.com"
+# Already in HttpUrl's normalized form (trailing slash on a bare host), so it
+# round-trips unchanged through the API.
+STATION = "https://station.example.com/"
 
 
 def test_station_url_visible_to_owner_on_every_read_path(
@@ -373,12 +375,23 @@ def test_station_url_update_validation_and_clear(
     assert patch("station.example.com").status_code == 422
     assert patch("ftp://station.example.com").status_code == 422
     assert patch("https://").status_code == 422
+    assert patch("https://station example.com").status_code == 422
+
+    # Blank is not a URL — the settings form sends null to clear, not "".
+    assert patch("   ").status_code == 422
 
     assert patch(STATION).json()["station_url"] == STATION
-    # Blank input reads as "clear", matching the settings form's empty field.
-    assert patch("   ").json()["station_url"] is None
-    assert patch(STATION).json()["station_url"] == STATION
     assert patch(None).json()["station_url"] is None
+
+    # HttpUrl normalizes what it stores: a bare host gains a trailing slash,
+    # the host is lowercased, a default port is dropped. A port and path that
+    # carry meaning are preserved.
+    for typed, stored in (
+        ("https://Station.Example.com", "https://station.example.com/"),
+        ("https://station.example.com:443", "https://station.example.com/"),
+        ("http://192.168.1.10:8443/api", "http://192.168.1.10:8443/api"),
+    ):
+        assert patch(typed).json()["station_url"] == stored
 
 
 def test_station_url_update_is_owner_only(
