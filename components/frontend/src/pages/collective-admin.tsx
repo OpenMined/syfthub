@@ -718,6 +718,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const [description, setDescription] = useState(collective.description);
   const [about, setAbout] = useState(collective.about);
   const [iconUrl, setIconUrl] = useState(collective.icon_url ?? '');
+  const [stationUrl, setStationUrl] = useState(collective.station_url ?? '');
   const [tags, setTags] = useState(collective.tags.join(', '));
   const [autoApprove, setAutoApprove] = useState(collective.auto_approve);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -730,6 +731,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
         description: description.trim(),
         about: about.trim(),
         icon_url: iconUrl.trim() || null,
+        station_url: stationUrl.trim() || null,
         auto_approve: autoApprove,
         tags: parseTags(tags)
       }
@@ -802,6 +804,21 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               placeholder='https://example.com/icon.png'
               className='mt-1'
             />
+          </div>
+          <div>
+            <Label htmlFor='station-url'>Station URL</Label>
+            <Input
+              id='station-url'
+              value={stationUrl}
+              onChange={(e) => {
+                setStationUrl(e.target.value);
+              }}
+              placeholder='https://station.example.com'
+              className='mt-1'
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Optional. Visible only to members of this collective — not shown publicly.
+            </p>
           </div>
           <div>
             <Label htmlFor='tags'>Tags</Label>

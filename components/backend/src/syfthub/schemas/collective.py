@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -102,6 +103,37 @@ def _validate_slug(v: str) -> str:
     return v
 
 
+def _validate_station_url(v: Optional[str]) -> Optional[str]:
+    """Validate an optional station URL, normalizing blank input to ``None``.
+
+    Accepts only absolute ``http://`` / ``https://`` URLs with a hostname, so
+    a member reading the field can dial it without further parsing.
+    """
+    if v is None:
+        return None
+    v = v.strip()
+    if not v:
+        return None
+    if not v.startswith(("http://", "https://")):
+        raise ValueError("Station URL must start with http:// or https://")
+
+    parsed = urlparse(v)
+    if not parsed.netloc:
+        raise ValueError("Station URL must contain a valid hostname")
+    if not parsed.netloc.split(":")[0]:
+        raise ValueError("Station URL must contain a valid hostname, not just a port")
+    return v
+
+
+# Description reused across the create/update/response schemas so the
+# member-only visibility rule shows up everywhere the field does.
+_STATION_URL_DESCRIPTION = (
+    "Base URL of the station hosting the collective. Visible only to the "
+    "owner, admins, and owners of approved member endpoints — served as null "
+    "to everyone else."
+)
+
+
 class CollectiveBase(BaseModel):
     """Fields a user supplies when creating or updating a collective."""
 
@@ -124,6 +156,9 @@ class CollectiveBase(BaseModel):
     icon_url: Optional[str] = Field(
         None, max_length=500, description="URL to the collective's icon/image"
     )
+    station_url: Optional[str] = Field(
+        None, max_length=500, description=_STATION_URL_DESCRIPTION
+    )
     tags: List[str] = Field(
         default_factory=list, description="Tags for categorizing the collective"
     )
@@ -133,6 +168,12 @@ class CollectiveBase(BaseModel):
     def validate_tags(cls, v: List[str]) -> List[str]:
         """Normalize and validate the tag list (max 10, lowercase, hyphenated)."""
         return _validate_and_normalize_tags(v)
+
+    @field_validator("station_url")
+    @classmethod
+    def validate_station_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the station URL, treating a blank string as unset."""
+        return _validate_station_url(v)
 
 
 class CollectiveCreate(CollectiveBase):
@@ -160,6 +201,10 @@ class CollectiveUpdate(BaseModel):
     about: Optional[str] = Field(None, max_length=50000)
     auto_approve: Optional[bool] = None
     icon_url: Optional[str] = Field(None, max_length=500)
+    # Explicit null clears the stored URL; omitting the key leaves it alone.
+    station_url: Optional[str] = Field(
+        None, max_length=500, description=_STATION_URL_DESCRIPTION
+    )
     tags: Optional[List[str]] = None
 
     @field_validator("tags")
@@ -167,6 +212,12 @@ class CollectiveUpdate(BaseModel):
     def validate_tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         """Normalize and validate the tag list when provided."""
         return None if v is None else _validate_and_normalize_tags(v)
+
+    @field_validator("station_url")
+    @classmethod
+    def validate_station_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the station URL, treating a blank string as a clear."""
+        return _validate_station_url(v)
 
 
 class CollectiveResponse(BaseModel):
@@ -192,6 +243,7 @@ class CollectiveResponse(BaseModel):
         ..., description="Whether join requests are auto-accepted"
     )
     icon_url: Optional[str] = Field(None, description="URL to the collective's icon")
+    station_url: Optional[str] = Field(None, description=_STATION_URL_DESCRIPTION)
     tags: List[str] = Field(..., description="Tags for categorization")
     verified: bool = Field(
         False,

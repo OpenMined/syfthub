@@ -33,6 +33,13 @@ export interface Collective {
   /** When true, join requests are approved immediately. */
   auto_approve: boolean;
   icon_url: string | null;
+  /**
+   * Base URL of the station hosting the collective. Member-only: the backend
+   * serves it as `null` to anyone who is not the owner, an admin, or the owner
+   * of an approved member endpoint — so a `null` here means "not visible to
+   * you", not necessarily "not set".
+   */
+  station_url: string | null;
   tags: string[];
   /** Platform-granted trust signal. Not user-settable. */
   verified: boolean;
@@ -72,6 +79,7 @@ export interface CollectiveCreateInput {
   about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
+  station_url?: string | null;
   tags?: string[];
   /** Optional — auto-generated from the name when omitted. */
   slug?: string;
@@ -84,6 +92,8 @@ export interface CollectiveUpdateInput {
   about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
+  /** `null` clears the stored URL; omit the key to leave it unchanged. */
+  station_url?: string | null;
   tags?: string[];
 }
 

@@ -106,6 +106,7 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
         about: str,
         auto_approve: bool,
         icon_url: Optional[str],
+        station_url: Optional[str],
         tags: List[str],
     ) -> Optional[CollectiveResponse]:
         """Create a new collective."""
@@ -118,6 +119,7 @@ class CollectiveRepository(BaseRepository[CollectiveModel]):
                 about=about,
                 auto_approve=auto_approve,
                 icon_url=icon_url,
+                station_url=station_url,
                 tags=tags,
             )
             self.session.add(model)
@@ -314,6 +316,34 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
             return {row[0]: row[1] for row in self.session.execute(stmt).all()}
         except SQLAlchemyError:
             return {}
+
+    def collective_ids_for_member_user(
+        self, user_id: int, collective_ids: Sequence[int], status: str
+    ) -> set[int]:
+        """Return which of ``collective_ids`` the user is a member of.
+
+        A user is a member of a collective when they own at least one endpoint
+        whose membership is in ``status``. One query for the whole batch, so
+        list endpoints stay a fixed number of round trips.
+        """
+        if not collective_ids:
+            return set()
+        try:
+            stmt = (
+                select(func.distinct(self.model.collective_id))
+                .select_from(self.model)
+                .join(EndpointModel, EndpointModel.id == self.model.endpoint_id)
+                .where(
+                    and_(
+                        self.model.collective_id.in_(list(collective_ids)),
+                        self.model.status == status,
+                        EndpointModel.user_id == user_id,
+                    )
+                )
+            )
+            return {row[0] for row in self.session.execute(stmt).all()}
+        except SQLAlchemyError:
+            return set()
 
     def create_membership(
         self,

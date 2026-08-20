@@ -55,6 +55,7 @@ def create_collective(
 @router.get("", response_model=List[CollectiveResponse])
 def list_collectives(
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     owner_id: Optional[int] = Query(None, description="Filter by owning user ID"),
@@ -65,9 +66,17 @@ def list_collectives(
         description="Search by name, description, or tags",
     ),
 ) -> List[CollectiveResponse]:
-    """List collectives, newest first. Collectives are publicly viewable."""
+    """List collectives, newest first. Collectives are publicly viewable.
+
+    Auth is optional and only decides whether ``station_url`` is populated —
+    it is member-only, so anonymous callers always see null.
+    """
     return service.list_collectives(
-        skip=skip, limit=limit, owner_id=owner_id, search=search
+        skip=skip,
+        limit=limit,
+        owner_id=owner_id,
+        search=search,
+        viewer=current_user,
     )
 
 
@@ -75,9 +84,14 @@ def list_collectives(
 def get_collective_by_slug(
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> CollectiveResponse:
-    """Get a collective by its slug."""
-    return service.get_collective_by_slug(slug)
+    """Get a collective by its slug.
+
+    Auth is optional; it only decides whether the member-only ``station_url``
+    is populated.
+    """
+    return service.get_collective_by_slug(slug, viewer=current_user)
 
 
 @router.get(
@@ -87,14 +101,18 @@ def list_collectives_for_endpoint(
     owner_username: str,
     slug: str,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> List[CollectiveResponse]:
     """List approved collectives an ``owner/slug`` endpoint participates in.
 
     Public-readable. Backs the Collectives card on the endpoint detail page;
     returns an empty list when the endpoint exists but isn't an approved
-    member of any collective, or when the endpoint can't be resolved.
+    member of any collective, or when the endpoint can't be resolved. Auth is
+    optional; it only decides whether ``station_url`` is populated.
     """
-    return service.list_collectives_for_endpoint(owner_username, slug)
+    return service.list_collectives_for_endpoint(
+        owner_username, slug, viewer=current_user
+    )
 
 
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])
@@ -237,9 +255,14 @@ def get_shared_endpoint_billing_summary(
 def get_collective(
     collective_id: int,
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> CollectiveResponse:
-    """Get a collective by ID."""
-    return service.get_collective(collective_id)
+    """Get a collective by ID.
+
+    Auth is optional; it only decides whether the member-only ``station_url``
+    is populated.
+    """
+    return service.get_collective(collective_id, viewer=current_user)
 
 
 @router.patch("/{collective_id}", response_model=CollectiveResponse)

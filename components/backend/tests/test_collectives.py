@@ -264,6 +264,141 @@ def test_delete_collective_owner_only(
 
 
 # ----------------------------------------------------------------------
+# station_url — owner-editable, member-only visibility
+# ----------------------------------------------------------------------
+
+STATION = "https://station.example.com"
+
+
+def test_station_url_visible_to_owner_on_every_read_path(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """The owner sees ``station_url`` by ID, by slug, and in the listing."""
+    created = _create_collective(client, owner_headers, station_url=STATION)
+    assert created["station_url"] == STATION
+
+    cid, slug = created["id"], created["slug"]
+    by_id = client.get(f"{API}/collectives/{cid}", headers=owner_headers)
+    assert by_id.json()["station_url"] == STATION
+
+    by_slug = client.get(f"{API}/collectives/by-slug/{slug}", headers=owner_headers)
+    assert by_slug.json()["station_url"] == STATION
+
+    listing = client.get(f"{API}/collectives", headers=owner_headers)
+    listed = next(c for c in listing.json() if c["id"] == cid)
+    assert listed["station_url"] == STATION
+
+
+def test_station_url_hidden_from_anonymous_and_non_members(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """Non-members get null for ``station_url`` on every public read path."""
+    created = _create_collective(client, owner_headers, station_url=STATION)
+    cid, slug = created["id"], created["slug"]
+
+    # member_headers has no endpoint in this collective yet — a non-member.
+    for headers in (None, member_headers):
+        kwargs = {} if headers is None else {"headers": headers}
+        assert (
+            client.get(f"{API}/collectives/{cid}", **kwargs).json()["station_url"]
+            is None
+        )
+        assert (
+            client.get(f"{API}/collectives/by-slug/{slug}", **kwargs).json()[
+                "station_url"
+            ]
+            is None
+        )
+        listing = client.get(f"{API}/collectives", **kwargs).json()
+        assert next(c for c in listing if c["id"] == cid)["station_url"] is None
+
+
+def test_station_url_visible_only_once_membership_is_approved(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A pending member sees null; approval reveals the station URL."""
+    collective = _create_collective(
+        client, owner_headers, auto_approve=False, station_url=STATION
+    )
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "member-source")
+
+    resp = client.post(
+        f"{API}/collectives/{cid}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["status"] == "pending"
+
+    # Pending is not membership.
+    pending_view = client.get(f"{API}/collectives/{cid}", headers=member_headers)
+    assert pending_view.json()["station_url"] is None
+
+    approve = client.post(
+        f"{API}/collectives/{cid}/members/{endpoint_id}/review",
+        json={"decision": "approve"},
+        headers=owner_headers,
+    )
+    assert approve.status_code == 200
+
+    approved_view = client.get(f"{API}/collectives/{cid}", headers=member_headers)
+    assert approved_view.json()["station_url"] == STATION
+
+    # The by-endpoint route honours the same rule.
+    by_endpoint = client.get(
+        f"{API}/collectives/by-endpoint/member/member-source", headers=member_headers
+    )
+    assert [c["station_url"] for c in by_endpoint.json()] == [STATION]
+    anon = client.get(f"{API}/collectives/by-endpoint/member/member-source")
+    assert [c["station_url"] for c in anon.json()] == [None]
+
+
+def test_station_url_update_validation_and_clear(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """The owner can set, replace and clear the URL; junk is rejected."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    assert collective["station_url"] is None
+
+    def patch(value: object) -> object:
+        return client.patch(
+            f"{API}/collectives/{cid}",
+            json={"station_url": value},
+            headers=owner_headers,
+        )
+
+    # A relative or scheme-less value is not a station URL.
+    assert patch("station.example.com").status_code == 422
+    assert patch("ftp://station.example.com").status_code == 422
+    assert patch("https://").status_code == 422
+
+    assert patch(STATION).json()["station_url"] == STATION
+    # Blank input reads as "clear", matching the settings form's empty field.
+    assert patch("   ").json()["station_url"] is None
+    assert patch(STATION).json()["station_url"] == STATION
+    assert patch(None).json()["station_url"] is None
+
+
+def test_station_url_update_is_owner_only(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A non-owner cannot write the station URL."""
+    collective = _create_collective(client, owner_headers, station_url=STATION)
+    resp = client.patch(
+        f"{API}/collectives/{collective['id']}",
+        json={"station_url": "https://attacker.example.com"},
+        headers=member_headers,
+    )
+    assert resp.status_code == 403
+    unchanged = client.get(
+        f"{API}/collectives/{collective['id']}", headers=owner_headers
+    )
+    assert unchanged.json()["station_url"] == STATION
+
+
+# ----------------------------------------------------------------------
 # Membership — join requests
 # ----------------------------------------------------------------------
 

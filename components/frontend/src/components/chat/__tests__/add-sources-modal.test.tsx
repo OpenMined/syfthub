@@ -51,6 +51,7 @@ function createMockCollective(overrides: Partial<Collective> = {}): Collective {
     about: '',
     auto_approve: false,
     icon_url: null,
+    station_url: null,
     tags: ['ml'],
     verified: false,
     member_count: 3,

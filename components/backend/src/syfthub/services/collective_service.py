@@ -316,6 +316,7 @@ class CollectiveService(BaseService):
             about=data.about,
             auto_approve=data.auto_approve,
             icon_url=data.icon_url,
+            station_url=data.station_url,
             tags=data.tags,
         )
         if collective is None:
@@ -325,19 +326,30 @@ class CollectiveService(BaseService):
             )
         return self._with_counts(collective)
 
-    def get_collective(self, collective_id: int) -> CollectiveResponse:
-        """Get a collective by ID. Collectives are publicly viewable."""
-        return self._with_counts(self._get_collective_or_404(collective_id))
+    def get_collective(
+        self, collective_id: int, viewer: Optional[User] = None
+    ) -> CollectiveResponse:
+        """Get a collective by ID. Collectives are publicly viewable.
 
-    def get_collective_by_slug(self, slug: str) -> CollectiveResponse:
-        """Get a collective by slug. Collectives are publicly viewable."""
+        ``station_url`` is redacted unless ``viewer`` may see it.
+        """
+        collective = self._with_counts(self._get_collective_or_404(collective_id))
+        return self._redact_station_url(collective, viewer)
+
+    def get_collective_by_slug(
+        self, slug: str, viewer: Optional[User] = None
+    ) -> CollectiveResponse:
+        """Get a collective by slug. Collectives are publicly viewable.
+
+        ``station_url`` is redacted unless ``viewer`` may see it.
+        """
         collective = self.collective_repo.get_by_slug(slug)
         if collective is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Collective not found",
             )
-        return self._with_counts(collective)
+        return self._redact_station_url(self._with_counts(collective), viewer)
 
     def get_collective_endpoint_paths(self, slug: str) -> List[str]:
         """Return owner/slug paths of all approved member endpoints.
@@ -503,10 +515,12 @@ class CollectiveService(BaseService):
         limit: int = 50,
         owner_id: Optional[int] = None,
         search: Optional[str] = None,
+        viewer: Optional[User] = None,
     ) -> List[CollectiveResponse]:
         """List collectives, newest first.
 
         Optionally filtered by ``owner_id`` and/or a ``search`` string.
+        ``station_url`` is redacted per row for collectives ``viewer`` isn't in.
         """
         collectives = self.collective_repo.list_collectives(
             skip, limit, owner_id, search
@@ -519,16 +533,17 @@ class CollectiveService(BaseService):
         for collective in collectives:
             collective.member_count = member_counts.get(collective.id, 0)
             collective.owner_count = owner_counts.get(collective.id, 0)
-        return collectives
+        return self._redact_station_urls(collectives, viewer)
 
     def list_collectives_for_endpoint(
-        self, owner_username: str, slug: str
+        self, owner_username: str, slug: str, viewer: Optional[User] = None
     ) -> List[CollectiveResponse]:
         """List approved collectives an ``owner/slug`` endpoint belongs to.
 
         Public-readable. Returns only ``APPROVED`` memberships so pending /
         invited / rejected state never leaks to non-owners — mirrors the
-        non-owner view of ``list_members``.
+        non-owner view of ``list_members``. ``station_url`` is redacted per row
+        for collectives ``viewer`` isn't in.
         """
         owner = self.user_repo.get_by_username(owner_username)
         if owner is None:
@@ -546,7 +561,7 @@ class CollectiveService(BaseService):
         for collective in collectives:
             collective.member_count = member_counts.get(collective.id, 0)
             collective.owner_count = owner_counts.get(collective.id, 0)
-        return collectives
+        return self._redact_station_urls(collectives, viewer)
 
     def update_collective(
         self, collective_id: int, data: CollectiveUpdate, current_user: User
@@ -951,6 +966,42 @@ class CollectiveService(BaseService):
                 detail="Collective not found",
             )
         return collective
+
+    def _redact_station_url(
+        self, collective: CollectiveResponse, viewer: Optional[User]
+    ) -> CollectiveResponse:
+        """Blank ``station_url`` unless the viewer is entitled to see it."""
+        return self._redact_station_urls([collective], viewer)[0]
+
+    def _redact_station_urls(
+        self, collectives: List[CollectiveResponse], viewer: Optional[User]
+    ) -> List[CollectiveResponse]:
+        """Blank ``station_url`` on every row the viewer isn't a member of.
+
+        Entitled viewers are the collective owner, platform admins, and any
+        user who owns an approved member endpoint. Anonymous callers never see
+        it. Membership is resolved in a single batched query.
+        """
+        pending = [c for c in collectives if c.station_url]
+        if not pending:
+            return collectives
+
+        if viewer is None:
+            member_ids: set[int] = set()
+        elif self._is_admin(viewer):
+            member_ids = {c.id for c in pending}
+        else:
+            member_ids = self.member_repo.collective_ids_for_member_user(
+                viewer.id,
+                [c.id for c in pending if c.owner_id != viewer.id],
+                MembershipStatus.APPROVED.value,
+            )
+            member_ids |= {c.id for c in pending if c.owner_id == viewer.id}
+
+        for collective in pending:
+            if collective.id not in member_ids:
+                collective.station_url = None
+        return collectives
 
     def _get_endpoint_or_404(self, endpoint_id: int) -> Endpoint:
         """Load an active endpoint or raise 404."""
