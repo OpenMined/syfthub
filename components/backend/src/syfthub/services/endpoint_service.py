@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 
 from syfthub.core.config import settings
 from syfthub.core.url_builder import transform_connection_urls
+from syfthub.domain.base_url import TUNNELING_PREFIX
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
@@ -40,7 +41,6 @@ from syfthub.schemas.endpoint import (
     get_matching_types,
 )
 from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
-from syfthub.schemas.user import TUNNELING_PREFIX
 from syfthub.services.base import BaseService
 from syfthub.services.rag_service import RAGService, get_rag_service
 
@@ -1486,7 +1486,7 @@ class EndpointService(BaseService):
         Returns:
             EndpointHealthResponse with updated and ignored counts
         """
-        from syfthub.schemas.user import TUNNELING_PREFIX
+        from syfthub.domain.base_url import TUNNELING_PREFIX
 
         # --- TTL calculation ---
         requested_ttl = ttl_seconds or settings.health_default_ttl_seconds

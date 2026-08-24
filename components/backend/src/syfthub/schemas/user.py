@@ -9,10 +9,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from syfthub.domain.base_url import TUNNELING_PREFIX
 from syfthub.schemas.auth import AuthProvider, UserRole
-
-# Tunneling URL prefix for spaces behind firewalls/NAT
-TUNNELING_PREFIX = "tunneling:"
 
 # Pattern for valid tunneling usernames (alphanumeric, underscore, hyphen, 1-50 chars)
 TUNNELING_USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,50}$")

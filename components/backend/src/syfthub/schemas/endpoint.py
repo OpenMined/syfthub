@@ -745,7 +745,8 @@ class EndpointHealthRequest(BaseModel):
         """Validate URL format (http(s):// or tunneling: prefix)."""
         from urllib.parse import urlparse
 
-        from syfthub.schemas.user import TUNNELING_PREFIX, TUNNELING_USERNAME_PATTERN
+        from syfthub.domain.base_url import TUNNELING_PREFIX
+        from syfthub.schemas.user import TUNNELING_USERNAME_PATTERN
 
         v = v.strip()
 

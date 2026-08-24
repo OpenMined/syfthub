@@ -1,5 +1,11 @@
 """Domain package for business entities and value objects."""
 
+from syfthub.domain.base_url import (
+    MAX_BASE_URL_LENGTH,
+    TUNNELING_PREFIX,
+    BaseUrl,
+    normalize_base_url,
+)
 from syfthub.domain.exceptions import (
     ConflictError,
     DomainException,
@@ -7,13 +13,20 @@ from syfthub.domain.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
+from syfthub.domain.satellite import SatelliteKind, SatelliteRef
 from syfthub.domain.value_objects import ValueObject
 
 __all__ = [
+    "MAX_BASE_URL_LENGTH",
+    "TUNNELING_PREFIX",
+    "BaseUrl",
     "ConflictError",
     "DomainException",
     "NotFoundError",
     "PermissionDeniedError",
+    "SatelliteKind",
+    "SatelliteRef",
     "ValidationError",
     "ValueObject",
+    "normalize_base_url",
 ]

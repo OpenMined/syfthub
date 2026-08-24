@@ -9,6 +9,7 @@ from syfthub.models.endpoint import (
     EndpointUptimeSampleModel,
 )
 from syfthub.models.otp import OTPCodeModel
+from syfthub.models.satellite import SatelliteModel
 from syfthub.models.user import UserModel
 from syfthub.models.user_aggregator import UserAggregatorModel
 from syfthub.models.xendit_subscription import UserXenditSubscriptionModel
@@ -25,6 +26,7 @@ __all__ = [
     "EndpointUptimeSampleModel",
     "ErrorLogModel",
     "OTPCodeModel",
+    "SatelliteModel",
     "TimestampMixin",
     "UserAggregatorModel",
     "UserModel",

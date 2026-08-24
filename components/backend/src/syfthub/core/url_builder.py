@@ -26,8 +26,9 @@ from __future__ import annotations
 
 from typing import Any
 
-# Tunneling URL prefix - endpoints behind NAT/firewall use NATS pub/sub
-TUNNELING_PREFIX = "tunneling:"
+# Tunneling prefix is an addressing rule, so the domain layer owns it and
+# this module depends inward on it rather than redefining the literal.
+from syfthub.domain.base_url import TUNNELING_PREFIX
 
 # WebSocket connection types that need protocol upgrade
 _WEBSOCKET_TYPES = {"websocket", "ws", "wss"}

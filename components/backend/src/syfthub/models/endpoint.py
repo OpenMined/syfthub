@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         CollectiveMemberModel,
         CollectiveSharedEndpointMemberModel,
     )
+    from syfthub.models.satellite import SatelliteModel
     from syfthub.models.user import UserModel
 
 
@@ -48,6 +49,16 @@ class EndpointModel(BaseModel, TimestampMixin):
     # Owner field - every endpoint is owned by exactly one user
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
+    )
+
+    # The space serving this endpoint. NULL means either no domain was ever
+    # reported, or the space was deleted and this endpoint was orphaned. Either
+    # way there is no origin to build a URL from, so the sweeper skips it.
+    space_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("satellites.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
     )
 
     # Endpoint fields
@@ -108,6 +119,9 @@ class EndpointModel(BaseModel, TimestampMixin):
         back_populates="endpoint",
         cascade="all, delete-orphan",
     )
+    space: Mapped[Optional["SatelliteModel"]] = relationship(
+        "SatelliteModel", back_populates="endpoints"
+    )
     shared_endpoint_memberships: Mapped[List["CollectiveSharedEndpointMemberModel"]] = (
         relationship(
             "CollectiveSharedEndpointMemberModel",
@@ -119,6 +133,7 @@ class EndpointModel(BaseModel, TimestampMixin):
     # Indexes for performance - slug uniqueness is per-user
     __table_args__ = (
         Index("idx_endpoints_user_id", "user_id"),
+        Index("idx_endpoints_space_id", "space_id"),
         Index("idx_endpoints_slug", "slug"),
         # Unique slug per user
         Index("idx_endpoints_user_slug", "user_id", "slug", unique=True),
