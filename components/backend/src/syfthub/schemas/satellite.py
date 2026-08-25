@@ -1,17 +1,35 @@
-"""Pydantic schemas for Identity Provider (IdP) satellite token system.
+"""Pydantic schemas for satellites and the satellite token system.
 
-These schemas define the request/response formats for:
-- JWKS (JSON Web Key Set) endpoint
-- Satellite token minting endpoint
-
-Based on OpenAPI 3.0 specification for SyftHub Identity & Trust API.
+Covers the JWKS endpoint, token minting and verification (from the OpenAPI 3.0
+spec for SyftHub Identity & Trust), and satellite registration.
 """
 
 from __future__ import annotations
 
-from typing import List, Literal, Union
+import uuid
+from datetime import datetime
+from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from syfthub.domain.base_url import normalize_base_url
+from syfthub.domain.exceptions import ValidationError as DomainValidationError
+
+# Imported at runtime: Pydantic resolves this enum field type when building
+# the models below, so it cannot live in a type-checking-only block.
+from syfthub.domain.satellite import SatelliteKind  # noqa: TC001
+
+
+def _normalized_base_url(value: str) -> str:
+    """Canonicalise a base URL, reporting failures as Pydantic field errors.
+
+    Pydantic only recognises ValueError, so the domain error is translated —
+    otherwise a bad URL would escape as a 500 instead of a field-level 422.
+    """
+    try:
+        return normalize_base_url(value)
+    except DomainValidationError as exc:
+        raise ValueError(exc.message) from None
 
 
 class JSONWebKey(BaseModel):
@@ -318,3 +336,61 @@ class TokenVerifyErrorResponse(BaseModel):
 
 # Union type for verify endpoint response
 TokenVerifyResponse = Union[TokenVerifySuccessResponse, TokenVerifyErrorResponse]
+
+
+# ===========================================
+# SATELLITE REGISTRATION
+# ===========================================
+#
+# NOTE ON IDENTIFIERS: the ``id`` field in these schemas is the satellite's
+# ``public_id`` UUID. The integer primary key is internal and is never
+# serialised — see models/satellite.py.
+
+
+class SatelliteCreate(BaseModel):
+    """Request to register a satellite.
+
+    A satellite has no name. Its identifier is assigned by the Hub, and its
+    origin is what distinguishes it from the account's other satellites — which
+    is why the origin is required.
+    """
+
+    kind: SatelliteKind = Field(..., description="Whether this is a space or a station")
+    base_url: str = Field(
+        ...,
+        description="Origin this satellite serves from, e.g. https://space.example.com",
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        """Canonicalise the origin before it reaches the service."""
+        return _normalized_base_url(v)
+
+
+class SatelliteUpdate(BaseModel):
+    """Request to move a satellite to a new origin."""
+
+    base_url: str = Field(
+        ..., description="New origin for this satellite; its identifier is unchanged"
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        """Canonicalise the origin before it reaches the service."""
+        return _normalized_base_url(v)
+
+
+class SatelliteResponse(BaseModel):
+    """A satellite owned by the current account."""
+
+    id: uuid.UUID = Field(
+        ..., description="The satellite's identifier, used as a token's aud claim"
+    )
+    kind: SatelliteKind = Field(..., description="Whether this is a space or a station")
+    base_url: str = Field(..., description="Origin this satellite serves from")
+    last_seen_at: Optional[datetime] = Field(
+        None, description="Last heartbeat from this satellite"
+    )
+    created_at: datetime = Field(..., description="When the satellite was registered")

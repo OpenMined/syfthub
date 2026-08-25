@@ -13,12 +13,17 @@ from syfthub.domain.exceptions import (
     PermissionDeniedError,
     ValidationError,
 )
-from syfthub.domain.satellite import SatelliteKind, SatelliteRef
+from syfthub.domain.satellite import (
+    AmbiguousSatelliteError,
+    SatelliteKind,
+    SatelliteRef,
+)
 from syfthub.domain.value_objects import ValueObject
 
 __all__ = [
     "MAX_BASE_URL_LENGTH",
     "TUNNELING_PREFIX",
+    "AmbiguousSatelliteError",
     "BaseUrl",
     "ConflictError",
     "DomainException",

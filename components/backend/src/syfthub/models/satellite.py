@@ -41,15 +41,7 @@ class SatelliteModel(BaseModel, TimestampMixin):
     # "space" | "station" — see domain.satellite.SatelliteKind.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    # Account-scoped handle, for humans and URLs.
-    slug: Mapped[str] = mapped_column(String(64), nullable=False)
-
-    # Canonical origin, normalised by BaseUrl before it is written. Nullable: a
-    # satellite may be registered before it first reports in, and a station
-    # never needs one.
-    base_url: Mapped[Optional[str]] = mapped_column(
-        String(MAX_BASE_URL_LENGTH), nullable=True, default=None
-    )
+    base_url: Mapped[str] = mapped_column(String(MAX_BASE_URL_LENGTH), nullable=False)
 
     # Last heartbeat. Distinct from endpoint health: a satellite can be
     # reachable while an endpoint it serves is not.
@@ -69,16 +61,15 @@ class SatelliteModel(BaseModel, TimestampMixin):
     __table_args__ = (
         Index("idx_satellites_public_id", "public_id", unique=True),
         Index("idx_satellites_user_id", "user_id"),
-        # One slug and one origin per account — the latter is what makes an
-        # origin usable as a resolution key. NULLs are distinct in a unique
-        # index, so any number of not-yet-reported satellites coexist.
-        Index("idx_satellites_user_slug", "user_id", "slug", unique=True),
+        # One origin per account. A satellite has no name: public_id identifies
+        # it, and this is what makes one host exactly one satellite — and an
+        # origin usable as a resolution key.
         Index("idx_satellites_user_base_url", "user_id", "base_url", unique=True),
     )
 
     def __repr__(self) -> str:
         """String representation of Satellite."""
         return (
-            f"<Satellite(id={self.id}, kind='{self.kind}', "
-            f"slug='{self.slug}', user={self.user_id})>"
+            f"<Satellite(id={self.public_id}, kind='{self.kind}', "
+            f"base_url='{self.base_url}', user={self.user_id})>"
         )

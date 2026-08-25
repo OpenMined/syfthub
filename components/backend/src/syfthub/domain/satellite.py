@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
+
+from syfthub.domain.exceptions import ValidationError
 
 if TYPE_CHECKING:
     from syfthub.domain.base_url import BaseUrl
@@ -50,8 +53,26 @@ class SatelliteRef:
     public_id: uuid.UUID
     user_id: int
     kind: SatelliteKind
-    slug: str
-    base_url: BaseUrl | None
+    base_url: BaseUrl
+    created_at: datetime
+    last_seen_at: datetime | None
 
 
-__all__ = ["SatelliteKind", "SatelliteRef"]
+class AmbiguousSatelliteError(ValidationError):
+    """A write could belong to more than one satellite.
+
+    Single-satellite accounts never hit this. It fires when an account owns a
+    second satellite and sends a write that does not say which one — guessing
+    would attribute data to the wrong host. Mapped to 422.
+    """
+
+    def __init__(self, count: int):
+        """Initialize ambiguous satellite error."""
+        self.count = count
+        super().__init__(
+            f"This account owns {count} satellites; specify which one this "
+            f"request is for via satellite_id"
+        )
+
+
+__all__ = ["AmbiguousSatelliteError", "SatelliteKind", "SatelliteRef"]

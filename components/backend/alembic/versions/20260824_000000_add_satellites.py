@@ -9,12 +9,13 @@ to live. Per-satellite rows end that by construction.
 ``id`` is internal; ``public_id`` is the opaque UUID that crosses API boundaries
 and will fill a satellite token's ``aud``. Separating them makes the exposed
 identifier rotatable without touching a foreign key — a uuid primary key could
-not offer that.
+not offer that. A satellite carries no name: ``public_id`` identifies it and
+``base_url`` is required, so ``(user_id, base_url)`` makes one host exactly one
+satellite with no NULL escape hatch.
 
 Backfill: one ``kind='space'`` satellite per user with a domain, and their
 endpoints pointed at it. Users without a domain get no row; inventing an empty
 satellite would make "does this account own any satellites yet" answer wrongly.
-``slug`` comes from the username — unique per user, recognisable to the owner.
 Domains are copied verbatim: normalising here would disagree with the previous
 release, which is still writing them unnormalised. The app normalises on the
 next heartbeat instead.
@@ -50,7 +51,6 @@ _satellites = sa.table(
     sa.column("public_id", sa.Uuid()),
     sa.column("user_id", sa.Integer),
     sa.column("kind", sa.String),
-    sa.column("slug", sa.String),
     sa.column("base_url", sa.String),
     sa.column("created_at", sa.DateTime(timezone=True)),
     sa.column("updated_at", sa.DateTime(timezone=True)),
@@ -59,7 +59,6 @@ _satellites = sa.table(
 _users = sa.table(
     "users",
     sa.column("id", sa.Integer),
-    sa.column("username", sa.String),
     sa.column("domain", sa.String),
 )
 
@@ -67,7 +66,7 @@ _users = sa.table(
 def _users_with_domains(bind: sa.engine.Connection) -> Sequence[sa.Row]:
     """Every user carrying a domain, in id order."""
     return bind.execute(
-        sa.select(_users.c.id, _users.c.username, _users.c.domain)
+        sa.select(_users.c.id, _users.c.domain)
         .where(_users.c.domain.isnot(None))
         .where(_users.c.domain != "")
         .order_by(_users.c.id)
@@ -85,8 +84,7 @@ def upgrade() -> None:
         sa.Column("public_id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("kind", sa.String(length=20), nullable=False),
-        sa.Column("slug", sa.String(length=64), nullable=False),
-        sa.Column("base_url", sa.String(length=_BASE_URL_LENGTH), nullable=True),
+        sa.Column("base_url", sa.String(length=_BASE_URL_LENGTH), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -97,9 +95,6 @@ def upgrade() -> None:
         "idx_satellites_public_id", "satellites", ["public_id"], unique=True
     )
     op.create_index("idx_satellites_user_id", "satellites", ["user_id"])
-    op.create_index(
-        "idx_satellites_user_slug", "satellites", ["user_id", "slug"], unique=True
-    )
     op.create_index(
         "idx_satellites_user_base_url",
         "satellites",
@@ -147,11 +142,10 @@ def _backfill(bind: sa.engine.Connection, is_postgresql: bool) -> None:
     # Python, not func.now(): the columns are timezone-aware and SQLite's
     # CURRENT_TIMESTAMP is not.
     now = datetime.now(timezone.utc)
-    for user_id, username, domain in rows:
+    for user_id, domain in rows:
         values = {
             "user_id": user_id,
             "kind": "space",
-            "slug": username,
             # Verbatim — see module docstring.
             "base_url": domain,
             "created_at": now,
@@ -196,7 +190,6 @@ def downgrade() -> None:
     op.drop_column("endpoints", "space_id")
 
     op.drop_index("idx_satellites_user_base_url", table_name="satellites")
-    op.drop_index("idx_satellites_user_slug", table_name="satellites")
     op.drop_index("idx_satellites_user_id", table_name="satellites")
     op.drop_index("idx_satellites_public_id", table_name="satellites")
     op.drop_table("satellites")

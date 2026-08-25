@@ -2,6 +2,7 @@
 
 import dataclasses
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -16,8 +17,9 @@ def _ref(**overrides) -> SatelliteRef:
         "public_id": uuid.uuid4(),
         "user_id": 7,
         "kind": SatelliteKind.SPACE,
-        "slug": "my-space",
         "base_url": BaseUrl("https://space.example.com"),
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "last_seen_at": None,
     }
     return SatelliteRef(**{**defaults, **overrides})
 
@@ -61,7 +63,7 @@ class TestSatelliteRef:
         """Test that a resolved satellite cannot be mutated in place."""
         ref = _ref()
         with pytest.raises(dataclasses.FrozenInstanceError):
-            ref.slug = "changed"
+            ref.base_url = None
 
     def test_carries_both_identifiers(self):
         """Test that the internal key and exposed identifier are distinct."""

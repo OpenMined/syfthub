@@ -35,8 +35,9 @@ def _to_ref(model: SatelliteModel) -> SatelliteRef:
         public_id=model.public_id,
         user_id=model.user_id,
         kind=SatelliteKind(model.kind),
-        slug=model.slug,
-        base_url=BaseUrl(model.base_url) if model.base_url else None,
+        base_url=BaseUrl(model.base_url),
+        created_at=model.created_at,
+        last_seen_at=model.last_seen_at,
     )
 
 
@@ -94,11 +95,7 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
     # ---------------------------------------------------------------- writes
 
     def register(
-        self,
-        user_id: int,
-        kind: SatelliteKind,
-        slug: str,
-        base_url: BaseUrl | None,
+        self, user_id: int, kind: SatelliteKind, base_url: BaseUrl
     ) -> SatelliteRef:
         """Register a new satellite.
 
@@ -108,27 +105,21 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
 
         Commits, per this package's convention. A satellite abandoned by a
         failing caller is harmless — it holds no catalogue data, and the next
-        request for the same origin or slug resolves to it.
+        request for the same origin resolves to it.
 
         Raises:
-            ConflictError: Slug or origin already taken on this account.
+            ConflictError: This account already has a satellite at this origin.
         """
         model = SatelliteModel(
-            user_id=user_id,
-            kind=kind.value,
-            slug=slug,
-            base_url=base_url.value if base_url else None,
+            user_id=user_id, kind=kind.value, base_url=base_url.value
         )
         self.session.add(model)
         try:
             self.session.commit()
         except IntegrityError:
             self.session.rollback()
-            # Either unique index could have fired; report the origin when one
-            # was supplied, since that is the value the caller did not choose.
-            field = "base_url" if base_url else "slug"
-            logger.info("Satellite create conflicted for user %s on %s", user_id, field)
-            raise ConflictError("satellite", field) from None
+            logger.info("Satellite create conflicted for user %s on base_url", user_id)
+            raise ConflictError("satellite", "base_url") from None
         self.session.refresh(model)
         return _to_ref(model)
 
@@ -151,6 +142,27 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
         except IntegrityError:
             self.session.rollback()
             raise ConflictError("satellite", "base_url") from None
+
+    def move(self, satellite_id: int, base_url: BaseUrl) -> Optional[SatelliteRef]:
+        """Point a satellite at a new origin, keeping its identity.
+
+        Distinct from ``set_base_url``, which is the heartbeat write and also
+        stamps ``last_seen_at``; this is an explicit reconfiguration.
+
+        Raises:
+            ConflictError: A sibling satellite already claims the origin.
+        """
+        model = self.session.get(self.model, satellite_id)
+        if model is None:
+            return None
+        model.base_url = base_url.value
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            raise ConflictError("satellite", "base_url") from None
+        self.session.refresh(model)
+        return _to_ref(model)
 
     def touch_last_seen(self, satellite_id: int) -> None:
         """Record a heartbeat without changing the origin."""
