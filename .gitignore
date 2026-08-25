@@ -189,8 +189,12 @@ backend/.mypy_cache/
 backend/.ruff_cache/
 backend/.venv/
 backend/.env
-backend/*.db
-backend/syfthub.db
+# Local dev / test SQLite databases. Anchored to the real layout: a pattern
+# containing a slash is relative to this file, so plain `backend/` never
+# matched components/backend/. Not blanket `*.db` — the golang examples
+# intentionally track a .policy_store.db.
+components/backend/*.db
+components/backend/*.db-journal
 
 # Frontend
 frontend/node_modules/
