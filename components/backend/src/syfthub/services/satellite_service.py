@@ -22,7 +22,6 @@ from syfthub.domain.satellite import (
     SatelliteKind,
     SatelliteRef,
 )
-from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.satellite import SatelliteRepository
 from syfthub.schemas.satellite import (
     SatelliteCreate,
@@ -42,7 +41,6 @@ class SatelliteService(BaseService):
         """Initialize satellite service."""
         super().__init__(session)
         self.satellite_repository = SatelliteRepository(session)
-        self.endpoint_repository = EndpointRepository(session)
 
     # ------------------------------------------------------------------ CRUD
 
@@ -93,16 +91,20 @@ class SatelliteService(BaseService):
         return _to_response(updated)
 
     def delete_satellite(self, user_id: int, satellite_id: uuid.UUID) -> None:
-        """Delete a satellite, orphaning its endpoints rather than removing them.
+        """Delete a satellite and every endpoint it served.
 
-        Orphan first, then delete: the endpoint update sets ``is_active`` too,
-        which the foreign key's ON DELETE SET NULL cannot do on its own.
+        "Delete this space" means the space and what it served. The endpoints go
+        via the FK's ON DELETE CASCADE — leaving them behind deactivated would
+        keep their slugs held and block the owner from republishing them.
+
+        Callers should confirm first: this also takes each endpoint's stars,
+        uptime history, and collective memberships, none of which a resync can
+        restore.
 
         Raises:
             NotFoundError: No such satellite on this account.
         """
         ref = self._require(user_id, satellite_id)
-        self.endpoint_repository.orphan_by_space_id(ref.id)
         self.satellite_repository.delete(ref.id)
 
     # ------------------------------------------------------------- resolution

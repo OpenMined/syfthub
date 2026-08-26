@@ -284,8 +284,7 @@ class TestWrites:
 
 
 class TestCascade:
-    """Deleting a user removes their satellites; deleting a satellite does not
-    remove their endpoints."""
+    """Deleting a user removes their satellites, which removes their endpoints."""
 
     def test_deleting_a_user_removes_their_satellites(self, repo, users, test_session):
         """Test that satellites are owned, per the cascade on the relationship."""
@@ -295,14 +294,10 @@ class TestCascade:
 
         assert repo.list_for_user(users[0].id) == []
 
-    def test_deleting_a_satellite_orphans_its_endpoints(
+    def test_deleting_a_satellite_deletes_its_endpoints(
         self, repo, users, test_session, sample_endpoint_data
     ):
-        """Test that endpoints survive their space being deleted.
-
-        The orphan-on-delete invariant: catalogue entries and the addresses
-        buyers hold must not vanish when an operator tears down a space.
-        """
+        """Test that the FK cascade removes what the satellite served."""
         ref = _register(repo, users[0].id)
         endpoint = EndpointModel(
             **{**sample_endpoint_data, "user_id": users[0].id, "space_id": ref.id}
@@ -315,17 +310,12 @@ class TestCascade:
         test_session.commit()
         test_session.expire_all()
 
-        survivor = test_session.get(EndpointModel, endpoint_id)
-        assert survivor is not None, "endpoint was destroyed with its satellite"
-        assert survivor.space_id is None, (
-            "orphaned endpoint still points at a satellite"
-        )
+        assert test_session.get(EndpointModel, endpoint_id) is None
 
     def test_deleting_a_user_removes_both(
         self, repo, users, test_session, sample_endpoint_data
     ):
-        """Test that orphan-on-delete does not keep endpoints alive past their
-        owner."""
+        """Test that deleting the owner removes satellites and endpoints."""
         ref = _register(repo, users[0].id)
         endpoint = EndpointModel(
             **{**sample_endpoint_data, "user_id": users[0].id, "space_id": ref.id}

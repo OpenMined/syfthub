@@ -81,9 +81,9 @@ def delete_satellite(
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[SatelliteService, Depends(get_satellite_service)],
 ) -> None:
-    """Delete a satellite.
+    """Delete a satellite and every endpoint it served.
 
-    Its endpoints are **orphaned**, not deleted: they keep their addresses and
-    are deactivated, so a redeployed space can re-adopt them.
+    Also takes each endpoint's stars, uptime history and collective
+    memberships, none of which a resync restores. Confirm before calling.
     """
     service.delete_satellite(current_user.id, satellite_id)

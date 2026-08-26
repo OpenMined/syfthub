@@ -44,25 +44,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         """Initialize repository with database session."""
         super().__init__(session, EndpointModel)
 
-    def orphan_by_space_id(self, space_id: int) -> int:
-        """Detach every endpoint served by a satellite, without deleting any.
-
-        Deleting a space must not destroy catalogue entries or the addresses
-        buyers already hold, so endpoints are detached and deactivated instead.
-        A redeployed space re-adopts them by publishing the same slug.
-
-        Returns:
-            How many endpoints were orphaned.
-        """
-        stmt = (
-            update(EndpointModel)
-            .where(EndpointModel.space_id == space_id)
-            .values(space_id=None, is_active=False)
-        )
-        result = self.session.execute(stmt)
-        self.session.commit()
-        return int(result.rowcount or 0)
-
     def _build_public_select(self):
         """Build a SELECT statement for endpoints joined with their owner.
 

@@ -51,11 +51,15 @@ class SatelliteModel(BaseModel, TimestampMixin):
 
     # Relationships
     user: Mapped["UserModel"] = relationship("UserModel", back_populates="satellites")
-    # No cascade: deleting a satellite orphans its endpoints rather than
-    # destroying catalogue entries and the addresses buyers hold. The FK's
-    # ON DELETE SET NULL is the backstop.
+    # Deleting a satellite deletes what it served. passive_deletes defers the
+    # work to the FK's ON DELETE CASCADE rather than loading every child to
+    # null its space_id, which is the SQLAlchemy default and would fight the
+    # constraint.
     endpoints: Mapped[List["EndpointModel"]] = relationship(
-        "EndpointModel", back_populates="space"
+        "EndpointModel",
+        back_populates="space",
+        cascade="all, delete",
+        passive_deletes=True,
     )
 
     __table_args__ = (

@@ -51,12 +51,12 @@ class EndpointModel(BaseModel, TimestampMixin):
         Integer, ForeignKey("users.id"), nullable=False
     )
 
-    # The space serving this endpoint. NULL means either no domain was ever
-    # reported, or the space was deleted and this endpoint was orphaned. Either
-    # way there is no origin to build a URL from, so the sweeper skips it.
+    # The space serving this endpoint. NULL means no satellite is known yet —
+    # a pre-satellite row, or a publish by an account that has not registered
+    # one. There is then no origin to build a URL from, so the sweeper skips it.
     space_id: Mapped[Optional[int]] = mapped_column(
         Integer,
-        ForeignKey("satellites.id", ondelete="SET NULL"),
+        ForeignKey("satellites.id", ondelete="CASCADE"),
         nullable=True,
         default=None,
     )

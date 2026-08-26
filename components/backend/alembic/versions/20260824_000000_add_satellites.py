@@ -117,15 +117,17 @@ def upgrade() -> None:
     # while PostgreSQL gets a plain ALTER. Scoped to the constraint alone so
     # SQLite rewrites endpoints once.
     #
-    # SET NULL, not CASCADE: deleting a satellite orphans its endpoints rather
-    # than destroying catalogue entries and the addresses buyers hold.
+    # CASCADE: deleting a satellite deletes what it served. "Delete this space"
+    # means the space and its endpoints; leaving deactivated rows behind holding
+    # their slugs would block the owner from republishing them. NULL space_id
+    # never cascades, which is what keeps pre-satellite endpoints unaffected.
     with op.batch_alter_table("endpoints", schema=None) as batch_op:
         batch_op.create_foreign_key(
             "fk_endpoints_space_id_satellites",
             "satellites",
             ["space_id"],
             ["id"],
-            ondelete="SET NULL",
+            ondelete="CASCADE",
         )
 
     op.create_index("idx_endpoints_space_id", "endpoints", ["space_id"])

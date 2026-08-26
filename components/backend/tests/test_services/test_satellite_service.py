@@ -160,13 +160,17 @@ class TestCrud:
         assert len(service.list_satellites(users[0].id)) == 1
 
 
-class TestDeleteOrphansEndpoints:
-    """Deleting a satellite must never destroy catalogue entries."""
+class TestDeleteCascadesToEndpoints:
+    """Deleting a satellite deletes what it served."""
 
-    def test_endpoints_survive_and_are_detached(
+    def test_endpoints_are_deleted_with_the_satellite(
         self, service, users, test_session, sample_endpoint_data
     ):
-        """Test the orphan-on-delete invariant."""
+        """Test that "delete this space" removes the space and its endpoints.
+
+        Leaving them behind deactivated would keep their slugs held and block
+        the owner from ever republishing them.
+        """
         created = _create(service, users[0].id)
         ref = service.satellite_repository.get_by_public_id(users[0].id, created.id)
         endpoint = EndpointModel(
@@ -179,16 +183,41 @@ class TestDeleteOrphansEndpoints:
         service.delete_satellite(users[0].id, created.id)
         test_session.expire_all()
 
-        survivor = test_session.get(EndpointModel, endpoint_id)
-        assert survivor is not None, "endpoint was destroyed with its satellite"
-        assert survivor.space_id is None
-        assert survivor.is_active is False, "orphan must be deactivated"
-        assert survivor.slug == sample_endpoint_data["slug"], "address preserved"
+        assert test_session.get(EndpointModel, endpoint_id) is None
+
+    def test_unattached_endpoints_are_untouched(
+        self, service, users, test_session, sample_endpoint_data
+    ):
+        """Test that a NULL space_id never cascades.
+
+        Pre-satellite rows, and publishes by an account with no satellite, must
+        survive an unrelated satellite being deleted.
+        """
+        created = _create(service, users[0].id)
+        test_session.add(
+            EndpointModel(
+                **{
+                    **sample_endpoint_data,
+                    "user_id": users[0].id,
+                    "slug": "unattached",
+                    "space_id": None,
+                }
+            )
+        )
+        test_session.commit()
+
+        service.delete_satellite(users[0].id, created.id)
+        test_session.expire_all()
+
+        assert (
+            test_session.query(EndpointModel).filter_by(slug="unattached").one()
+            is not None
+        )
 
     def test_other_satellites_endpoints_are_untouched(
         self, service, users, test_session, sample_endpoint_data
     ):
-        """Test that orphaning is scoped to the deleted satellite."""
+        """Test that the cascade is scoped to the deleted satellite."""
         a = _create(service, users[0].id, base_url="https://a.example.com")
         b = _create(service, users[0].id, base_url="https://b.example.com")
         ref_a = service.satellite_repository.get_by_public_id(users[0].id, a.id)
@@ -210,6 +239,7 @@ class TestDeleteOrphansEndpoints:
         service.delete_satellite(users[0].id, a.id)
         test_session.expire_all()
 
+        assert test_session.query(EndpointModel).filter_by(slug="ep-0").count() == 0
         kept = test_session.query(EndpointModel).filter_by(slug="ep-1").one()
         assert kept.space_id == ref_b.id
         assert kept.is_active is True
