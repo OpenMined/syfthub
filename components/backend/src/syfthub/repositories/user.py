@@ -285,6 +285,26 @@ class UserRepository(BaseRepository[UserModel]):
             self.session.rollback()
             return False
 
+    def set_legacy_domain(self, user_id: int, domain: str) -> bool:
+        """Mirror a space's origin back into the retired ``users.domain`` column.
+
+        **Rollback insurance only — nothing in this codebase reads the column.**
+        If this release is rolled back, the previous code reads ``users.domain``
+        again, and a value frozen at deploy time would point every one of that
+        account's endpoints at wherever its space used to be. Keeping it current
+        makes a rollback a non-event.
+
+        Delete this, and the column, once rolling back past satellites is no
+        longer a possibility.
+
+        Does NOT commit; the caller owns the transaction.
+        """
+        user_model = self.session.get(self.model, user_id)
+        if user_model is None:
+            return False
+        user_model.domain = domain
+        return True
+
     def update_last_login(self, user_id: int) -> bool:
         """Stamp the user's last_login_at to the current UTC time.
 

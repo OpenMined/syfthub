@@ -120,17 +120,26 @@ class TestHealthNoLongerFlipFlops:
         assert by_id[a.id] == "https://a.example.com"
         assert by_id[b.id] == "https://b.example.com"
 
-    def test_users_domain_is_no_longer_written(self, services, owner, test_session):
-        """Test that the account-wide field is left alone."""
+    def test_users_domain_is_no_longer_authoritative(
+        self, services, owner, test_session
+    ):
+        """Test that the satellite, not the account field, holds the origin.
+
+        ``users.domain`` is still mirrored for rollback safety (see
+        TestLegacyDomainMirror), but nothing reads it — so the assertion that
+        matters is that the *satellite* is what the heartbeat updated.
+        """
         ep_service, sat_service = services
-        _register(sat_service, owner.id, "https://a.example.com")
+        a = _register(sat_service, owner.id, "https://a.example.com")
 
         ep_service.report_endpoint_health(
-            current_user=owner, **_health("https://a.example.com")
+            current_user=owner, **_health("https://moved.example.com")
         )
 
-        test_session.expire_all()
-        assert test_session.get(UserModel, owner.id).domain is None
+        listed = sat_service.list_satellites(owner.id)
+        assert len(listed) == 1
+        assert listed[0].id == a.id
+        assert listed[0].base_url == "https://moved.example.com"
 
     def test_single_space_needs_no_satellite_id(self, services, owner):
         """Test S2: an existing account reports exactly as it does today."""
@@ -396,3 +405,85 @@ class TestSyncBeforeRegistration:
         test_session.expire_all()
         survivor = test_session.query(EndpointModel).one()
         assert survivor.space_id == ref.id
+
+
+class TestLegacyDomainMirror:
+    """``users.domain`` is kept current purely so a rollback is a non-event.
+
+    Nothing in the codebase reads it. If this release were rolled back, the
+    previous code would read it again — and a value frozen at deploy time would
+    send every one of that account's endpoints to wherever its space used to be.
+    """
+
+    def test_heartbeat_mirrors_a_moved_origin(self, services, owner, test_session):
+        """Test the path that fires continuously."""
+        ep_service, sat_service = services
+        _register(sat_service, owner.id, "https://old.example.com")
+
+        ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://moved.example.com")
+        )
+
+        test_session.expire_all()
+        assert (
+            test_session.get(UserModel, owner.id).domain == "https://moved.example.com"
+        )
+
+    def test_profile_update_mirrors(self, services, owner, test_session):
+        """Test the legacy setup path."""
+        _, sat_service = services
+        sat_service.register_or_move_space(owner.id, "https://first.example.com")
+
+        test_session.expire_all()
+        assert (
+            test_session.get(UserModel, owner.id).domain == "https://first.example.com"
+        )
+
+        sat_service.register_or_move_space(owner.id, "https://second.example.com")
+        test_session.expire_all()
+        assert (
+            test_session.get(UserModel, owner.id).domain == "https://second.example.com"
+        )
+
+    def test_a_station_is_never_mirrored(self, services, owner, test_session):
+        """Test that a station's origin does not land in the column.
+
+        A station serves no endpoints, so mirroring it would point the
+        rolled-back code at a host that answers nothing.
+        """
+        _, sat_service = services
+        sat_service.create_satellite(
+            owner.id,
+            SatelliteCreate(
+                kind=SatelliteKind.STATION, base_url="https://station.example.com"
+            ),
+        )
+
+        test_session.expire_all()
+        assert test_session.get(UserModel, owner.id).domain is None
+
+    def test_a_second_space_stops_the_mirror(self, services, owner, test_session):
+        """Test that the column is left alone once it cannot describe the truth.
+
+        With two spaces no single field is correct, and such an account is
+        post-migration by definition — there is nothing to roll back to.
+        """
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        test_session.expire_all()
+        assert test_session.get(UserModel, owner.id).domain == "https://a.example.com"
+
+        b = _register(sat_service, owner.id, "https://b.example.com")
+        ep_service.report_endpoint_health(
+            current_user=owner,
+            **_health("https://b-moved.example.com", satellite_id=b.id),
+        )
+
+        test_session.expire_all()
+        assert (
+            test_session.get(UserModel, owner.id).domain == "https://a.example.com"
+        ), "the mirror must not follow a second space"
+        # And the first space is untouched by the second's heartbeat.
+        by_id = {s.id: s.base_url for s in sat_service.list_satellites(owner.id)}
+        assert by_id[a.id] == "https://a.example.com"
+        assert by_id[b.id] == "https://b-moved.example.com"

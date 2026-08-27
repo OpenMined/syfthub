@@ -23,6 +23,7 @@ from syfthub.domain.satellite import (
     SatelliteRef,
 )
 from syfthub.repositories.satellite import SatelliteRepository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.satellite import (
     SatelliteCreate,
     SatelliteResponse,
@@ -41,6 +42,8 @@ class SatelliteService(BaseService):
         """Initialize satellite service."""
         super().__init__(session)
         self.satellite_repository = SatelliteRepository(session)
+        # Only for the legacy users.domain mirror; see _mirror_legacy_domain.
+        self.user_repository = UserRepository(session)
 
     # ------------------------------------------------------------------ CRUD
 
@@ -73,6 +76,7 @@ class SatelliteService(BaseService):
         ref = self.satellite_repository.register(
             user_id=user_id, kind=data.kind, base_url=BaseUrl(data.base_url)
         )
+        self._mirror_legacy_domain(user_id, ref)
         return _to_response(ref)
 
     def update_satellite(
@@ -88,6 +92,7 @@ class SatelliteService(BaseService):
         updated = self.satellite_repository.move(ref.id, BaseUrl(data.base_url))
         if updated is None:
             raise NotFoundError("Satellite", str(satellite_id))
+        self._mirror_legacy_domain(user_id, updated)
         return _to_response(updated)
 
     def delete_satellite(self, user_id: int, satellite_id: uuid.UUID) -> None:
@@ -202,8 +207,13 @@ class SatelliteService(BaseService):
         if ref.base_url == base_url:
             # Same origin as last time: record liveness only.
             self.satellite_repository.touch_last_seen(ref.id)
-        else:
-            self.satellite_repository.set_base_url(ref.id, base_url)
+            return ref
+
+        self.satellite_repository.set_base_url(ref.id, base_url)
+        moved = self.satellite_repository.get_by_public_id(user_id, ref.public_id)
+        if moved is not None:
+            self._mirror_legacy_domain(user_id, moved)
+            return moved
         return ref
 
     def register_or_move_space(self, user_id: int, base_url: str) -> SatelliteRef:
@@ -223,13 +233,39 @@ class SatelliteService(BaseService):
         url = BaseUrl(base_url)
         existing = self.resolve_existing(user_id)
         if existing is None:
-            return self.satellite_repository.register(
+            registered = self.satellite_repository.register(
                 user_id=user_id, kind=SatelliteKind.SPACE, base_url=url
             )
+            self._mirror_legacy_domain(user_id, registered)
+            return registered
         if existing.base_url == url:
             return existing
         moved = self.satellite_repository.move(existing.id, url)
-        return moved if moved is not None else existing
+        result = moved if moved is not None else existing
+        self._mirror_legacy_domain(user_id, result)
+        return result
+
+    def _mirror_legacy_domain(self, user_id: int, ref: SatelliteRef) -> None:
+        """Keep ``users.domain`` in step with the account's single space.
+
+        Rollback insurance. Nothing reads the column any more, but if this
+        release is rolled back the previous code does, and a value frozen at
+        deploy time would send every endpoint to wherever the space used to be.
+
+        Mirrored **only when the account has exactly one space** — which is the
+        only situation the column could ever represent, and the only one a
+        rollback could land in. An account with two spaces is post-migration by
+        definition, and no single field can describe it.
+        """
+        if ref.kind is not SatelliteKind.SPACE:
+            return
+        spaces = self.satellite_repository.list_for_user(
+            user_id, kind=SatelliteKind.SPACE
+        )
+        if len(spaces) != 1 or spaces[0].id != ref.id:
+            return
+        if self.user_repository.set_legacy_domain(user_id, ref.base_url.value):
+            self.session.commit()
 
     def primary_space_url(self, user_id: int) -> Optional[str]:
         """The origin to show as "the account's domain", or None.
