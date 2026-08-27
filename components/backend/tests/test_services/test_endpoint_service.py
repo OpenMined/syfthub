@@ -112,6 +112,11 @@ class TestEndpointServiceCreate:
                 "create_endpoint",
                 return_value=sample_endpoint,
             ),
+            patch.object(
+                endpoint_service.satellite_service,
+                "resolve_existing",
+                return_value=None,
+            ),
         ):
             result = endpoint_service.create_endpoint(endpoint_data, 1)
 
@@ -165,6 +170,11 @@ class TestEndpointServiceCreate:
             patch.object(
                 endpoint_service.endpoint_repository,
                 "create_endpoint",
+                return_value=None,
+            ),
+            patch.object(
+                endpoint_service.satellite_service,
+                "resolve_existing",
                 return_value=None,
             ),
         ):
@@ -1152,9 +1162,7 @@ class TestReportEndpointHealth:
                 "bulk_update_health_status",
                 return_value=1,
             ),
-            patch.object(
-                endpoint_service.user_repository, "update_domain", return_value=True
-            ),
+            patch.object(endpoint_service.satellite_service, "record_heartbeat"),
         ):
             result = endpoint_service.report_endpoint_health(
                 endpoints_health=items,
@@ -1183,9 +1191,7 @@ class TestReportEndpointHealth:
                 "get_endpoints_by_slugs_for_health",
                 return_value=[],
             ),
-            patch.object(
-                endpoint_service.user_repository, "update_domain", return_value=True
-            ),
+            patch.object(endpoint_service.satellite_service, "record_heartbeat"),
         ):
             result = endpoint_service.report_endpoint_health(
                 endpoints_health=items,
@@ -1197,7 +1203,17 @@ class TestReportEndpointHealth:
         assert result.ignored == 1
 
     def test_report_health_invalid_url(self, endpoint_service, sample_user):
-        """Test reporting health with invalid URL raises HTTPException."""
+        """Test reporting health with an invalid URL is rejected.
+
+        Now a domain ValidationError from BaseUrl rather than a hand-rolled
+        HTTPException. The HTTP status is unchanged — the global domain-exception
+        handler maps ValidationError to 422 — but the service layer no longer
+        raises framework exceptions, and BaseUrl catches more than the old
+        ``scheme://netloc`` check did.
+        """
+        from syfthub.domain.exceptions import ValidationError
+        from syfthub.observability.handlers import _get_domain_exception_status
+
         now = datetime.now(timezone.utc)
         items = [
             EndpointHealthItem(
@@ -1207,13 +1223,13 @@ class TestReportEndpointHealth:
             )
         ]
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             endpoint_service.report_endpoint_health(
                 endpoints_health=items,
                 url="not-a-url",
                 current_user=sample_user,
             )
-        assert exc_info.value.status_code == 422
+        assert _get_domain_exception_status(exc_info.value) == 422
 
     def test_report_health_tunneling_url(self, endpoint_service, sample_user):
         """Test reporting health with tunneling URL."""
@@ -1232,9 +1248,7 @@ class TestReportEndpointHealth:
                 "get_endpoints_by_slugs_for_health",
                 return_value=[],
             ),
-            patch.object(
-                endpoint_service.user_repository, "update_domain", return_value=True
-            ),
+            patch.object(endpoint_service.satellite_service, "record_heartbeat"),
         ):
             result = endpoint_service.report_endpoint_health(
                 endpoints_health=items,
@@ -1264,9 +1278,7 @@ class TestReportEndpointHealth:
                 "get_endpoints_by_slugs_for_health",
                 return_value=[],
             ),
-            patch.object(
-                endpoint_service.user_repository, "update_domain", return_value=True
-            ),
+            patch.object(endpoint_service.satellite_service, "record_heartbeat"),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 endpoint_service.report_endpoint_health(

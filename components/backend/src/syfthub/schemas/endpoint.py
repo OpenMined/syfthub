@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -564,9 +565,18 @@ class SyncValidationError(BaseModel):
 class SyncEndpointsRequest(BaseModel):
     """Request schema for syncing user endpoints.
 
-    This operation replaces ALL user-owned endpoints with the provided list.
-    It is atomic: either all endpoints are synced, or none are (on validation failure).
+    Replaces the endpoints served by ONE satellite with the provided list. It is
+    atomic: either all endpoints are synced, or none are (on validation failure).
     """
+
+    satellite_id: Optional[uuid.UUID] = Field(
+        None,
+        description=(
+            "Which satellite this sync is for. Optional: needed only once the "
+            "account owns more than one, since a sync carries no URL to "
+            "identify the caller by."
+        ),
+    )
 
     endpoints: List[EndpointCreate] = Field(
         default_factory=list,
@@ -717,9 +727,17 @@ class EndpointHealthItem(BaseModel):
 class EndpointHealthRequest(BaseModel):
     """Request schema for bulk endpoint health reporting.
 
-    Allows clients to report per-endpoint health status. Also updates the
-    owner's domain (used for endpoint URL construction).
+    Allows clients to report per-endpoint health status. Also records the
+    reporting satellite's origin (used for endpoint URL construction).
     """
+
+    satellite_id: Optional[uuid.UUID] = Field(
+        None,
+        description=(
+            "Which satellite is reporting. Optional: the reported url "
+            "identifies it for any account owning fewer than two."
+        ),
+    )
 
     endpoints: List[EndpointHealthItem] = Field(
         ...,

@@ -109,35 +109,27 @@ class SatelliteService(BaseService):
 
     # ------------------------------------------------------------- resolution
 
-    def resolve(
-        self,
-        user_id: int,
-        satellite_id: Optional[uuid.UUID] = None,
-        reported_url: Optional[str] = None,
-        kind: SatelliteKind = SatelliteKind.SPACE,
-    ) -> SatelliteRef:
-        """Decide which satellite a write belongs to.
+    def resolve_existing(
+        self, user_id: int, satellite_id: Optional[uuid.UUID] = None
+    ) -> Optional[SatelliteRef]:
+        """Pick the satellite a write belongs to, without creating one.
 
             explicit satellite_id  ->  use it (must belong to the caller)
-            account owns 0         ->  register one from the reported URL
             account owns exactly 1 ->  use it            <- every account today
             account owns 2+        ->  refuse, naming the ambiguity
+            account owns 0         ->  None
 
         The 1-satellite branch is why this rollout is safe: nothing changes for
         anyone until they add a second space, at which point the ambiguity is
         real and guessing would corrupt data.
 
-        Args:
-            user_id: The account the write is authenticated as.
-            satellite_id: Explicit choice, if the caller made one.
-            reported_url: Origin the caller reported, used only to register a
-                first satellite for an account that owns none.
-            kind: What to register in that case.
+        ``None`` is for writes that carry no URL — publish and sync. They leave
+        the endpoint unattached rather than failing, which is exactly what
+        happens today for an account that has never reported a domain.
 
         Raises:
             NotFoundError: An explicit satellite_id that is not the caller's.
             AmbiguousSatelliteError: 2+ satellites and no explicit choice.
-            ValidationError: No satellites, and no URL to register one from.
         """
         if satellite_id is not None:
             return self._require(user_id, satellite_id)
@@ -147,6 +139,28 @@ class SatelliteService(BaseService):
             return owned[0]
         if len(owned) > 1:
             raise AmbiguousSatelliteError(len(owned))
+        return None
+
+    def resolve(
+        self,
+        user_id: int,
+        satellite_id: Optional[uuid.UUID] = None,
+        reported_url: Optional[str] = None,
+        kind: SatelliteKind = SatelliteKind.SPACE,
+    ) -> SatelliteRef:
+        """Same rule, but register from the reported URL if the account owns none.
+
+        For writes that carry a URL — today only the health report, which has
+        always sent one, so no space-side change is needed.
+
+        Raises:
+            NotFoundError: An explicit satellite_id that is not the caller's.
+            AmbiguousSatelliteError: 2+ satellites and no explicit choice.
+            ValidationError: No satellites, and no URL to register one from.
+        """
+        ref = self.resolve_existing(user_id, satellite_id)
+        if ref is not None:
+            return ref
 
         if not reported_url:
             raise ValidationError(
@@ -154,10 +168,35 @@ class SatelliteService(BaseService):
                 "URL this request is for"
             )
         return self.satellite_repository.register(
-            user_id=user_id,
-            kind=kind,
-            base_url=BaseUrl(reported_url),
+            user_id=user_id, kind=kind, base_url=BaseUrl(reported_url)
         )
+
+    def record_heartbeat(
+        self,
+        user_id: int,
+        reported_url: str,
+        satellite_id: Optional[uuid.UUID] = None,
+    ) -> SatelliteRef:
+        """Resolve the satellite a health report is for and record its origin.
+
+        Replaces the ``users.domain`` update this used to perform. That was one
+        field for the whole account, so two spaces overwrote each other on every
+        cycle and whichever reported last decided where *all* the account's
+        endpoints appeared to live. Each satellite now writes its own row.
+
+        Raises:
+            NotFoundError: An explicit satellite_id that is not the caller's.
+            AmbiguousSatelliteError: 2+ satellites and no explicit choice.
+            ConflictError: Another of the account's satellites claims this origin.
+        """
+        ref = self.resolve(user_id, satellite_id, reported_url)
+        base_url = BaseUrl(reported_url)
+        if ref.base_url == base_url:
+            # Same origin as last time: record liveness only.
+            self.satellite_repository.touch_last_seen(ref.id)
+        else:
+            self.satellite_repository.set_base_url(ref.id, base_url)
+        return ref
 
     # ----------------------------------------------------------------- helper
 

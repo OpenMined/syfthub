@@ -675,6 +675,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self,
         endpoint_data: EndpointCreate,
         owner_id: int,
+        space_id: Optional[int] = None,
     ) -> Optional[Endpoint]:
         """Create a new endpoint."""
         import logging
@@ -695,6 +696,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 policies=[policy.model_dump() for policy in endpoint_data.policies],
                 connect=[conn.model_dump() for conn in endpoint_data.connect],
                 is_active=True,
+                space_id=space_id,
             )
 
             self.session.add(endpoint_model)
@@ -790,38 +792,71 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             self.session.rollback()
             return False
 
-    def delete_all_user_endpoints(self, user_id: int) -> int:
-        """Delete all endpoints owned by a user (for sync operation).
+    def _space_filter(self, user_id: int, space_id: Optional[int]):
+        """Match one user's endpoints on a satellite, or their unattached ones.
 
-        This method does NOT commit the transaction - caller must commit.
-        This allows atomic operations when combined with other database changes.
+        ``None`` means ``space_id IS NULL`` — endpoints belonging to an account
+        that has registered no satellite. Treating that as its own bucket is what
+        lets sync stay scoped for such an account instead of touching everything.
+        """
+        space_match = (
+            self.model.space_id.is_(None)
+            if space_id is None
+            else self.model.space_id == space_id
+        )
+        return and_(self.model.user_id == user_id, space_match)
 
-        Args:
-            user_id: The user ID whose endpoints should be deleted
+    def delete_endpoints_for_space(self, user_id: int, space_id: Optional[int]) -> int:
+        """Delete the user's endpoints served by one satellite.
+
+        Sync is destructive by design — "here is everything I serve" — but
+        it must mean everything *this space* serves, or one space's sync wipes
+        another's catalogue.
+
+        Does NOT commit; the caller owns the transaction.
 
         Returns:
-            Number of endpoints deleted
+            Number of endpoints deleted.
         """
-        # First count how many we're deleting (for the response)
-        count_stmt = (
-            select(func.count())
-            .select_from(self.model)
-            .where(self.model.user_id == user_id)
+        where = self._space_filter(user_id, space_id)
+
+        deleted_count = (
+            self.session.execute(
+                select(func.count()).select_from(self.model).where(where)
+            ).scalar()
+            or 0
         )
-        count_result = self.session.execute(count_stmt)
-        deleted_count = count_result.scalar() or 0
-
-        # Bulk delete all user endpoints
-        delete_stmt = delete(self.model).where(self.model.user_id == user_id)
-        self.session.execute(delete_stmt)
-
-        # Note: No commit here - caller manages transaction
+        self.session.execute(delete(self.model).where(where))
         return deleted_count
+
+    def get_rag_file_ids_for_space(
+        self, user_id: int, space_id: Optional[int]
+    ) -> List[tuple[int, str]]:
+        """Search-index document ids for one satellite's endpoints.
+
+        Sync removes these from Meilisearch before deleting rows, and only re-indexes what it then
+        creates — so an unscoped sweep would drop another space's endpoints out
+        of search permanently, with their rows still in the database.
+
+        Returns:
+            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
+        """
+        try:
+            stmt = select(self.model.id, self.model.rag_file_id).where(
+                and_(
+                    self._space_filter(user_id, space_id),
+                    self.model.rag_file_id.isnot(None),
+                )
+            )
+            return [(row[0], row[1]) for row in self.session.execute(stmt).all()]
+        except SQLAlchemyError:
+            return []
 
     def bulk_create_endpoints(
         self,
         endpoints_data: List[dict],
         user_id: int,
+        space_id: Optional[int] = None,
     ) -> List[Endpoint]:
         """Create multiple endpoints in a single transaction (for sync operation).
 
@@ -833,6 +868,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 Each dict should have: name, slug, description, type, visibility,
                 version, readme, tags, contributors, policies, connect
             user_id: The user ID who owns these endpoints
+            space_id: The satellite serving them, or None when the account has
+                registered none
 
         Returns:
             List of created Endpoint objects
@@ -854,6 +891,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 policies=data.get("policies", []),
                 connect=data.get("connect", []),
                 is_active=True,
+                space_id=space_id,
             )
             self.session.add(endpoint_model)
             created_endpoints.append(endpoint_model)
@@ -1053,27 +1091,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return None
         except SQLAlchemyError:
             return None
-
-    def get_user_rag_file_ids(self, user_id: int) -> List[tuple[int, str]]:
-        """Get all RAG file IDs for a user's endpoints.
-
-        Args:
-            user_id: The user ID.
-
-        Returns:
-            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
-        """
-        try:
-            stmt = select(self.model.id, self.model.rag_file_id).where(
-                and_(
-                    self.model.user_id == user_id,
-                    self.model.rag_file_id.isnot(None),
-                )
-            )
-            result = self.session.execute(stmt)
-            return [(row[0], row[1]) for row in result.all()]
-        except SQLAlchemyError:
-            return []
 
     def get_endpoint_model(self, endpoint_id: int) -> Optional[EndpointModel]:
         """Get the raw endpoint model (for RAG operations).

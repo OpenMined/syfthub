@@ -1,5 +1,6 @@
 """Endpoint endpoints with authentication and visibility controls."""
 
+import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query, status
@@ -40,12 +41,22 @@ def create_endpoint(
     endpoint_data: EndpointCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    satellite_id: Annotated[
+        Optional[uuid.UUID],
+        Query(
+            description=(
+                "Which satellite serves this endpoint. Optional: needed only "
+                "once the account owns more than one."
+            )
+        ),
+    ] = None,
 ) -> EndpointResponse:
     """Create a new endpoint for the current user."""
     return endpoint_service.create_endpoint(
         endpoint_data=endpoint_data,
         owner_id=current_user.id,
         current_user=current_user,
+        satellite_id=satellite_id,
     )
 
 
@@ -421,7 +432,8 @@ Synchronize user's endpoints with the provided list.
 - All validation errors are returned together (not just the first)
 
 **Empty Payload:**
-- Sending an empty list `{"endpoints": []}` will delete ALL user endpoints
+- Sending an empty list `{"endpoints": []}` deletes the endpoints served by
+  the resolved satellite
 """,
 )
 def sync_user_endpoints(
@@ -433,6 +445,7 @@ def sync_user_endpoints(
     return endpoint_service.sync_user_endpoints(
         endpoints_data=sync_request.endpoints,
         current_user=current_user,
+        satellite_id=sync_request.satellite_id,
     )
 
 
@@ -469,6 +482,7 @@ def report_endpoint_health(
         url=health_data.url,
         current_user=current_user,
         ttl_seconds=health_data.ttl_seconds,
+        satellite_id=health_data.satellite_id,
     )
 
 
