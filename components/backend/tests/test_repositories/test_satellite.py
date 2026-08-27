@@ -7,7 +7,7 @@ from tests.test_utils import get_test_user_model_data
 
 from syfthub.domain.base_url import BaseUrl
 from syfthub.domain.exceptions import ConflictError
-from syfthub.domain.satellite import SatelliteKind
+from syfthub.domain.satellite import SatelliteKind, SatelliteKindMismatchError
 from syfthub.models.endpoint import EndpointModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.satellite import SatelliteRepository
@@ -92,17 +92,40 @@ class TestRegister:
         }
         assert len(ids) == 3
 
-    def test_duplicate_origin_conflicts(self, repo, users):
-        """Test that one host is exactly one satellite per account."""
-        _register(repo, users[0].id, url="https://same.example.com")
-        with pytest.raises(ConflictError):
-            _register(repo, users[0].id, url="https://same.example.com")
+    def test_re_registering_an_origin_is_idempotent(self, repo, users):
+        """Test that registration means "ensure a satellite at this URL".
 
-    def test_duplicate_origin_across_spellings_conflicts(self, repo, users):
-        """Test that the conflict survives a different spelling of one origin."""
+        A space restarting without its stored id must be able to call register
+        unconditionally rather than recovering from a conflict.
+        """
+        first = _register(repo, users[0].id, url="https://same.example.com")
+        again = _register(repo, users[0].id, url="https://same.example.com")
+
+        assert again == first
+        assert len(repo.list_for_user(users[0].id)) == 1
+
+    def test_idempotent_across_spellings(self, repo, users):
+        """Test that a differently-spelled origin is still the same satellite."""
+        first = _register(repo, users[0].id, url="https://same.example.com")
+        again = _register(repo, users[0].id, url="HTTPS://Same.Example.com:443/")
+
+        assert again == first
+        assert len(repo.list_for_user(users[0].id)) == 1
+
+    def test_re_registering_as_the_other_kind_is_rejected(self, repo, users):
+        """Test that a host is either a space or a station, not both.
+
+        Silently returning the existing satellite here would attach endpoints to
+        a station, or mint the wrong audience.
+        """
         _register(repo, users[0].id, url="https://same.example.com")
-        with pytest.raises(ConflictError):
-            _register(repo, users[0].id, url="HTTPS://Same.Example.com:443/")
+        with pytest.raises(SatelliteKindMismatchError):
+            _register(
+                repo,
+                users[0].id,
+                url="https://same.example.com",
+                kind=SatelliteKind.STATION,
+            )
 
     def test_same_origin_across_accounts_is_fine(self, repo, users):
         """Test that uniqueness is per account, not global.
@@ -115,12 +138,17 @@ class TestRegister:
         assert len(repo.list_for_user(users[0].id)) == 1
         assert len(repo.list_for_user(users[1].id)) == 1
 
-    def test_recovers_after_a_conflict(self, repo, users):
+    def test_recovers_after_a_kind_conflict(self, repo, users):
         """Test that the session survives a conflict; without the rollback every
         later write would fail on a poisoned transaction."""
         _register(repo, users[0].id, url="https://a.example.com")
-        with pytest.raises(ConflictError):
-            _register(repo, users[0].id, url="https://a.example.com")
+        with pytest.raises(SatelliteKindMismatchError):
+            _register(
+                repo,
+                users[0].id,
+                url="https://a.example.com",
+                kind=SatelliteKind.STATION,
+            )
         ref = _register(repo, users[0].id, url="https://b.example.com")
         assert ref.base_url == BaseUrl("https://b.example.com")
 

@@ -110,7 +110,10 @@ class SatelliteService(BaseService):
     # ------------------------------------------------------------- resolution
 
     def resolve_existing(
-        self, user_id: int, satellite_id: Optional[uuid.UUID] = None
+        self,
+        user_id: int,
+        satellite_id: Optional[uuid.UUID] = None,
+        kind: Optional[SatelliteKind] = SatelliteKind.SPACE,
     ) -> Optional[SatelliteRef]:
         """Pick the satellite a write belongs to, without creating one.
 
@@ -118,6 +121,11 @@ class SatelliteService(BaseService):
             account owns exactly 1 ->  use it            <- every account today
             account owns 2+        ->  refuse, naming the ambiguity
             account owns 0         ->  None
+
+        The count is over one ``kind``, defaulting to spaces. An account may run
+        a station alongside its single space; counting both would make every
+        endpoint write on that account ambiguous, for a satellite that can never
+        serve endpoints anyway. Pass ``kind=None`` to count all of them.
 
         The 1-satellite branch is why this rollout is safe: nothing changes for
         anyone until they add a second space, at which point the ambiguity is
@@ -134,7 +142,7 @@ class SatelliteService(BaseService):
         if satellite_id is not None:
             return self._require(user_id, satellite_id)
 
-        owned = self.satellite_repository.list_for_user(user_id)
+        owned = self.satellite_repository.list_for_user(user_id, kind=kind)
         if len(owned) == 1:
             return owned[0]
         if len(owned) > 1:
@@ -158,7 +166,7 @@ class SatelliteService(BaseService):
             AmbiguousSatelliteError: 2+ satellites and no explicit choice.
             ValidationError: No satellites, and no URL to register one from.
         """
-        ref = self.resolve_existing(user_id, satellite_id)
+        ref = self.resolve_existing(user_id, satellite_id, kind=kind)
         if ref is not None:
             return ref
 
@@ -197,6 +205,47 @@ class SatelliteService(BaseService):
         else:
             self.satellite_repository.set_base_url(ref.id, base_url)
         return ref
+
+    def register_or_move_space(self, user_id: int, base_url: str) -> SatelliteRef:
+        """Point the account's space at this origin, registering one if it has none.
+
+        Backs the legacy ``PUT /users/me {domain}`` path, which carries no
+        satellite id and which spaces have always called at setup. It must
+        **move** the existing space rather than add one: a space whose public URL
+        changed between deployments would otherwise leave the account owning two
+        satellites, and every subsequent endpoint write would then be ambiguous.
+
+        Raises:
+            AmbiguousSatelliteError: The account already owns several spaces, so
+                this id-less call cannot say which one is meant.
+            ConflictError: A sibling satellite already claims the origin.
+        """
+        url = BaseUrl(base_url)
+        existing = self.resolve_existing(user_id)
+        if existing is None:
+            return self.satellite_repository.register(
+                user_id=user_id, kind=SatelliteKind.SPACE, base_url=url
+            )
+        if existing.base_url == url:
+            return existing
+        moved = self.satellite_repository.move(existing.id, url)
+        return moved if moved is not None else existing
+
+    def primary_space_url(self, user_id: int) -> Optional[str]:
+        """The origin to show as "the account's domain", or None.
+
+        A domain is per-endpoint now, so this exists only to keep the
+        per-account ``domain`` field on the profile responses meaningful. It is
+        the account's oldest **space** — never a station, whose origin is not
+        where anything is served from.
+
+        Returns None for an account with no space, which is the honest answer
+        and what the field already carried for such accounts.
+        """
+        spaces = self.satellite_repository.list_for_user(
+            user_id, kind=SatelliteKind.SPACE
+        )
+        return spaces[0].base_url.value if spaces else None
 
     # ----------------------------------------------------------------- helper
 

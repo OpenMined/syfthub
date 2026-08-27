@@ -18,7 +18,11 @@ from sqlalchemy.exc import IntegrityError
 
 from syfthub.domain.base_url import BaseUrl
 from syfthub.domain.exceptions import ConflictError
-from syfthub.domain.satellite import SatelliteKind, SatelliteRef
+from syfthub.domain.satellite import (
+    SatelliteKind,
+    SatelliteKindMismatchError,
+    SatelliteRef,
+)
 from syfthub.models.satellite import SatelliteModel
 from syfthub.repositories.base import BaseRepository
 
@@ -65,17 +69,22 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
         model = self.session.execute(stmt).scalar_one_or_none()
         return _to_ref(model) if model else None
 
-    def list_for_user(self, user_id: int) -> list[SatelliteRef]:
-        """Every satellite the account owns, oldest first.
+    def list_for_user(
+        self, user_id: int, kind: SatelliteKind | None = None
+    ) -> list[SatelliteRef]:
+        """The account's satellites, oldest first, optionally of one kind.
 
         Ordered by ``id``, not ``created_at``, so the graduated rule's
         one-satellite branch stays deterministic for same-transaction rows.
+
+        ``kind`` matters because an account may own a station *and* a space.
+        Counting both would make an endpoint write ambiguous on an account that
+        simply runs a station alongside its one space.
         """
-        stmt = (
-            select(self.model)
-            .where(self.model.user_id == user_id)
-            .order_by(self.model.id)
-        )
+        stmt = select(self.model).where(self.model.user_id == user_id)
+        if kind is not None:
+            stmt = stmt.where(self.model.kind == kind.value)
+        stmt = stmt.order_by(self.model.id)
         return [_to_ref(m) for m in self.session.execute(stmt).scalars().all()]
 
     def find_by_base_url(
@@ -103,13 +112,24 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
         ``BaseRepository.create(**kwargs)`` with a different signature would
         break substitutability.
 
-        Commits, per this package's convention. A satellite abandoned by a
-        failing caller is harmless — it holds no catalogue data, and the next
-        request for the same origin resolves to it.
+        **Idempotent on the origin.** Re-registering an origin the account
+        already holds returns the existing satellite rather than conflicting, so
+        a space can call this unconditionally at startup — "ensure a satellite
+        exists at this URL" — without needing to remember whether it has
+        registered before or to recover from a 409 by listing and matching.
+
+        Commits, per this package's convention.
 
         Raises:
-            ConflictError: This account already has a satellite at this origin.
+            SatelliteKindMismatchError: The origin is already registered under
+                the other kind, which is a genuine conflict rather than a repeat.
         """
+        existing = self.find_by_base_url(user_id, base_url)
+        if existing is not None:
+            if existing.kind is not kind:
+                raise SatelliteKindMismatchError(kind, existing.kind)
+            return existing
+
         model = SatelliteModel(
             user_id=user_id, kind=kind.value, base_url=base_url.value
         )
@@ -117,8 +137,14 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
         try:
             self.session.commit()
         except IntegrityError:
+            # Lost a race against a concurrent registration of the same origin.
             self.session.rollback()
-            logger.info("Satellite create conflicted for user %s on base_url", user_id)
+            raced = self.find_by_base_url(user_id, base_url)
+            if raced is not None:
+                logger.info(
+                    "Satellite registration raced for user %s; reusing", user_id
+                )
+                return raced
             raise ConflictError("satellite", "base_url") from None
         self.session.refresh(model)
         return _to_ref(model)

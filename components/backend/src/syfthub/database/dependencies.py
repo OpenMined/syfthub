@@ -11,6 +11,7 @@ from syfthub.repositories import (
     CollectiveMemberRepository,
     CollectiveRepository,
     EndpointRepository,
+    SatelliteRepository,
     UserRepository,
     UserXenditSubscriptionRepository,
 )
@@ -46,6 +47,13 @@ def get_endpoint_repository(
 ) -> EndpointRepository:
     """Get EndpointRepository dependency."""
     return EndpointRepository(session)
+
+
+def get_satellite_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> SatelliteRepository:
+    """Get SatelliteRepository dependency."""
+    return SatelliteRepository(session)
 
 
 def get_endpoint_star_repository(

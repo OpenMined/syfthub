@@ -18,6 +18,7 @@ from syfthub.schemas.user import (
     UserUpdate,
 )
 from syfthub.services.base import BaseService
+from syfthub.services.satellite_service import SatelliteService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -30,19 +31,33 @@ class UserService(BaseService):
         """Initialize user service."""
         super().__init__(session)
         self.user_repository = UserRepository(session)
+        self.satellite_service = SatelliteService(session)
+
+    def _with_domain(self, user: Any) -> UserResponse:
+        """Build a profile response with ``domain`` derived from the account's space.
+
+        ``users.domain`` is no longer written — it described one host per account
+        and could not survive a second space. The field stays on the response for
+        compatibility and now reports the account's **oldest space**, never a
+        station, whose origin serves nothing. ``None`` for an account with no
+        space, which is what the column already held for those.
+        """
+        response = UserResponse.model_validate(user)
+        response.domain = self.satellite_service.primary_space_url(user.id)
+        return response
 
     def get_user_profile(self, user_id: int) -> Optional[UserResponse]:
         """Get user profile by ID."""
         user = self.user_repository.get_by_id(user_id)
         if user:
-            return UserResponse.model_validate(user)
+            return self._with_domain(user)
         return None
 
     def get_user_by_username(self, username: str) -> Optional[UserResponse]:
         """Get user profile by username."""
         user = self.user_repository.get_by_username(username)
         if user:
-            return UserResponse.model_validate(user)
+            return self._with_domain(user)
         return None
 
     def get_public_user_profile(self, username: str) -> Optional[PublicUserProfile]:
@@ -62,7 +77,7 @@ class UserService(BaseService):
             avatar_url=user.avatar_url,
             role=user.role,
             bio=user.bio,
-            domain=user.domain,
+            domain=self.satellite_service.primary_space_url(user.id),
             email=user.email if user.is_email_public else None,
             is_email_public=user.is_email_public,
             created_at=user.created_at,
@@ -125,14 +140,19 @@ class UserService(BaseService):
             raise NotFoundError("User")
         previous_email = before.email
 
+        # A submitted ``domain`` registers a space rather than writing the old
+        # account-wide field. Never rejected: spaces have always set their URL
+        # this way at setup, and they must keep working untouched. Idempotent,
+        # so a space that re-runs setup resolves to the satellite it already has.
+        if user_data.domain:
+            self.satellite_service.register_or_move_space(user_id, user_data.domain)
+
         updated_user = self.user_repository.update_user(user_id, user_data)
         if not updated_user:
             raise NotFoundError("User")
 
         changed = updated_user.email.lower() != previous_email.lower()
-        return UserResponse.model_validate(updated_user), (
-            previous_email if changed else None
-        )
+        return self._with_domain(updated_user), (previous_email if changed else None)
 
     def deactivate_user(self, user_id: int, current_user: User) -> bool:
         """Deactivate a user account."""

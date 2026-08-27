@@ -16,6 +16,7 @@ from syfthub.domain.exceptions import (
 from syfthub.domain.satellite import (
     AmbiguousSatelliteError,
     SatelliteKind,
+    SatelliteKindMismatchError,
     SatelliteRef,
 )
 from syfthub.domain.value_objects import ValueObject
@@ -30,6 +31,7 @@ __all__ = [
     "NotFoundError",
     "PermissionDeniedError",
     "SatelliteKind",
+    "SatelliteKindMismatchError",
     "SatelliteRef",
     "ValidationError",
     "ValueObject",

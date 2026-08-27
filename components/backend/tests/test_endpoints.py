@@ -2521,14 +2521,19 @@ def station_owner(client: TestClient) -> dict:
     response = client.post("/api/v1/auth/register", json=user_data)
     user_id = response.json()["user"]["id"]
 
+    # The cluster-policy gate reads the owner's registered space, not the
+    # retired users.domain field, so register a satellite at the station origin.
     from syfthub.database.connection import get_db_session
-    from syfthub.repositories.user import UserRepository
+    from syfthub.domain.satellite import SatelliteKind
+    from syfthub.schemas.satellite import SatelliteCreate
+    from syfthub.services.satellite_service import SatelliteService
 
     session = next(get_db_session())
     try:
-        # update_domain does not commit; the caller owns the transaction.
-        UserRepository(session).update_domain(user_id, _STATION_DOMAIN)
-        session.commit()
+        SatelliteService(session).create_satellite(
+            user_id,
+            SatelliteCreate(kind=SatelliteKind.SPACE, base_url=_STATION_DOMAIN),
+        )
     finally:
         session.close()
 
@@ -2805,13 +2810,16 @@ def test_cluster_policy_rejects_tunneling_domain_owner(
     user2_id = me.json()["id"]
 
     from syfthub.database.connection import get_db_session
-    from syfthub.repositories.user import UserRepository
+    from syfthub.domain.satellite import SatelliteKind
+    from syfthub.schemas.satellite import SatelliteCreate
+    from syfthub.services.satellite_service import SatelliteService
 
     session = next(get_db_session())
     try:
-        # update_domain does not commit; the caller owns the transaction.
-        UserRepository(session).update_domain(user2_id, "tunneling:user2")
-        session.commit()
+        SatelliteService(session).create_satellite(
+            user2_id,
+            SatelliteCreate(kind=SatelliteKind.SPACE, base_url="tunneling:user2"),
+        )
     finally:
         session.close()
 

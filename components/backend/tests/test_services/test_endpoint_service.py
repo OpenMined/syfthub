@@ -345,6 +345,7 @@ class TestEndpointServiceLists:
             ),
             patch.object(endpoint_service, "_can_access_endpoint", return_value=True),
             patch.object(endpoint_service, "_can_see_full_details", return_value=True),
+            patch.object(endpoint_service, "_origins_for", return_value={}),
         ):
             result = endpoint_service.get_user_endpoints(1, current_user=sample_user)
 
@@ -362,6 +363,7 @@ class TestEndpointServiceLists:
                 return_value=[sample_endpoint],
             ),
             patch.object(endpoint_service, "_can_access_endpoint", return_value=False),
+            patch.object(endpoint_service, "_origins_for", return_value={}),
         ):
             result = endpoint_service.get_user_endpoints(1, current_user=sample_user)
 

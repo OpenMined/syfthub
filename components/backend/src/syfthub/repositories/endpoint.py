@@ -15,6 +15,7 @@ from syfthub.models.endpoint import (
     EndpointStarModel,
     EndpointUptimeSampleModel,
 )
+from syfthub.models.satellite import SatelliteModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.endpoint import (
@@ -45,18 +46,32 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         super().__init__(session, EndpointModel)
 
     def _build_public_select(self):
-        """Build a SELECT statement for endpoints joined with their owner.
+        """Build a SELECT statement for endpoints joined with owner and space.
 
         Returns a select() with columns:
             - EndpointModel (the endpoint)
             - owner_username (user.username)
-            - owner_domain (user.domain)
+            - base_url (the serving satellite's origin, or None)
+
+        This used to be ``owner_domain``, read from ``users.domain`` — one field
+        per account, which could only ever describe one host. It is now the
+        origin of the satellite serving *this* endpoint, so the old name would
+        misdescribe it.
+
+        The satellite join is an OUTER join on purpose: an endpoint with no
+        ``space_id`` — a pre-satellite row, or one published by an account that
+        has registered no satellite — must still appear in listings, just with
+        no URL to build. An inner join would silently drop it from the catalogue.
         """
-        return select(
-            self.model,
-            UserModel.username.label("owner_username"),
-            UserModel.domain.label("owner_domain"),
-        ).join(UserModel, self.model.user_id == UserModel.id)
+        return (
+            select(
+                self.model,
+                UserModel.username.label("owner_username"),
+                SatelliteModel.base_url.label("base_url"),
+            )
+            .join(UserModel, self.model.user_id == UserModel.id)
+            .outerjoin(SatelliteModel, self.model.space_id == SatelliteModel.id)
+        )
 
     @staticmethod
     def _build_public_response(
@@ -505,7 +520,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         try:
             # First, get the count per owner for ALL owners with public/active endpoints
             owner_username_expr = UserModel.username
-            owner_domain_expr = UserModel.domain
+            base_url_expr = SatelliteModel.base_url
 
             # Subquery to rank endpoints within each owner
             row_number = (
@@ -527,11 +542,12 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 select(
                     self.model,
                     owner_username_expr.label("owner_username"),
-                    owner_domain_expr.label("owner_domain"),
+                    base_url_expr.label("base_url"),
                     row_number,
                     count_per_owner,
                 )
                 .join(UserModel, self.model.user_id == UserModel.id)
+                .outerjoin(SatelliteModel, self.model.space_id == SatelliteModel.id)
                 .where(
                     and_(
                         self.model.visibility == EndpointVisibility.PUBLIC.value,
@@ -557,7 +573,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             owner_groups: dict[str, dict] = {}
             for row in rows:
                 username = row.owner_username
-                domain = row.owner_domain
+                domain = row.base_url
                 total = row.owner_count
 
                 if username not in owner_groups:

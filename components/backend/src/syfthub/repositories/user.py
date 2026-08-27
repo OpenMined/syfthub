@@ -151,8 +151,10 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
-            if "domain" in user_data.model_fields_set:
-                user_model.domain = user_data.domain
+            # ``domain`` is deliberately NOT written here any more. It was one
+            # field per account and could only ever describe one host; the
+            # service redirects it into satellite registration instead. The
+            # column stays for the deploy window and is dropped later.
             # Aggregator URL
             if user_data.aggregator_url is not None:
                 user_model.aggregator_url = user_data.aggregator_url
@@ -282,29 +284,6 @@ class UserRepository(BaseRepository[UserModel]):
         except Exception:
             self.session.rollback()
             return False
-
-    def update_domain(self, user_id: int, domain: str) -> bool:
-        """Update the user's domain for dynamic endpoint URL construction.
-
-        Set when an owner reports endpoint health (POST /endpoints/health):
-        the domain is extracted from the report URL so the health monitor and
-        endpoint URL construction know where the owner's node lives.
-
-        Does NOT commit — the caller manages the transaction.
-
-        Args:
-            user_id: ID of the user to update
-            domain: Normalized domain (scheme + netloc, or tunneling URL)
-
-        Returns:
-            True if the user was found and updated, False otherwise
-        """
-        user_model = self.session.get(self.model, user_id)
-        if not user_model:
-            return False
-
-        user_model.domain = domain
-        return True
 
     def update_last_login(self, user_id: int) -> bool:
         """Stamp the user's last_login_at to the current UTC time.

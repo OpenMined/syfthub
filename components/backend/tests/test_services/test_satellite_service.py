@@ -11,7 +11,11 @@ import pytest
 from tests.test_utils import get_test_user_model_data
 
 from syfthub.domain.exceptions import ConflictError, NotFoundError, ValidationError
-from syfthub.domain.satellite import AmbiguousSatelliteError, SatelliteKind
+from syfthub.domain.satellite import (
+    AmbiguousSatelliteError,
+    SatelliteKind,
+    SatelliteKindMismatchError,
+)
 from syfthub.models.endpoint import EndpointModel
 from syfthub.models.user import UserModel
 from syfthub.schemas.satellite import SatelliteCreate, SatelliteUpdate
@@ -86,11 +90,24 @@ class TestCrud:
         )
         assert created.base_url == "https://s.example.com"
 
-    def test_create_rejects_a_duplicate_origin(self, service, users):
-        """Test that one host is exactly one satellite per account."""
+    def test_create_is_idempotent_on_the_origin(self, service, users):
+        """Test that re-registering an origin returns the existing satellite.
+
+        Lets a space call registration unconditionally at startup.
+        """
+        first = _create(service, users[0].id, base_url="https://a.example.com")
+        again = _create(service, users[0].id, base_url="https://a.example.com")
+
+        assert again.id == first.id
+        assert len(service.list_satellites(users[0].id)) == 1
+
+    def test_create_rejects_the_same_origin_as_another_kind(self, service, users):
+        """Test that a host cannot be both a space and a station."""
         _create(service, users[0].id, base_url="https://a.example.com")
-        with pytest.raises(ConflictError):
-            _create(service, users[0].id, base_url="https://a.example.com")
+        with pytest.raises(SatelliteKindMismatchError):
+            _create(
+                service, users[0].id, base_url="https://a.example.com", kind="station"
+            )
 
     def test_list_is_scoped_and_ordered(self, service, users):
         """Test that an account sees only its own satellites."""

@@ -24,7 +24,7 @@ class TestEndpointHealthInfo:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
         )
@@ -33,7 +33,7 @@ class TestEndpointHealthInfo:
         assert info.endpoint_type == "model"
         assert info.is_active is True
         assert info.connect == [{"type": "rest_api", "config": {"url": "/test"}}]
-        assert info.owner_domain == "https://example.com"
+        assert info.base_url == "https://example.com"
         assert info.owner_id == 10
         assert info.owner_type == "user"
         assert info.health_status is None
@@ -48,7 +48,7 @@ class TestEndpointHealthInfo:
             endpoint_type="data_source",
             is_active=False,
             connect=[],
-            owner_domain="https://test.com",
+            base_url="https://test.com",
             owner_id=20,
             owner_type="user",
         )
@@ -67,7 +67,7 @@ class TestEndpointHealthInfo:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="healthy",
@@ -254,7 +254,7 @@ class TestGetEndpointsForHealthCheck:
         assert endpoints[0].slug == "endpoint-1"
         assert endpoints[0].endpoint_type == "model"
         assert endpoints[0].is_active is True
-        assert endpoints[0].owner_domain == "https://user.com"
+        assert endpoints[0].base_url == "https://user.com"
         assert endpoints[0].owner_type == "user"
         assert endpoints[0].owner_id == 10
         assert endpoints[0].health_status is None
@@ -369,11 +369,11 @@ class TestGetEndpointsForHealthCheck:
         # All 3 endpoints should be included (no domain filtering)
         assert len(endpoints) == 3
         assert endpoints[0].id == 1
-        assert endpoints[0].owner_domain is None
+        assert endpoints[0].base_url is None
         assert endpoints[1].id == 2
-        assert endpoints[1].owner_domain == ""
+        assert endpoints[1].base_url == ""
         assert endpoints[2].id == 3
-        assert endpoints[2].owner_domain == "https://valid.com"
+        assert endpoints[2].base_url == "https://valid.com"
 
 
 class TestCheckEndpointHealth:
@@ -397,7 +397,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
         )
@@ -410,7 +410,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain=None,
+            base_url=None,
             owner_id=10,
             owner_type="user",
         )
@@ -426,7 +426,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain="",
+            base_url="",
             owner_id=10,
             owner_type="user",
         )
@@ -443,7 +443,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="healthy",
@@ -463,7 +463,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="unhealthy",
@@ -489,7 +489,7 @@ class TestCheckEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api"}],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="healthy",
@@ -520,7 +520,7 @@ class TestCheckPerEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
         )
@@ -536,7 +536,7 @@ class TestCheckPerEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="healthy",
@@ -554,7 +554,7 @@ class TestCheckPerEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="healthy",
@@ -572,7 +572,7 @@ class TestCheckPerEndpointHealth:
             endpoint_type="model",
             is_active=True,
             connect=[],
-            owner_domain="https://example.com",
+            base_url="https://example.com",
             owner_id=10,
             owner_type="user",
             health_status="unhealthy",
@@ -734,7 +734,7 @@ class TestRunHealthCheckCycle:
                 endpoint_type="model",
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="https://example.com",
+                base_url="https://example.com",
                 owner_id=10,
                 owner_type="user",
             )
@@ -770,7 +770,7 @@ class TestRunHealthCheckCycle:
                 endpoint_type="model",
                 is_active=True,  # Was active
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="https://example.com",
+                base_url="https://example.com",
                 owner_id=10,
                 owner_type="user",
             )

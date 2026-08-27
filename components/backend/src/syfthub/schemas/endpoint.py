@@ -434,6 +434,11 @@ class Endpoint(BaseModel):
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
     user_id: int = Field(..., description="ID of the user who owns this endpoint")
+    # Internal only — Endpoint is never a response model. Carried so callers can
+    # resolve each endpoint's serving origin without a per-row query.
+    space_id: Optional[int] = Field(
+        None, description="Internal id of the satellite serving this endpoint"
+    )
     slug: str = Field(
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )

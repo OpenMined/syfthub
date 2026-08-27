@@ -135,11 +135,25 @@ class TestCreate:
         response = client.post("/api/v1/satellites", headers=headers, json=payload)
         assert response.status_code == 422
 
-    def test_duplicate_origin_is_409(self, client: TestClient):
-        """Test that one host is exactly one satellite per account."""
+    def test_re_registering_an_origin_is_idempotent(self, client: TestClient):
+        """Test that registration is "ensure a satellite at this URL"."""
+        headers = register(client)
+        first = create_satellite(client, headers, base_url="https://a.example.com")
+        again = create_satellite(client, headers, base_url="https://a.example.com")
+
+        assert again.status_code == 201
+        assert again.json()["id"] == first.json()["id"]
+        assert len(client.get("/api/v1/satellites", headers=headers).json()) == 1
+
+    def test_same_origin_as_another_kind_is_409(self, client: TestClient):
+        """Test that a host cannot be both a space and a station."""
         headers = register(client)
         create_satellite(client, headers, base_url="https://a.example.com")
-        response = create_satellite(client, headers, base_url="https://a.example.com")
+        response = client.post(
+            "/api/v1/satellites",
+            headers=headers,
+            json={"kind": "station", "base_url": "https://a.example.com"},
+        )
         assert response.status_code == 409
 
 

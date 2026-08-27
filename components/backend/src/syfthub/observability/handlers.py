@@ -26,6 +26,7 @@ from syfthub.domain.exceptions import (
     UserAlreadyExistsError,
     ValidationError,
 )
+from syfthub.domain.satellite import SatelliteKindMismatchError
 from syfthub.observability.constants import (
     CORRELATION_ID_HEADER,
     SERVICE_NAME,
@@ -72,6 +73,8 @@ DOMAIN_EXCEPTION_STATUS_MAP: dict[type[DomainException], int] = {
     KeyNotConfiguredError: status.HTTP_503_SERVICE_UNAVAILABLE,
     KeyLoadError: status.HTTP_503_SERVICE_UNAVAILABLE,
     IdPException: status.HTTP_400_BAD_REQUEST,
+    # Satellites
+    SatelliteKindMismatchError: status.HTTP_409_CONFLICT,
     # OTP
     InvalidOTPError: status.HTTP_400_BAD_REQUEST,
     OTPMaxAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,

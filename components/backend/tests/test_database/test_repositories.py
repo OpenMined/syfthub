@@ -116,54 +116,24 @@ class TestUserRepository:
         result = user_repo.update(999, {"full_name": "New Name"})
         assert result is None
 
-    def test_update_user_domain_set(
+    def test_update_user_no_longer_writes_domain(
         self, test_session: Session, sample_user_data: dict
     ):
-        """Test setting domain via update_user."""
+        """Test that update_user ignores ``domain``.
+
+        The field described one host per account and could not survive a second
+        space. UserService now redirects a submitted domain into satellite
+        registration; the column is left alone until it is dropped.
+        """
         user_repo = UserRepository(test_session)
         created_user = user_repo.create(sample_user_data)
 
-        update_data = UserUpdate(domain="https://example.com")
-        updated_user = user_repo.update_user(created_user.id, update_data)
-
-        assert updated_user is not None
-        assert updated_user.domain == "https://example.com"
-
-    def test_update_user_domain_cleared_to_none(
-        self, test_session: Session, sample_user_data: dict
-    ):
-        """Test that domain can be explicitly cleared to None via update_user."""
-        user_repo = UserRepository(test_session)
-        created_user = user_repo.create(sample_user_data)
-
-        # First set a domain
-        user_repo.update_user(created_user.id, UserUpdate(domain="https://example.com"))
-
-        # Now clear it by explicitly passing domain=None (must be in model_fields_set)
-        update_data = UserUpdate.model_validate({"domain": None})
-        assert "domain" in update_data.model_fields_set
-        updated_user = user_repo.update_user(created_user.id, update_data)
+        updated_user = user_repo.update_user(
+            created_user.id, UserUpdate(domain="https://example.com")
+        )
 
         assert updated_user is not None
         assert updated_user.domain is None
-
-    def test_update_user_domain_not_cleared_when_omitted(
-        self, test_session: Session, sample_user_data: dict
-    ):
-        """Test that domain is not cleared when it is simply omitted from the update."""
-        user_repo = UserRepository(test_session)
-        created_user = user_repo.create(sample_user_data)
-
-        # Set a domain
-        user_repo.update_user(created_user.id, UserUpdate(domain="https://example.com"))
-
-        # Update something else — domain should be untouched
-        update_data = UserUpdate(full_name="New Name")
-        assert "domain" not in update_data.model_fields_set
-        updated_user = user_repo.update_user(created_user.id, update_data)
-
-        assert updated_user is not None
-        assert updated_user.domain == "https://example.com"
 
     def test_delete_user(self, test_session: Session, sample_user_data: dict):
         """Test deleting a user."""
@@ -311,29 +281,6 @@ class TestUserRepository:
         refreshed = user_repo.get_by_id(user.id)
         assert refreshed is not None
         assert refreshed.is_active is True
-
-    def test_update_domain_not_found(self, test_session: Session):
-        """update_domain returns False when user ID does not exist."""
-        user_repo = UserRepository(test_session)
-        result = user_repo.update_domain(
-            user_id=999,
-            domain="https://node.example.com",
-        )
-        assert result is False
-
-    def test_update_domain_success(self, test_session: Session, sample_user_data: dict):
-        """update_domain sets the user's domain and returns True."""
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-        result = user_repo.update_domain(
-            user_id=user.id,
-            domain="https://node.example.com",
-        )
-        assert result is True
-        test_session.commit()
-        refreshed = user_repo.get_by_id(user.id)
-        assert refreshed is not None
-        assert refreshed.domain == "https://node.example.com"
 
     def test_create_with_data_param(self, test_session: Session):
         """create(data={...}) merges into kwargs and creates a user."""

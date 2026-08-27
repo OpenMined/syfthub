@@ -70,31 +70,29 @@ class EndpointService(BaseService):
         self.satellite_service = SatelliteService(session)
         self.rag_service: RAGService = get_rag_service()
 
-    def _get_owner_domain(self, endpoint: Endpoint) -> str | None:
-        """Get the domain for an endpoint's owner."""
-        user = self.user_repository.get_by_id(endpoint.user_id)
-        return user.domain if user else None
+    def _serving_origin(self, endpoint: Endpoint) -> str | None:
+        """The origin serving this endpoint, or None if it has no satellite."""
+        if endpoint.space_id is None:
+            return None
+        ref = self.satellite_service.satellite_repository.get_by_id(endpoint.space_id)
+        return ref.base_url if ref else None
 
     def _to_response_with_urls(
         self,
         endpoint: Endpoint,
-        owner_domain: Optional[str] = None,
+        base_url: Optional[str] = None,
         current_user: Optional[User] = None,
     ) -> EndpointResponse:
         """Convert Endpoint to EndpointResponse with transformed URLs.
 
         Args:
             endpoint: The endpoint model to convert.
-            owner_domain: Pre-fetched owner domain. When provided, skips the
+            base_url: Pre-fetched serving origin. When provided, skips the
                 per-endpoint DB lookup (use in listing methods to avoid N+1).
             current_user: The authenticated viewer. Used to filter policies
                 whose `config.applied_to` does not include the viewer.
         """
-        domain = (
-            owner_domain
-            if owner_domain is not None
-            else self._get_owner_domain(endpoint)
-        )
+        domain = base_url if base_url is not None else self._serving_origin(endpoint)
 
         # Transform connection URLs
         transformed_connect = transform_connection_urls(
@@ -329,12 +327,15 @@ class EndpointService(BaseService):
                     f"cluster policy 'wallet_owner' {raw_owner} does not "
                     "resolve to an active user"
                 )
-            if not owner.domain:
+            # Sourced from the owner's registered space, not the retired
+            # account-wide users.domain field.
+            owner_origin = self.satellite_service.primary_space_url(owner.id)
+            if not owner_origin:
                 return (
                     f"cluster wallet owner '{owner.username}' has no registered "
                     "domain on SyftHub; the wallet URLs cannot be verified"
                 )
-            if owner.domain.startswith(TUNNELING_PREFIX):
+            if owner_origin.startswith(TUNNELING_PREFIX):
                 # Tunneling spaces have no public hostname, so host-based
                 # wallet URL verification can never succeed — reject clearly
                 # instead of failing against a bogus "tunneling" host.
@@ -342,7 +343,7 @@ class EndpointService(BaseService):
                     f"cluster wallet owner '{owner.username}' uses a tunneling "
                     "domain; cluster wallet URLs require a public http(s) domain"
                 )
-            domain = owner.domain
+            domain = owner_origin
             if "://" not in domain:
                 domain = f"https://{domain}"
             domain_host = (urlparse(domain).hostname or "").lower()
@@ -502,9 +503,10 @@ class EndpointService(BaseService):
             user_id, skip, limit, visibility, search
         )
 
-        # Look up user domain once for all endpoints (avoids N+1)
-        user = self.user_repository.get_by_id(user_id)
-        user_domain = user.domain if user else None
+        # One lookup for the account's satellites, then a dict hit per endpoint.
+        # The domain is per endpoint now, so a single account-wide value would be
+        # wrong the moment the account owns a second space.
+        origins = self._origins_for(user_id)
 
         accessible_endpoints = []
         for endpoint in endpoints:
@@ -512,12 +514,25 @@ class EndpointService(BaseService):
                 accessible_endpoints.append(
                     self._to_response_with_urls(
                         endpoint,
-                        owner_domain=user_domain,
+                        base_url=origins.get(endpoint.space_id),
                         current_user=current_user,
                     )
                 )
 
         return accessible_endpoints
+
+    def _origins_for(self, user_id: int) -> dict[Optional[int], Optional[str]]:
+        """Map the account's satellite ids to their origins.
+
+        Fetched once per listing rather than per row. Accounts own a handful of
+        satellites at most, so this stays a single small query.
+        """
+        return {
+            ref.id: ref.base_url.value
+            for ref in self.satellite_service.satellite_repository.list_for_user(
+                user_id
+            )
+        }
 
     def get_public_endpoints(
         self,
@@ -1450,12 +1465,12 @@ class EndpointService(BaseService):
                     if endpoint.visibility == EndpointVisibility.PUBLIC:
                         self._ingest_to_rag(endpoint.id)
 
-            # Transform URLs for response (look up user domain once)
-            user = self.user_repository.get_by_id(current_user.id)
-            user_domain = user.domain if user else None
+            # Everything in this batch is served by the satellite we resolved,
+            # so one origin covers the whole response.
+            origin = satellite.base_url.value if satellite else None
             response_endpoints = [
                 self._to_response_with_urls(
-                    ep, owner_domain=user_domain, current_user=current_user
+                    ep, base_url=origin, current_user=current_user
                 )
                 for ep in created_endpoints
             ]

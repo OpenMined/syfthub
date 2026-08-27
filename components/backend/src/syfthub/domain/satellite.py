@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from syfthub.domain.exceptions import ValidationError
+from syfthub.domain.exceptions import DomainException, ValidationError
 
 if TYPE_CHECKING:
     from syfthub.domain.base_url import BaseUrl
@@ -75,4 +75,29 @@ class AmbiguousSatelliteError(ValidationError):
         )
 
 
-__all__ = ["AmbiguousSatelliteError", "SatelliteKind", "SatelliteRef"]
+class SatelliteKindMismatchError(DomainException):
+    """An origin is already registered under the other kind.
+
+    Registration is idempotent on the origin, so re-registering one the account
+    already holds is normal. Re-registering it as a *different* kind is not: a
+    host is either a space or a station, and silently returning the other would
+    attach endpoints to a station or mint the wrong audience.
+    """
+
+    def __init__(self, expected: SatelliteKind, actual: SatelliteKind):
+        """Initialize satellite kind mismatch error."""
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"That origin is already registered as a {actual.value}, "
+            f"not a {expected.value}",
+            "SATELLITE_KIND_MISMATCH",
+        )
+
+
+__all__ = [
+    "AmbiguousSatelliteError",
+    "SatelliteKind",
+    "SatelliteKindMismatchError",
+    "SatelliteRef",
+]

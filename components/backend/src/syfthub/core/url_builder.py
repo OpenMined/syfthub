@@ -4,15 +4,16 @@ This module provides functions to build full URLs from owner domains and
 connection path configurations.
 
 DESIGN INTENT:
-- The owner's domain field stores a full origin with protocol
+- The serving satellite's base_url stores a full origin with protocol
   (e.g., "https://api.example.com" or "http://192.168.1.1:8080")
 - Internally (database storage), connection.config.url contains only the PATH portion
   (e.g., "api/v2" or "" for root)
 - Externally (API responses), we expose full URLs by combining:
-  {owner.domain}/{connection.config.url}
+  {satellite.base_url}/{connection.config.url}
 
 Where:
-- owner.domain includes the protocol (e.g., "https://api.example.com")
+- the origin comes from the satellite serving the endpoint and includes the
+  protocol (e.g., "https://api.example.com")
 - connection.config.url contains only the path portion (e.g., "v1" or "")
 
 For WebSocket connection types, the protocol is automatically upgraded
