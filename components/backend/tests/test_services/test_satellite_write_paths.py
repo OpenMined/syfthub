@@ -346,3 +346,53 @@ class TestPublishAttaches:
             ep_service.create_endpoint(
                 _endpoint("my-endpoint"), owner.id, current_user=owner
             )
+
+
+class TestSyncBeforeRegistration:
+    """The order an unupgraded space may do things in."""
+
+    def test_syncing_before_a_satellite_exists_then_after(
+        self, services, owner, test_session
+    ):
+        """Test that a space which synced before registering can sync again.
+
+        Sequence: sync with no satellite (endpoints land unattached), then a
+        heartbeat registers one, then sync again. The scoped delete used to skip
+        the unattached rows, so the re-create collided on the per-user unique
+        slug and every later sync returned 500 — permanently.
+        """
+        ep_service, sat_service = services
+
+        ep_service.sync_user_endpoints([_endpoint("my-endpoint")], owner)
+        assert test_session.query(EndpointModel).one().space_id is None
+
+        ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://later.example.com")
+        )
+        ref = sat_service.satellite_repository.list_for_user(owner.id)[0]
+
+        ep_service.sync_user_endpoints([_endpoint("my-endpoint")], owner)
+
+        test_session.expire_all()
+        survivor = test_session.query(EndpointModel).one()
+        assert survivor.slug == "my-endpoint"
+        assert survivor.space_id == ref.id, "the re-sync should claim it"
+
+    def test_publishing_before_registration_then_syncing(
+        self, services, owner, test_session
+    ):
+        """Test the same collision via publish rather than sync."""
+        ep_service, sat_service = services
+        ep_service.create_endpoint(
+            _endpoint("my-endpoint"), owner.id, current_user=owner
+        )
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        ref = sat_service.satellite_repository.get_by_public_id(owner.id, a.id)
+
+        ep_service.sync_user_endpoints(
+            [_endpoint("my-endpoint")], owner, satellite_id=a.id
+        )
+
+        test_session.expire_all()
+        survivor = test_session.query(EndpointModel).one()
+        assert survivor.space_id == ref.id

@@ -809,16 +809,23 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return False
 
     def _space_filter(self, user_id: int, space_id: Optional[int]):
-        """Match one user's endpoints on a satellite, or their unattached ones.
+        """Match a user's endpoints on one satellite, **plus their unattached ones**.
 
-        ``None`` means ``space_id IS NULL`` — endpoints belonging to an account
-        that has registered no satellite. Treating that as its own bucket is what
-        lets sync stay scoped for such an account instead of touching everything.
+        Unattached rows (``space_id IS NULL``) are included deliberately. Slugs
+        are unique per user, not per space, so an unattached endpoint holding a
+        slug the syncing space wants collides on insert. Leaving them out meant
+        an account that synced before registering a satellite got a permanent
+        500 on every later sync: the scoped delete cleared nothing, and the
+        re-create hit the unique index.
+
+        They are also the right rows to claim: nothing else serves them, and the
+        syncing space is asserting what it serves. With ``space_id=None`` this
+        reduces to just the unattached ones, so both callers use one rule.
         """
         space_match = (
             self.model.space_id.is_(None)
             if space_id is None
-            else self.model.space_id == space_id
+            else or_(self.model.space_id == space_id, self.model.space_id.is_(None))
         )
         return and_(self.model.user_id == user_id, space_match)
 
