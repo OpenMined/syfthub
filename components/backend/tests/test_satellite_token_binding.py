@@ -56,25 +56,6 @@ def register(client: TestClient, username: str) -> dict:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def public_id_of(username: str) -> str:
-    """An account's opaque external id.
-
-    Read from the database because no response exposes it yet — see the note in
-    the Phase 2 handover. Clients will get the wallet owner's public_id from the
-    policy's ``wallet_owner`` field.
-    """
-    from syfthub.database.connection import get_db_session
-    from syfthub.repositories.user import UserRepository
-
-    session = next(get_db_session())
-    try:
-        user = UserRepository(session).get_by_username(username)
-        assert user is not None and user.public_id is not None
-        return str(user.public_id)
-    finally:
-        session.close()
-
-
 def add_satellite(client, headers, base_url, kind="space") -> str:
     """Register a satellite and return its public id."""
     response = client.post(
@@ -98,13 +79,13 @@ class TestMintBindsToASatellite:
         """Test the core change."""
         alice = register(client, "alice")
         satellite = add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
 
         bob = register(client, "bob")
         response = client.get(
             "/api/v1/token",
             headers=bob,
-            params={"owner": owner, "dest": "https://alice.example.com"},
+            params={"owner_username": owner, "resource": "https://alice.example.com"},
         )
 
         assert response.status_code == 200, response.text
@@ -114,15 +95,15 @@ class TestMintBindsToASatellite:
         """Test that only the origin matters, as the caller sends a full URL."""
         alice = register(client, "alice")
         satellite = add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         response = client.get(
             "/api/v1/token",
             headers=bob,
             params={
-                "owner": owner,
-                "dest": "https://alice.example.com/api/v1/credits/w-1/balance",
+                "owner_username": owner,
+                "resource": "https://alice.example.com/api/v1/credits/w-1/balance",
             },
         )
 
@@ -138,12 +119,14 @@ class TestMintBindsToASatellite:
         station = add_satellite(
             client, alice, "https://station.example.com", kind="station"
         )
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         def mint(dest):
             r = client.get(
-                "/api/v1/token", headers=bob, params={"owner": owner, "dest": dest}
+                "/api/v1/token",
+                headers=bob,
+                params={"owner_username": owner, "resource": dest},
             )
             assert r.status_code == 200, r.text
             return claims(r.json()["target_token"])["aud"]
@@ -160,11 +143,11 @@ class TestMintBindsToASatellite:
         """
         alice = register(client, "alice")
         satellite = add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
 
         response = client.get(
             "/api/v1/token/guest",
-            params={"owner": owner, "dest": "https://alice.example.com"},
+            params={"owner_username": owner, "resource": "https://alice.example.com"},
         )
 
         assert response.status_code == 200, response.text
@@ -185,13 +168,13 @@ class TestUnknownDestinationIsRefused:
         """
         alice = register(client, "alice")
         add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         response = client.get(
             "/api/v1/token",
             headers=bob,
-            params={"owner": owner, "dest": "https://evil.example.com"},
+            params={"owner_username": owner, "resource": "https://evil.example.com"},
         )
 
         assert response.status_code == 422, response.text
@@ -207,13 +190,13 @@ class TestUnknownDestinationIsRefused:
         add_satellite(client, alice, "https://alice.example.com")
         carol = register(client, "carol")
         add_satellite(client, carol, "https://carol.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         response = client.get(
             "/api/v1/token",
             headers=bob,
-            params={"owner": owner, "dest": "https://carol.example.com"},
+            params={"owner_username": owner, "resource": "https://carol.example.com"},
         )
 
         assert response.status_code == 422
@@ -225,8 +208,8 @@ class TestUnknownDestinationIsRefused:
             "/api/v1/token",
             headers=bob,
             params={
-                "owner": "00000000-0000-0000-0000-000000000009",
-                "dest": "https://anything.example.com",
+                "owner_username": "nobody-here",
+                "resource": "https://anything.example.com",
             },
         )
         assert response.status_code in (400, 404), response.text
@@ -281,11 +264,11 @@ class TestLegacyAudAlias:
 class TestVerifyIsAMembershipTest:
     """S10 — and the reason /verify must not use the resolution rule."""
 
-    def _mint_for(self, client, minter_headers, owner_public_id, dest) -> str:
+    def _mint_for(self, client, minter_headers, owner_username, dest) -> str:
         r = client.get(
             "/api/v1/token",
             headers=minter_headers,
-            params={"owner": owner_public_id, "dest": dest},
+            params={"owner_username": owner_username, "resource": dest},
         )
         assert r.status_code == 200, r.text
         return r.json()["target_token"]
@@ -294,7 +277,7 @@ class TestVerifyIsAMembershipTest:
         """Test the ordinary case."""
         alice = register(client, "alice")
         add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         token = self._mint_for(client, bob, owner, "https://alice.example.com")
@@ -315,7 +298,7 @@ class TestVerifyIsAMembershipTest:
         alice = register(client, "alice")
         add_satellite(client, alice, "https://space.example.com")
         add_satellite(client, alice, "https://station.example.com", kind="station")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         token = self._mint_for(client, bob, owner, "https://station.example.com")
@@ -328,7 +311,7 @@ class TestVerifyIsAMembershipTest:
         """Test that a caller cannot verify a token addressed elsewhere."""
         alice = register(client, "alice")
         add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         carol = register(client, "carol")
         add_satellite(client, carol, "https://carol.example.com")
         bob = register(client, "bob")
@@ -349,7 +332,7 @@ class TestVerifyIsAMembershipTest:
         station = add_satellite(
             client, alice, "https://station.example.com", kind="station"
         )
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         token = self._mint_for(client, bob, owner, "https://space.example.com")
@@ -369,7 +352,7 @@ class TestVerifyIsAMembershipTest:
         alice = register(client, "alice")
         space = add_satellite(client, alice, "https://space.example.com")
         add_satellite(client, alice, "https://station.example.com", kind="station")
-        owner = public_id_of("alice")
+        owner = "alice"
         bob = register(client, "bob")
 
         token = self._mint_for(client, bob, owner, "https://space.example.com")
@@ -385,7 +368,7 @@ class TestVerifyIsAMembershipTest:
         """Test that the strict branch is owner-scoped."""
         alice = register(client, "alice")
         add_satellite(client, alice, "https://alice.example.com")
-        owner = public_id_of("alice")
+        owner = "alice"
         carol = register(client, "carol")
         carol_sat = add_satellite(client, carol, "https://carol.example.com")
         bob = register(client, "bob")

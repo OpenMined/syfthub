@@ -7,19 +7,20 @@ audience-bound satellite tokens. Satellite services can either:
 2. Call the /verify endpoint for server-side verification (stateful)
 
 Per the OpenAPI spec:
-- GET /api/v1/token?aud={audience} - Mint a satellite token
+- GET /api/v1/token?owner_username={owner}&resource={url} - Mint a satellite token
 - POST /api/v1/verify - Verify a satellite token (server-side)
 - Requires valid Hub session (Bearer token)
 - Returns RS256-signed satellite token
 
 Audience Validation:
 - Audiences are dynamically validated against the user database
-- A valid audience is any active user's username
-- When a user is created, their username becomes a valid audience
+- A token names a satellite (a resource server), not an account, so it is
+  usable at one host rather than at everything its owner runs
+- The resource URL must be one the owner has registered; an unregistered URL
+  mints nothing
 - When a user is deactivated/deleted, their username becomes invalid
 """
 
-import uuid
 from typing import Annotated, Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -59,26 +60,38 @@ router = APIRouter()
 
 def _resolve_token_audience(
     satellite_service: SatelliteService,
-    owner: Optional[uuid.UUID],
-    dest: Optional[str],
+    owner_username: Optional[str],
+    resource: Optional[str],
     aud: Optional[str],
 ) -> str:
-    """Work out which satellite a token should be bound to.
+    """Work out which satellite (resource) a token should be bound to.
 
-    Two shapes, one preferred:
+    A satellite is a **resource server**, and a token is scoped to one rather
+    than being valid at everything its owner runs. ``resource`` is named after
+    RFC 8707's parameter, which does the same job.
 
-    * ``owner`` + ``dest`` — the caller names the account and the exact URL it
-      is about to send the token to. The URL is resolved inside that account's
-      satellites and refused if none serves it, so a token cannot be minted for
-      a host its supposed owner does not run.
-    * ``aud`` — deprecated. Names the *account*, not a host, so it can only work
-      while that account runs exactly one satellite. Kept because the published
-      SDK sends it.
+    Two shapes:
+
+    * ``owner_username`` + ``resource`` — the caller names the account and the
+      exact URL it is about to send the token to. The URL is resolved inside that
+      account's satellites and refused if none serves it, so a token cannot be
+      minted for a host its supposed owner does not run.
+    * ``aud`` — deprecated. Names the *account*, not a resource, so it can only
+      work while that account runs exactly one satellite. Kept because the
+      published SDK sends it and those versions are not ours to upgrade.
+
+    Note the deliberate asymmetry: ``aud`` as a *parameter* carries a username,
+    while the ``aud`` *claim* carries a satellite id. The claim is derived, never
+    echoed — which is why the parameter is deprecated rather than extended.
 
     Returns the satellite's public_id as a string, ready to be signed as ``aud``.
     """
-    if owner is not None and dest:
-        return str(satellite_service.resolve_audience(owner, dest).public_id)
+    if owner_username and resource:
+        return str(
+            satellite_service.resolve_audience(
+                owner_username.strip(), resource
+            ).public_id
+        )
 
     if aud and aud.strip():
         return str(satellite_service.resolve_legacy_audience(aud.strip()).public_id)
@@ -88,8 +101,8 @@ def _resolve_token_audience(
         detail={
             "code": "MISSING_AUDIENCE",
             "message": (
-                "Send 'owner' (the account's public id) and 'dest' (the URL this "
-                "token is for). The deprecated 'aud' parameter is also accepted."
+                "Send 'owner_username' and 'resource' (the URL this token is "
+                "for). The deprecated 'aud' parameter is also accepted."
             ),
         },
     )
@@ -140,13 +153,16 @@ The returned token is signed by the Hub's Private Key using RS256.
 def get_satellite_token(
     current_user: Annotated[User, Depends(get_current_active_user)],
     satellite_service: Annotated[SatelliteService, Depends(get_satellite_service)],
-    owner: Optional[uuid.UUID] = Query(
+    owner_username: Optional[str] = Query(
         None,
-        description="Public id of the account that owns the destination host",
+        description="Username of the account that runs the resource",
     ),
-    dest: Optional[str] = Query(
+    resource: Optional[str] = Query(
         None,
-        description="URL this token will be sent to; must be a host that owner runs",
+        description=(
+            "URL this token will be sent to. Must be a host the owner has "
+            "registered; RFC 8707 calls this the resource indicator."
+        ),
         examples=["https://station.openmined.org"],
     ),
     aud: Optional[str] = Query(
@@ -154,7 +170,7 @@ def get_satellite_token(
         deprecated=True,
         description=(
             "Deprecated. Username of the target account. Works only while that "
-            "account runs exactly one satellite; send owner + dest instead."
+            "account runs exactly one satellite; send owner_username + resource."
         ),
     ),
 ) -> SatelliteTokenResponse:
@@ -171,8 +187,8 @@ def get_satellite_token(
     Args:
         current_user: Authenticated user from Hub session token
         satellite_service: Resolves the destination to a satellite
-        owner: Public id of the account owning the destination host
-        dest: The URL this token is about to be sent to
+        owner_username: Account that runs the resource
+        resource: The URL this token is about to be sent to
         aud: Deprecated username form; see _resolve_token_audience
 
     Returns:
@@ -181,14 +197,14 @@ def get_satellite_token(
     Raises:
         HTTPException: 400 if no audience was named
         HTTPException: 401 if user is not authenticated (handled by dependency)
-        HTTPException: 422 if the destination is not served by that account
+        HTTPException: 422 if that account runs no satellite at that URL
         HTTPException: 503 if RSA keys are not configured
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    audience = _resolve_token_audience(satellite_service, owner, dest, aud)
+    audience = _resolve_token_audience(satellite_service, owner_username, resource, aud)
 
     target_token = create_satellite_token(
         user=current_user,
@@ -249,20 +265,24 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 )
 def get_guest_satellite_token(
     satellite_service: Annotated[SatelliteService, Depends(get_satellite_service)],
-    owner: Optional[uuid.UUID] = Query(
+    owner_username: Optional[str] = Query(
         None,
-        description="Public id of the account that owns the destination host",
+        description="Username of the account that runs the resource",
     ),
-    dest: Optional[str] = Query(
+    resource: Optional[str] = Query(
         None,
-        description="URL this token will be sent to; must be a host that owner runs",
+        description=(
+            "URL this token will be sent to. Must be a host the owner has "
+            "registered; RFC 8707 calls this the resource indicator."
+        ),
+        examples=["https://station.openmined.org"],
     ),
     aud: Optional[str] = Query(
         None,
         deprecated=True,
         description=(
             "Deprecated. Username of the target account. Works only while that "
-            "account runs exactly one satellite; send owner + dest instead."
+            "account runs exactly one satellite; send owner_username + resource."
         ),
     ),
 ) -> SatelliteTokenResponse:
@@ -277,8 +297,8 @@ def get_guest_satellite_token(
 
     Args:
         satellite_service: Resolves the destination to a satellite
-        owner: Public id of the account owning the destination host
-        dest: The URL this token is about to be sent to
+        owner_username: Account that runs the resource
+        resource: The URL this token is about to be sent to
         aud: Deprecated username form
 
     Returns:
@@ -286,14 +306,14 @@ def get_guest_satellite_token(
 
     Raises:
         HTTPException: 400 if no audience was named
-        HTTPException: 422 if the destination is not served by that account
+        HTTPException: 422 if that account runs no satellite at that URL
         HTTPException: 503 if RSA keys are not configured
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    audience = _resolve_token_audience(satellite_service, owner, dest, aud)
+    audience = _resolve_token_audience(satellite_service, owner_username, resource, aud)
 
     target_token = create_guest_satellite_token(
         audience=audience,

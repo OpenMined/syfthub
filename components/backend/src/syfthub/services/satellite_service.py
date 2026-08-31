@@ -273,41 +273,48 @@ class SatelliteService(BaseService):
         if self.user_repository.set_legacy_domain(user_id, ref.base_url.value):
             self.session.commit()
 
-    def resolve_audience(
-        self, owner_public_id: uuid.UUID, destination: str
-    ) -> SatelliteRef:
-        """Which satellite a token for ``destination`` should be bound to.
+    def resolve_audience(self, owner_username: str, resource: str) -> SatelliteRef:
+        """Which satellite (resource) a token should be bound to.
 
-        The audience is *not* the caller: a buyer mints a token to send to a
-        seller's host. So this resolves the destination URL inside the **owner's**
-        satellites, and refuses when none serves it.
+        A satellite is a **resource server**: the token is scoped to one host
+        rather than being valid at everything its owner runs. This is RFC 8707
+        resource-indicator validation, with ``satellites`` as the registry.
 
-        That refusal is the whole security property. Under the old scheme the
-        audience was an account name, so a token minted for one of an account's
-        hosts was accepted at any of them, and a policy could name a host the
-        account does not run at all. Here an unrecognised destination yields no
-        token, so there is nothing to exfiltrate.
+        The audience is *not* the caller — a buyer mints a token to send to a
+        seller's host — so the resource URL is resolved inside the **owner's**
+        satellites and refused when none serves it.
+
+        **The refusal is the security property, not the ``aud`` value.** Both
+        halves of the pair are load-bearing: the owner alone names an account
+        but not a host, and the URL alone identifies nothing, since
+        ``(user_id, base_url)`` is unique per account so anyone may register any
+        origin under their own. Together they ask the only question that
+        matters: *does the account you claim to be dealing with run this host?*
+
+        Naming the owner by username loses nothing. The safety is in the
+        conjunction, not in the identifier being opaque — and the username is
+        already public, since it is in the endpoint address the buyer chose.
 
         Args:
-            owner_public_id: The account that owns the destination host.
-            destination: URL the caller is about to send the token to. Only its
+            owner_username: The account that owns the resource.
+            resource: URL the caller is about to send the token to. Only its
                 origin matters; any path is discarded.
 
         Raises:
             AudienceNotFoundError: No such account.
             AudienceInactiveError: The account is deactivated.
             UnknownDestinationError: The account runs no satellite at that origin.
-            ValidationError: The destination is not a usable URL.
+            ValidationError: The resource is not a usable URL.
         """
-        owner = self.user_repository.get_by_public_id(owner_public_id)
+        owner = self.user_repository.get_by_username(owner_username)
         if owner is None:
-            raise AudienceNotFoundError(str(owner_public_id))
+            raise AudienceNotFoundError(owner_username)
         if not owner.is_active:
-            raise AudienceInactiveError(owner.username)
+            raise AudienceInactiveError(owner_username)
 
-        ref = self.satellite_repository.find_by_base_url(owner.id, BaseUrl(destination))
+        ref = self.satellite_repository.find_by_base_url(owner.id, BaseUrl(resource))
         if ref is None:
-            raise UnknownDestinationError(destination)
+            raise UnknownDestinationError(resource)
         return ref
 
     def resolve_legacy_audience(self, username: str) -> SatelliteRef:
