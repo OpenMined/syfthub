@@ -16,11 +16,17 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 from syfthub.domain.base_url import BaseUrl
-from syfthub.domain.exceptions import NotFoundError, ValidationError
+from syfthub.domain.exceptions import (
+    AudienceInactiveError,
+    AudienceNotFoundError,
+    NotFoundError,
+    ValidationError,
+)
 from syfthub.domain.satellite import (
     AmbiguousSatelliteError,
     SatelliteKind,
     SatelliteRef,
+    UnknownDestinationError,
 )
 from syfthub.repositories.satellite import SatelliteRepository
 from syfthub.repositories.user import UserRepository
@@ -266,6 +272,104 @@ class SatelliteService(BaseService):
             return
         if self.user_repository.set_legacy_domain(user_id, ref.base_url.value):
             self.session.commit()
+
+    def resolve_audience(
+        self, owner_public_id: uuid.UUID, destination: str
+    ) -> SatelliteRef:
+        """Which satellite a token for ``destination`` should be bound to.
+
+        The audience is *not* the caller: a buyer mints a token to send to a
+        seller's host. So this resolves the destination URL inside the **owner's**
+        satellites, and refuses when none serves it.
+
+        That refusal is the whole security property. Under the old scheme the
+        audience was an account name, so a token minted for one of an account's
+        hosts was accepted at any of them, and a policy could name a host the
+        account does not run at all. Here an unrecognised destination yields no
+        token, so there is nothing to exfiltrate.
+
+        Args:
+            owner_public_id: The account that owns the destination host.
+            destination: URL the caller is about to send the token to. Only its
+                origin matters; any path is discarded.
+
+        Raises:
+            AudienceNotFoundError: No such account.
+            AudienceInactiveError: The account is deactivated.
+            UnknownDestinationError: The account runs no satellite at that origin.
+            ValidationError: The destination is not a usable URL.
+        """
+        owner = self.user_repository.get_by_public_id(owner_public_id)
+        if owner is None:
+            raise AudienceNotFoundError(str(owner_public_id))
+        if not owner.is_active:
+            raise AudienceInactiveError(owner.username)
+
+        ref = self.satellite_repository.find_by_base_url(owner.id, BaseUrl(destination))
+        if ref is None:
+            raise UnknownDestinationError(destination)
+        return ref
+
+    def resolve_legacy_audience(self, username: str) -> SatelliteRef:
+        """Which satellite ``?aud=<username>`` means.
+
+        Deprecated shape, kept because the published SDK sends it and those
+        versions are not ours to upgrade. The account named its owner, not a
+        host, so this can only work while the owner runs exactly one — which is
+        every account today, since the backfill creates spaces and nothing
+        registers a station implicitly.
+
+        Counted over **all** kinds on purpose: the caller did not say whether it
+        wants a space or a station, so neither may be silently preferred.
+
+        Raises:
+            AudienceNotFoundError: No such user, or they run no satellite.
+            AudienceInactiveError: The account is deactivated.
+            AmbiguousSatelliteError: The account runs several; the caller must
+                upgrade and name a destination.
+        """
+        owner = self.user_repository.get_by_username(username)
+        if owner is None:
+            raise AudienceNotFoundError(username)
+        if not owner.is_active:
+            raise AudienceInactiveError(username)
+
+        ref = self.resolve_existing(owner.id, kind=None)
+        if ref is None:
+            raise AudienceNotFoundError(username)
+        return ref
+
+    def authorized_audiences(
+        self,
+        user_id: int,
+        username: str,
+        satellite_id: Optional[uuid.UUID] = None,
+    ) -> list[str]:
+        """Which audiences this caller is allowed to verify tokens for.
+
+        A **membership set**, not a resolution — deliberately. The token already
+        carries the satellite it was minted for; the only question is whether
+        that satellite belongs to the caller. Routing this through ``resolve``
+        would refuse an account that owns two satellites, on the payment path,
+        for a question that was never ambiguous.
+
+        * ``satellite_id`` given — that satellite alone. This is the strict
+          check: a token for one of the caller's hosts is rejected at another.
+        * absent — every satellite the caller owns, which is exactly today's
+          account-level behaviour. A station authenticates with an account-level
+          PAT and cannot say which host it is, so the tighter check arrives
+          per-PAT as stations are re-provisioned.
+
+        The username is included in the permissive branch only, so tokens minted
+        in the seconds before this release deployed still verify. Tokens live 60
+        seconds, so that window closes on its own; the entry can go after one
+        deploy.
+        """
+        if satellite_id is not None:
+            return [str(self._require(user_id, satellite_id).public_id)]
+
+        owned = self.satellite_repository.list_for_user(user_id)
+        return [str(ref.public_id) for ref in owned] + [username]
 
     def primary_space_url(self, user_id: int) -> Optional[str]:
         """The origin to show as "the account's domain", or None.

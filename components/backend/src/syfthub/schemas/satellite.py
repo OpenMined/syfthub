@@ -206,8 +206,16 @@ class TokenVerifyRequest(BaseModel):
 
     Attributes:
         token: The satellite token to verify
+        satellite_id: Which of the caller's satellites the token must be for
     """
 
+    satellite_id: Optional[uuid.UUID] = Field(
+        None,
+        description=(
+            "Which of your satellites this token must be addressed to. Omit to "
+            "accept a token for any of them, which is the previous behaviour."
+        ),
+    )
     token: str = Field(
         ...,
         description="The satellite token to verify",

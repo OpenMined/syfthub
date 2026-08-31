@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
@@ -42,6 +43,9 @@ class User(UserBase):
     """User model."""
 
     id: int = Field(..., description="User's unique identifier")
+    public_id: Optional[uuid.UUID] = Field(
+        None, description="Opaque external identifier; safe to expose"
+    )
     avatar_url: Optional[str] = Field(
         None, max_length=500, description="URL to user's avatar image"
     )
@@ -104,6 +108,14 @@ class UserResponse(BaseModel):
     """Schema for user response."""
 
     id: int = Field(..., description="User's unique identifier")
+    public_id: Optional[uuid.UUID] = Field(
+        None,
+        description=(
+            "Opaque external identifier. Use this, not the integer id, when "
+            "naming this account to another service — e.g. the 'owner' "
+            "parameter when minting a satellite token."
+        ),
+    )
     username: str = Field(..., description="Username")
     email: EmailStr = Field(..., description="User's email address")
     full_name: str = Field(..., description="User's full name")

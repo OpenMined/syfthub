@@ -19,7 +19,8 @@ Audience Validation:
 - When a user is deactivated/deleted, their username becomes invalid
 """
 
-from typing import Annotated, Any, Union
+import uuid
+from typing import Annotated, Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -37,7 +38,10 @@ from syfthub.auth.satellite_tokens import (
     verify_satellite_token_for_service,
 )
 from syfthub.core.config import settings
-from syfthub.database.dependencies import get_user_repository
+from syfthub.database.dependencies import (
+    get_satellite_service,
+    get_user_repository,
+)
 from syfthub.domain.exceptions import KeyNotConfiguredError
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.satellite import (
@@ -48,8 +52,47 @@ from syfthub.schemas.satellite import (
     TokenVerifySuccessResponse,
 )
 from syfthub.schemas.user import User
+from syfthub.services.satellite_service import SatelliteService
 
 router = APIRouter()
+
+
+def _resolve_token_audience(
+    satellite_service: SatelliteService,
+    owner: Optional[uuid.UUID],
+    dest: Optional[str],
+    aud: Optional[str],
+) -> str:
+    """Work out which satellite a token should be bound to.
+
+    Two shapes, one preferred:
+
+    * ``owner`` + ``dest`` — the caller names the account and the exact URL it
+      is about to send the token to. The URL is resolved inside that account's
+      satellites and refused if none serves it, so a token cannot be minted for
+      a host its supposed owner does not run.
+    * ``aud`` — deprecated. Names the *account*, not a host, so it can only work
+      while that account runs exactly one satellite. Kept because the published
+      SDK sends it.
+
+    Returns the satellite's public_id as a string, ready to be signed as ``aud``.
+    """
+    if owner is not None and dest:
+        return str(satellite_service.resolve_audience(owner, dest).public_id)
+
+    if aud and aud.strip():
+        return str(satellite_service.resolve_legacy_audience(aud.strip()).public_id)
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "code": "MISSING_AUDIENCE",
+            "message": (
+                "Send 'owner' (the account's public id) and 'dest' (the URL this "
+                "token is for). The deprecated 'aud' parameter is also accepted."
+            ),
+        },
+    )
 
 
 @router.get(
@@ -96,11 +139,23 @@ The returned token is signed by the Hub's Private Key using RS256.
 )
 def get_satellite_token(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    aud: str = Query(
-        ...,
-        description="Username of target service/user (e.g., 'syftai-space')",
-        examples=["syftai-space"],
+    satellite_service: Annotated[SatelliteService, Depends(get_satellite_service)],
+    owner: Optional[uuid.UUID] = Query(
+        None,
+        description="Public id of the account that owns the destination host",
+    ),
+    dest: Optional[str] = Query(
+        None,
+        description="URL this token will be sent to; must be a host that owner runs",
+        examples=["https://station.openmined.org"],
+    ),
+    aud: Optional[str] = Query(
+        None,
+        deprecated=True,
+        description=(
+            "Deprecated. Username of the target account. Works only while that "
+            "account runs exactly one satellite; send owner + dest instead."
+        ),
     ),
 ) -> SatelliteTokenResponse:
     """Exchange Hub session for an audience-bound satellite token.
@@ -109,47 +164,36 @@ def get_satellite_token(
     RS256-signed JWT token for use with satellite services. The token
     can be verified locally by satellite services using the JWKS endpoint.
 
-    The audience is dynamically validated against the user database:
-    - A valid audience is any active user's username
-    - When users are created, their username becomes a valid audience
-    - When users are deactivated/deleted, their username becomes invalid
+    The token names a **satellite**, not an account. An account may run several
+    hosts, and naming the account would let a token minted for one be replayed
+    at another.
 
     Args:
         current_user: Authenticated user from Hub session token
-        user_repo: User repository for audience validation
-        aud: Target service identifier (username of an active user)
+        satellite_service: Resolves the destination to a satellite
+        owner: Public id of the account owning the destination host
+        dest: The URL this token is about to be sent to
+        aud: Deprecated username form; see _resolve_token_audience
 
     Returns:
         SatelliteTokenResponse containing the RS256-signed JWT
 
     Raises:
-        HTTPException: 400 if audience is invalid, not found, or inactive
+        HTTPException: 400 if no audience was named
         HTTPException: 401 if user is not authenticated (handled by dependency)
+        HTTPException: 422 if the destination is not served by that account
         HTTPException: 503 if RSA keys are not configured
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    # Validate audience parameter presence (route concern)
-    if not aud or not aud.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "MISSING_AUDIENCE",
-                "message": "The 'aud' query parameter is required.",
-            },
-        )
+    audience = _resolve_token_audience(satellite_service, owner, dest, aud)
 
-    # Create satellite token — audience validation and domain exceptions
-    # (AudienceNotFoundError, AudienceInactiveError, KeyNotConfiguredError)
-    # are handled inside create_satellite_token and bubble up to the
-    # DomainException handler which auto-maps them to the correct status code.
     target_token = create_satellite_token(
         user=current_user,
-        audience=aud,
+        audience=audience,
         key_manager=key_manager,
-        user_repo=user_repo,
     )
 
     return SatelliteTokenResponse(
@@ -204,11 +248,22 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 """,
 )
 def get_guest_satellite_token(
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    aud: str = Query(
-        ...,
-        description="Username of target service/user (e.g., 'alice')",
-        examples=["alice"],
+    satellite_service: Annotated[SatelliteService, Depends(get_satellite_service)],
+    owner: Optional[uuid.UUID] = Query(
+        None,
+        description="Public id of the account that owns the destination host",
+    ),
+    dest: Optional[str] = Query(
+        None,
+        description="URL this token will be sent to; must be a host that owner runs",
+    ),
+    aud: Optional[str] = Query(
+        None,
+        deprecated=True,
+        description=(
+            "Deprecated. Username of the target account. Works only while that "
+            "account runs exactly one satellite; send owner + dest instead."
+        ),
     ),
 ) -> SatelliteTokenResponse:
     """Get a satellite token for guest (unauthenticated) access.
@@ -217,42 +272,32 @@ def get_guest_satellite_token(
     RS256-signed JWT token for use with policy-free endpoints. Guest tokens
     have role="guest" and sub="guest" to identify them as unauthenticated.
 
-    The audience is dynamically validated against the user database:
-    - A valid audience is any active user's username
-    - When users are deactivated/deleted, their username becomes invalid
+    Binds to a satellite exactly as the authenticated route does — the guest
+    path shares the same minting function, so it inherits the change for free.
 
     Args:
-        user_repo: User repository for audience validation
-        aud: Target service identifier (username of an active user)
+        satellite_service: Resolves the destination to a satellite
+        owner: Public id of the account owning the destination host
+        dest: The URL this token is about to be sent to
+        aud: Deprecated username form
 
     Returns:
         SatelliteTokenResponse containing the RS256-signed JWT
 
     Raises:
-        HTTPException: 400 if audience is invalid, not found, or inactive
+        HTTPException: 400 if no audience was named
+        HTTPException: 422 if the destination is not served by that account
         HTTPException: 503 if RSA keys are not configured
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    # Validate audience parameter presence (route concern)
-    if not aud or not aud.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "MISSING_AUDIENCE",
-                "message": "The 'aud' query parameter is required.",
-            },
-        )
+    audience = _resolve_token_audience(satellite_service, owner, dest, aud)
 
-    # Create guest satellite token — audience validation and domain exceptions
-    # are handled inside create_guest_satellite_token and bubble up to the
-    # DomainException handler which auto-maps them to the correct status code.
     target_token = create_guest_satellite_token(
-        audience=aud,
+        audience=audience,
         key_manager=key_manager,
-        user_repo=user_repo,
     )
 
     return SatelliteTokenResponse(
@@ -378,6 +423,7 @@ def verify_satellite_token(
     request: TokenVerifyRequest,
     service: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    satellite_service: Annotated[SatelliteService, Depends(get_satellite_service)],
 ) -> Union[TokenVerifySuccessResponse, TokenVerifyErrorResponse]:
     """Verify a satellite token and return user context.
 
@@ -400,15 +446,19 @@ def verify_satellite_token(
             detail="Identity Provider not configured. RSA keys are unavailable.",
         )
 
-    # The service's username is their authorized audience
-    # This ensures services can only verify tokens intended for them
-    authorized_audience = service.username
+    # Which audiences this caller may verify for. A membership test, not a
+    # resolution: the token already names its satellite, and the only question
+    # is whether that satellite is theirs.
+    authorized_audiences = satellite_service.authorized_audiences(
+        user_id=service.id,
+        username=service.username,
+        satellite_id=request.satellite_id,
+    )
 
-    # Verify the token
     result: TokenVerificationResult = verify_satellite_token_for_service(
         token=request.token,
         key_manager=key_manager,
-        authorized_audience=authorized_audience,
+        authorized_audiences=authorized_audiences,
     )
 
     if not result.valid:
@@ -436,7 +486,7 @@ def verify_satellite_token(
             email=GUEST_EMAIL,
             username=GUEST_USERNAME,
             role=GUEST_ROLE,
-            aud=result.payload.get("aud", authorized_audience),
+            aud=result.payload.get("aud", ""),
             exp=result.payload.get("exp", 0),
             iat=result.payload.get("iat", 0),
         )
@@ -474,7 +524,7 @@ def verify_satellite_token(
         email=user.email,
         username=user.username,
         role=result.payload.get("role", user.role),
-        aud=result.payload.get("aud", authorized_audience),
+        aud=result.payload.get("aud", ""),
         exp=result.payload.get("exp", 0),
         iat=result.payload.get("iat", 0),
     )

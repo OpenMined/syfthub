@@ -95,9 +95,28 @@ class SatelliteKindMismatchError(DomainException):
         )
 
 
+class UnknownDestinationError(ValidationError):
+    """No satellite of the audience's account serves the requested destination.
+
+    This refusal is the point of binding tokens to satellites. A policy naming
+    ``credits_url = https://evil.example.com`` with ``wallet_owner = bob``
+    resolves that URL inside *bob's* satellites, finds nothing, and no token is
+    minted — so there is nothing for the attacker to collect, whatever any
+    receiver later checks.
+    """
+
+    def __init__(self, destination: str):
+        """Initialize unknown destination error."""
+        self.destination = destination
+        super().__init__(
+            f"No registered satellite serves '{destination}' for that account"
+        )
+
+
 __all__ = [
     "AmbiguousSatelliteError",
     "SatelliteKind",
     "SatelliteKindMismatchError",
     "SatelliteRef",
+    "UnknownDestinationError",
 ]

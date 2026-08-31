@@ -18,6 +18,7 @@ from syfthub.domain.satellite import (
     SatelliteKind,
     SatelliteKindMismatchError,
     SatelliteRef,
+    UnknownDestinationError,
 )
 from syfthub.domain.value_objects import ValueObject
 
@@ -33,6 +34,7 @@ __all__ = [
     "SatelliteKind",
     "SatelliteKindMismatchError",
     "SatelliteRef",
+    "UnknownDestinationError",
     "ValidationError",
     "ValueObject",
     "normalize_base_url",

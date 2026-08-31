@@ -4,6 +4,7 @@ Tests the JWKS and token minting endpoints end-to-end,
 including authentication and error handling.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -12,7 +13,12 @@ from fastapi.testclient import TestClient
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.auth.keys import RSAKeyManager
-from syfthub.auth.satellite_tokens import AudienceValidationResult
+from syfthub.database.dependencies import get_satellite_service
+from syfthub.domain.exceptions import (
+    AudienceInactiveError,
+    AudienceNotFoundError,
+)
+from syfthub.domain.satellite import UnknownDestinationError
 from syfthub.main import app
 
 
@@ -50,6 +56,41 @@ def mock_user():
     user.role = "user"
     user.is_active = True
     return user
+
+
+# The satellite a token is minted for in these tests. Audience resolution moved
+# to SatelliteService in Phase 2, and these are endpoint tests running without
+# tables, so the service is stubbed the same way authentication already is.
+STUB_SATELLITE_ID = "0f9b7f1e-1c4a-4d1e-9d3a-5b6c7d8e9f01"
+
+
+class _StubSatelliteService:
+    """Resolves any known audience to one satellite; refuses "unknown-service"."""
+
+    def resolve_legacy_audience(self, username: str):
+        if username == "unknown-service":
+            raise AudienceNotFoundError(username)
+        if username == "inactive-service":
+            raise AudienceInactiveError(username)
+        return SimpleNamespace(public_id=STUB_SATELLITE_ID)
+
+    def resolve_audience(self, owner, destination: str):
+        if "evil" in destination:
+            raise UnknownDestinationError(destination)
+        return SimpleNamespace(public_id=STUB_SATELLITE_ID)
+
+    def authorized_audiences(self, user_id, username, satellite_id=None):
+        if satellite_id is not None:
+            return [str(satellite_id)]
+        return [STUB_SATELLITE_ID, username]
+
+
+@pytest.fixture(autouse=True)
+def stub_satellite_service():
+    """Point the token routes at the stub above."""
+    app.dependency_overrides[get_satellite_service] = _StubSatelliteService
+    yield
+    app.dependency_overrides.pop(get_satellite_service, None)
 
 
 @pytest.fixture
@@ -124,23 +165,17 @@ class TestTokenEndpoint:
         with patch("syfthub.api.endpoints.token.key_manager", configured_key_manager):
             response = authenticated_client.get("/api/v1/token")
             # Should return 422 (validation error) for missing required param
-            assert response.status_code == 422
+            # 400, not 422: 'aud' is optional at the signature level now
+            # (owner + dest is the other accepted shape), so naming no audience
+            # at all is a route-level error rather than a schema one.
+            assert response.status_code == 400
 
     def test_token_rejects_invalid_audience(
         self, authenticated_client, configured_key_manager
     ):
         """Test that token endpoint rejects unknown audience (FR-06)."""
-        invalid_result = AudienceValidationResult(
-            valid=False,
-            error="Audience 'unknown-service' is not a registered user.",
-            error_code="audience_not_found",
-        )
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.auth.satellite_tokens.validate_audience",
-                return_value=invalid_result,
-            ),
         ):
             response = authenticated_client.get("/api/v1/token?aud=unknown-service")
             # AudienceNotFoundError is handled by the domain exception handler
@@ -155,13 +190,8 @@ class TestTokenEndpoint:
         self, authenticated_client, configured_key_manager, mock_user
     ):
         """Test successful token generation."""
-        valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.auth.satellite_tokens.validate_audience",
-                return_value=valid_result,
-            ),
             patch("syfthub.auth.satellite_tokens.settings") as mock_settings,
         ):
             mock_settings.issuer_url = "https://hub.syft.com"
@@ -181,13 +211,8 @@ class TestTokenEndpoint:
         mock_user.id = 456
         mock_user.role = "admin"
 
-        valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.auth.satellite_tokens.validate_audience",
-                return_value=valid_result,
-            ),
             patch("syfthub.auth.satellite_tokens.settings") as mock_settings,
         ):
             mock_settings.issuer_url = "https://hub.syft.com"
@@ -205,7 +230,7 @@ class TestTokenEndpoint:
             # Decode without verification to check structure
             payload = jwt.decode(token, options={"verify_signature": False})
             assert payload["sub"] == "456"
-            assert payload["aud"] == "syftai-space"
+            assert payload["aud"] == STUB_SATELLITE_ID
             assert payload["role"] == "admin"
             assert "exp" in payload
 
@@ -215,13 +240,8 @@ class TestTokenEndpoint:
         """Test that token can be verified using the public key."""
         mock_user.id = 789
 
-        valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.auth.satellite_tokens.validate_audience",
-                return_value=valid_result,
-            ),
             patch("syfthub.auth.satellite_tokens.settings") as mock_settings,
         ):
             mock_settings.issuer_url = "https://hub.syft.com"
@@ -237,12 +257,12 @@ class TestTokenEndpoint:
                 token,
                 public_key,
                 algorithms=["RS256"],
-                audience="syftai-space",
+                audience=STUB_SATELLITE_ID,
                 issuer="https://hub.syft.com",
             )
 
             assert payload["sub"] == "789"
-            assert payload["aud"] == "syftai-space"
+            assert payload["aud"] == STUB_SATELLITE_ID
 
 
 class TestTokenAudiencesEndpoint:
@@ -327,7 +347,7 @@ class TestTokenVerifyEndpoint:
 
             target_token = create_satellite_token(
                 user=mock_target_user,
-                audience="syftai-space",
+                audience=STUB_SATELLITE_ID,
                 key_manager=configured_key_manager,
             )
 
@@ -357,7 +377,8 @@ class TestTokenVerifyEndpoint:
             assert data["email"] == "alice@om.org"
             assert data["username"] == "alice"
             assert data["role"] == "admin"
-            assert data["aud"] == "syftai-space"
+            # The token names the satellite it was minted for, not the account.
+            assert data["aud"] == STUB_SATELLITE_ID
             assert "exp" in data
             assert "iat" in data
 
@@ -381,7 +402,7 @@ class TestTokenVerifyEndpoint:
 
             expired_token = create_satellite_token(
                 user=mock_target_user,
-                audience="syftai-space",
+                audience=STUB_SATELLITE_ID,
                 key_manager=configured_key_manager,
             )
 
@@ -439,7 +460,7 @@ class TestTokenVerifyEndpoint:
             assert data["valid"] is False
             assert data["error"] == "audience_mismatch"
             assert "other-service" in data["message"]
-            assert "syftai-space" in data["message"]
+            assert "other-service" in data["message"]
 
     def test_verify_invalid_token_format(
         self,
@@ -475,7 +496,7 @@ class TestTokenVerifyEndpoint:
 
             target_token = create_satellite_token(
                 user=mock_target_user,
-                audience="syftai-space",
+                audience=STUB_SATELLITE_ID,
                 key_manager=configured_key_manager,
             )
 
@@ -508,13 +529,8 @@ class TestTokenVerifyEndpoint:
         self, authenticated_client, configured_key_manager, mock_user
     ):
         """Test that token endpoint now returns expires_in."""
-        valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.auth.satellite_tokens.validate_audience",
-                return_value=valid_result,
-            ),
             patch("syfthub.auth.satellite_tokens.settings") as mock_settings,
             patch("syfthub.api.endpoints.token.settings") as endpoint_settings,
         ):

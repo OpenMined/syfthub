@@ -178,7 +178,7 @@ class Settings(BaseSettings):
         """Get parsed allowed audiences as a set.
 
         DEPRECATED: This property returns the static fallback list.
-        Use validate_audience() with a UserRepository for dynamic validation.
+        Audiences are satellites now; see SatelliteService.resolve_audience.
 
         In the new model:
         - Audiences are dynamically validated against the user database

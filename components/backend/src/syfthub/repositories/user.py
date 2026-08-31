@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -23,6 +24,17 @@ class UserRepository(BaseRepository[UserModel]):
     def __init__(self, session: Session):
         """Initialize repository with database session."""
         super().__init__(session, UserModel)
+
+    def get_by_public_id(self, public_id: uuid.UUID) -> Optional[User]:
+        """Get user by their opaque external identifier.
+
+        ``public_id`` is what crosses API boundaries; the integer key never
+        does. Token minting names the audience's owner this way so a caller
+        never has to know, or guess, an internal id.
+        """
+        stmt = select(self.model).where(self.model.public_id == public_id)
+        user_model = self.session.execute(stmt).scalar_one_or_none()
+        return User.model_validate(user_model) if user_model else None
 
     def get_by_username(self, username: str) -> Optional[User]:
         """Get user by username."""
