@@ -71,7 +71,9 @@ export class AgentResource {
       slug = options.endpoint.slug;
     }
 
-    // Fetch satellite token
+    // Legacy audience-only mint: sessions address an endpoint by `owner/slug`,
+    // never by URL, so there is no resource to bind to. SyftHub resolves the
+    // owner's satellite by count, which fails once an owner has more than one.
     const satResponse = await this.auth.getSatelliteToken(owner);
 
     // Fetch peer token for tunneling

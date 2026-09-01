@@ -34,6 +34,7 @@ import type { HTTPClient } from '../http.js';
 import { SyftHubError } from '../errors.js';
 import { readSSEEvents } from '../utils.js';
 import { ChatResource } from './chat.js';
+import { satelliteTokenParams } from './auth.js';
 
 /**
  * Error thrown when data source retrieval fails.
@@ -89,12 +90,14 @@ export class SyftAIResource {
    * token first, then fall back to a guest token. Returns `undefined` if both
    * fail, so the caller can still attempt an unauthenticated request.
    */
-  private async mintSatelliteToken(audience: string): Promise<string | undefined> {
+  private async mintSatelliteToken(
+    audience: string,
+    resource?: string
+  ): Promise<string | undefined> {
+    const params = satelliteTokenParams(audience, resource);
     if (this.http.hasTokens()) {
       try {
-        const res = await this.http.get<{ targetToken?: string }>('/api/v1/token', {
-          aud: audience,
-        });
+        const res = await this.http.get<{ targetToken?: string }>('/api/v1/token', params);
         if (res.targetToken) return res.targetToken;
       } catch {
         // fall through to guest
@@ -103,7 +106,7 @@ export class SyftAIResource {
     try {
       const res = await this.http.get<{ targetToken?: string }>(
         '/api/v1/token/guest',
-        { aud: audience },
+        params,
         { includeAuth: false }
       );
       return res.targetToken;
@@ -234,12 +237,14 @@ export class SyftAIResource {
       similarity_threshold: similarityThreshold,
     };
 
-    // Resolve a satellite token: caller-supplied, else mint from the owner.
+    // Resolve a satellite token: caller-supplied, else mint for the endpoint's
+    // own host. The endpoint URL is the resource the token will be sent to, so
+    // it binds the token to that host rather than to the owner's account.
     let token = authorizationToken;
     if (!token) {
       const audience = ownerUsername ?? endpoint.ownerUsername;
       if (audience) {
-        token = await this.mintSatelliteToken(audience);
+        token = await this.mintSatelliteToken(audience, endpoint.url);
       }
     }
     const headers = this.buildHeaders(endpoint.tenantName, token);

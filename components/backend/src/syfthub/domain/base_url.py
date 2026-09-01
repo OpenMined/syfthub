@@ -24,7 +24,13 @@ TUNNELING_PREFIX = "tunneling:"
 # Ports that must not be allowed to distinguish two identical origins.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
-_ALLOWED_SCHEMES = frozenset(_DEFAULT_PORTS)
+# A WebSocket URL upgrades the transport of an origin, it does not name a
+# different one: url_builder emits wss:// for websocket connections against a
+# satellite registered as https://. Fold them back so both spellings resolve to
+# the same satellite.
+_TRANSPORT_UPGRADES = {"ws": "http", "wss": "https"}
+
+_ALLOWED_SCHEMES = frozenset(_DEFAULT_PORTS) | frozenset(_TRANSPORT_UPGRADES)
 
 # Width of satellites.base_url.
 MAX_BASE_URL_LENGTH = 500
@@ -33,8 +39,9 @@ MAX_BASE_URL_LENGTH = 500
 def normalize_base_url(value: str) -> str:
     """Reduce a URL to its canonical origin.
 
-    Strips whitespace, lower-cases scheme and host, drops default ports and
-    path/query/fragment. ``tunneling:`` values pass through.
+    Strips whitespace, lower-cases scheme and host, folds ``ws``/``wss`` to
+    ``http``/``https``, drops default ports and path/query/fragment.
+    ``tunneling:`` values pass through.
 
     Raises:
         ValidationError: Empty, over-long, non-http(s), credential-bearing,
@@ -59,6 +66,7 @@ def normalize_base_url(value: str) -> str:
     if scheme not in _ALLOWED_SCHEMES:
         allowed = ", ".join(sorted(_ALLOWED_SCHEMES))
         raise ValidationError(f"Base URL scheme must be one of: {allowed}")
+    scheme = _TRANSPORT_UPGRADES.get(scheme, scheme)
 
     # The URL builder replays stored origins into links given to third parties,
     # so credentials in one would leak.

@@ -164,7 +164,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
         return;
       }
       if (!options.silent) setSubscription({ state: 'loading' });
-      const satelliteToken = await getSatelliteToken(audience);
+      const satelliteToken = await getSatelliteToken(audience, creditsUrl);
       if (options.signal?.aborted) return;
       if (!satelliteToken) {
         setSubscription((previous) =>
@@ -274,7 +274,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
       return;
     }
     setPurchase({ state: 'creating', bundleName });
-    const satelliteToken = await getSatelliteToken(audience);
+    const satelliteToken = await getSatelliteToken(audience, paymentUrl);
     if (!satelliteToken) {
       setPurchase({ state: 'error', message: 'Failed to get satellite token from SyftHub.' });
       return;

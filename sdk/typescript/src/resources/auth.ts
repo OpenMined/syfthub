@@ -33,6 +33,54 @@ interface RegistrationResponse {
 }
 
 /**
+ * A mint target: the account that owns the host, and the URL the token is for.
+ *
+ * A bare string is the deprecated account-wide form — accepted so existing
+ * callers keep compiling, but it fails once that account runs more than one
+ * satellite, because a username names an account rather than a host.
+ */
+export type AudienceTarget = string | { owner: string; resource?: string };
+
+/** Normalise a target to its object form. */
+function toTarget(t: AudienceTarget): { owner: string; resource?: string } {
+  return typeof t === 'string' ? { owner: t } : t;
+}
+
+/**
+ * The key a token is cached under.
+ *
+ * The resource, not the owner: one account can run several hosts, and a token
+ * minted for one is rejected at another. Keying by owner would hand a token for
+ * the space to a request bound for the station.
+ */
+export function tokenKey(owner: string, resource?: string): string {
+  return resource ?? owner;
+}
+
+/**
+ * Query params for a mint.
+ *
+ * With a resource, the hub derives the satellite from the URL — the binding
+ * that makes the token unusable elsewhere. Without one it falls back to the
+ * deprecated `aud` alias, which resolves only a single-satellite account.
+ */
+export function satelliteTokenParams(
+  audience: string,
+  resource?: string
+): Record<string, string> {
+  return resource ? { owner_username: audience, resource } : { aud: audience };
+}
+
+/** Unique targets, deduped on the same key the tokens are cached under. */
+function dedupeTargets(targets: AudienceTarget[]): { owner: string; resource?: string }[] {
+  const seen = new Map<string, { owner: string; resource?: string }>();
+  for (const t of targets.map(toTarget)) {
+    seen.set(tokenKey(t.owner, t.resource), t);
+  }
+  return [...seen.values()];
+}
+
+/**
  * Authentication resource for login, register, and session management.
  *
  * @example
@@ -368,18 +416,25 @@ export class AuthResource {
    * services (like SyftAI-Space) to verify user identity without calling
    * SyftHub for every request.
    *
-   * @param audience - Target service identifier (username of the service owner)
+   * @param audience - Username of the account that owns the target host
+   * @param resource - URL this token will be sent to. Binds the token to that
+   *   one host; without it the hub falls back to the deprecated account-wide
+   *   form, which fails once the account runs more than one satellite.
    * @returns Satellite token response with token and expiry
    * @throws {AuthenticationError} If not authenticated
-   * @throws {ValidationError} If audience is invalid or inactive
+   * @throws {ValidationError} If the owner runs no host at that URL
    *
    * @example
-   * // Get a token for querying alice's SyftAI-Space endpoints
-   * const tokenResponse = await client.auth.getSatelliteToken('alice');
-   * console.log(`Token expires in ${tokenResponse.expiresIn} seconds`);
+   * const tokenResponse = await client.auth.getSatelliteToken(
+   *   'alice',
+   *   'https://alice.example.com'
+   * );
    */
-  async getSatelliteToken(audience: string): Promise<SatelliteTokenResponse> {
-    return this.http.get<SatelliteTokenResponse>('/api/v1/token', { aud: audience });
+  async getSatelliteToken(
+    audience: string,
+    resource?: string
+  ): Promise<SatelliteTokenResponse> {
+    return this.http.get<SatelliteTokenResponse>('/api/v1/token', satelliteTokenParams(audience, resource));
   }
 
   /**
@@ -388,24 +443,26 @@ export class AuthResource {
    * This is useful when making requests to endpoints owned by different users.
    * Tokens are cached and reused where possible.
    *
-   * @param audiences - Array of unique audience identifiers (usernames)
-   * @returns Map of audience to satellite token
+   * @param audiences - Targets, each either a bare username (deprecated) or an
+   *   `{ owner, resource }` pair. Pass the pair: a token is bound to one host,
+   *   so a bare username fails once that account runs more than one.
+   * @returns Map keyed by the resource where given, else by owner
    * @throws {AuthenticationError} If not authenticated
    *
    * @example
-   * // Get tokens for multiple endpoint owners
-   * const tokens = await client.auth.getSatelliteTokens(['alice', 'bob']);
-   * console.log(`Got ${tokens.size} tokens`);
+   * const tokens = await client.auth.getSatelliteTokens([
+   *   { owner: 'alice', resource: 'https://alice.example.com' },
+   * ]);
    */
-  async getSatelliteTokens(audiences: string[]): Promise<Map<string, string>> {
-    const uniqueAudiences = [...new Set(audiences)];
+  async getSatelliteTokens(audiences: AudienceTarget[]): Promise<Map<string, string>> {
+    const targets = dedupeTargets(audiences);
     const tokenMap = new Map<string, string>();
 
     // Fetch tokens in parallel
     const results = await Promise.allSettled(
-      uniqueAudiences.map(async (aud) => {
-        const response = await this.getSatelliteToken(aud);
-        return { audience: aud, token: response.targetToken };
+      targets.map(async ({ owner, resource }) => {
+        const response = await this.getSatelliteToken(owner, resource);
+        return { audience: tokenKey(owner, resource), token: response.targetToken };
       })
     );
 
@@ -414,8 +471,10 @@ export class AuthResource {
       if (result.status === 'fulfilled') {
         tokenMap.set(result.value.audience, result.value.token);
       } else {
+        const target = targets[i];
         console.warn(
-          `[SyftHub] Failed to fetch satellite token for "${uniqueAudiences[i]}":`,
+          `[SyftHub] Failed to fetch satellite token for ` +
+            `"${target ? tokenKey(target.owner, target.resource) : 'unknown'}":`,
           result.reason
         );
       }
@@ -430,18 +489,24 @@ export class AuthResource {
    * Guest tokens allow unauthenticated users to access policy-free endpoints.
    * No authentication is required to call this method.
    *
-   * @param audience - Target service identifier (username of the service owner)
+   * @param audience - Username of the account that owns the target host
+   * @param resource - URL this token will be sent to; see getSatelliteToken
    * @returns Satellite token response with token and expiry
-   * @throws {ValidationError} If audience is invalid or inactive
+   * @throws {ValidationError} If the owner runs no host at that URL
    *
    * @example
-   * // Get a guest token for querying alice's policy-free endpoints
-   * const tokenResponse = await client.auth.getGuestSatelliteToken('alice');
+   * const tokenResponse = await client.auth.getGuestSatelliteToken(
+   *   'alice',
+   *   'https://alice.example.com'
+   * );
    */
-  async getGuestSatelliteToken(audience: string): Promise<SatelliteTokenResponse> {
+  async getGuestSatelliteToken(
+    audience: string,
+    resource?: string
+  ): Promise<SatelliteTokenResponse> {
     return this.http.get<SatelliteTokenResponse>(
       '/api/v1/token/guest',
-      { aud: audience },
+      satelliteTokenParams(audience, resource),
       { includeAuth: false }
     );
   }
@@ -451,20 +516,24 @@ export class AuthResource {
    *
    * No authentication is required to call this method.
    *
-   * @param audiences - Array of unique audience identifiers (usernames)
-   * @returns Map of audience to satellite token
+   * @param audiences - Targets; see getSatelliteTokens
+   * @returns Map keyed by the resource where given, else by owner
    *
    * @example
-   * const tokens = await client.auth.getGuestSatelliteTokens(['alice', 'bob']);
+   * const tokens = await client.auth.getGuestSatelliteTokens([
+   *   { owner: 'alice', resource: 'https://alice.example.com' },
+   * ]);
    */
-  async getGuestSatelliteTokens(audiences: string[]): Promise<Map<string, string>> {
-    const uniqueAudiences = [...new Set(audiences)];
+  async getGuestSatelliteTokens(
+    audiences: AudienceTarget[]
+  ): Promise<Map<string, string>> {
+    const targets = dedupeTargets(audiences);
     const tokenMap = new Map<string, string>();
 
     const results = await Promise.allSettled(
-      uniqueAudiences.map(async (aud) => {
-        const response = await this.getGuestSatelliteToken(aud);
-        return { audience: aud, token: response.targetToken };
+      targets.map(async ({ owner, resource }) => {
+        const response = await this.getGuestSatelliteToken(owner, resource);
+        return { audience: tokenKey(owner, resource), token: response.targetToken };
       })
     );
 

@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from syfthub_sdk.auth import satellite_token_params
 from syfthub_sdk.exceptions import GenerationError, RetrievalError
 from syfthub_sdk.models import (
     DataSourceQueryResult,
@@ -123,17 +124,21 @@ class SyftAIResource:
             headers["Authorization"] = f"Bearer {authorization_token}"
         return headers
 
-    def _mint_satellite_token(self, audience: str) -> str | None:
-        """Mint a satellite token for ``audience`` (the endpoint owner's username).
+    def _mint_satellite_token(self, audience: str, resource: str | None) -> str | None:
+        """Mint a satellite token for ``audience``, bound to ``resource``.
+
+        ``resource`` is the endpoint URL the token is sent to; SyftHub derives
+        the satellite from it, so the token is unusable at any other host.
 
         Mirrors the aggregator's token coordination layer (``query.py``): try an
         authenticated token first, then fall back to a guest token. Returns
         ``None`` if both fail, so the caller can still attempt an
         unauthenticated request (preserving the previous behaviour).
         """
+        params = satellite_token_params(audience, resource)
         if self._http.is_authenticated:
             try:
-                data = self._http.get("/api/v1/token", params={"aud": audience})
+                data = self._http.get("/api/v1/token", params=params)
                 if isinstance(data, dict) and data.get("target_token"):
                     return str(data["target_token"])
             except Exception:
@@ -144,7 +149,7 @@ class SyftAIResource:
         try:
             data = self._http.get(
                 "/api/v1/token/guest",
-                params={"aud": audience},
+                params=params,
                 include_auth=False,
             )
             if isinstance(data, dict) and data.get("target_token"):
@@ -314,7 +319,7 @@ class SyftAIResource:
         if token is None:
             audience = owner_username or endpoint.owner_username
             if audience:
-                token = self._mint_satellite_token(audience)
+                token = self._mint_satellite_token(audience, endpoint.url)
 
         request_body = {
             "user_email": user_email,

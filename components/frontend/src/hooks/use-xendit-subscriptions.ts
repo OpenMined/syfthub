@@ -141,8 +141,8 @@ export interface SubscriptionBalanceResult {
 /**
  * Live-fetch a subscription's balance from its publisher.
  *
- * Mints a satellite token for the row's audience (`endpoint_owner`) and
- * queries credits_url. Polls every `pollIntervalMs` while `enabled` is true
+ * Mints a satellite token for the row's audience (`endpoint_owner`), bound to
+ * credits_url, and queries it. Polls every `pollIntervalMs` while `enabled` is true
  * (typically while the credits panel is open). Returns `null` balance when
  * fetching fails.
  */
@@ -155,7 +155,7 @@ export function useSubscriptionBalance(
   const query = useQuery({
     queryKey: walletKeys.subscriptionBalance(subscription.credits_url),
     queryFn: async ({ signal }) => {
-      const token = await getSatelliteToken(subscription.endpoint_owner);
+      const token = await getSatelliteToken(subscription.endpoint_owner, subscription.credits_url);
       if (!token) throw new Error('Failed to mint satellite token');
       const balance = await fetchBalance(subscription.credits_url, token, signal);
       return balance;

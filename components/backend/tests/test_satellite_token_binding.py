@@ -110,6 +110,30 @@ class TestMintBindsToASatellite:
         assert response.status_code == 200, response.text
         assert claims(response.json()["target_token"])["aud"] == satellite
 
+    def test_a_websocket_url_mints_against_the_https_satellite(
+        self, client: TestClient
+    ):
+        """Test that a wss:// resource resolves the host it upgrades.
+
+        The URL builder emits wss:// for websocket connections, so a caller
+        forwarding an endpoint URL verbatim must still reach the satellite.
+        """
+        alice = register(client, "alice")
+        satellite = add_satellite(client, alice, "https://alice.example.com")
+        bob = register(client, "bob")
+
+        response = client.get(
+            "/api/v1/token",
+            headers=bob,
+            params={
+                "owner_username": "alice",
+                "resource": "wss://alice.example.com/agent/session",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert claims(response.json()["target_token"])["aud"] == satellite
+
     def test_two_hosts_of_one_account_mint_different_audiences(
         self, client: TestClient
     ):
