@@ -53,6 +53,27 @@ class TestNormalization:
         assert normalize_base_url(raw) == expected
         assert BaseUrl(raw).value == expected
 
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("wss://api.example.com/agent", "https://api.example.com"),
+            ("ws://host.io/agent", "http://host.io"),
+            ("WSS://API.Example.COM", "https://api.example.com"),
+            # The upgraded scheme's own default port still carries no meaning.
+            ("wss://host.io:443", "https://host.io"),
+            ("ws://host.io:80", "http://host.io"),
+            ("wss://host.io:8443", "https://host.io:8443"),
+        ],
+    )
+    def test_websocket_folds_to_its_http_origin(self, raw, expected):
+        """Test that a ws(s) URL resolves to the origin it upgrades.
+
+        url_builder emits wss:// for websocket connections against a satellite
+        registered as https://, so both must name one satellite.
+        """
+        assert normalize_base_url(raw) == expected
+        assert BaseUrl(raw) == BaseUrl(expected)
+
     def test_default_port_only_stripped_for_its_own_scheme(self):
         """Test that :443 on http is a real, distinguishing port."""
         assert normalize_base_url("http://host.io:443") == "http://host.io:443"
