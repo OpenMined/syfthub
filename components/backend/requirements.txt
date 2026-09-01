@@ -2,7 +2,7 @@
 #    uv pip compile pyproject.toml -o requirements.txt
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.14.1
+aiohttp==3.14.3
     # via web3
 aiosignal==1.4.0
     # via aiohttp
@@ -48,7 +48,7 @@ ckzg==2.1.7
     # via eth-account
 click==8.3.1
     # via uvicorn
-cryptography==48.0.1
+cryptography==50.0.0
     # via
     #   syfthub (pyproject.toml)
     #   google-auth
@@ -123,7 +123,7 @@ httpx==0.28.1
     # via
     #   syfthub (pyproject.toml)
     #   pympp
-idna==3.18
+idna==3.19
     # via
     #   anyio
     #   email-validator
@@ -162,7 +162,7 @@ propcache==0.4.1
     #   yarl
 psycopg2-binary==2.9.11
     # via syfthub (pyproject.toml)
-pyasn1==0.6.3
+pyasn1==0.6.4
     # via
     #   --override (workspace)
     #   pyasn1-modules
@@ -194,7 +194,7 @@ pympp==0.6.0
     # via syfthub (pyproject.toml)
 pytempo==0.5.0
     # via pympp
-python-dotenv==1.2.2
+python-dotenv==1.2.3
     # via pydantic-settings
 python-multipart==0.0.31
     # via syfthub (pyproject.toml)
@@ -223,7 +223,7 @@ sqlalchemy==2.0.44
     # via
     #   syfthub (pyproject.toml)
     #   alembic
-starlette==1.3.1
+starlette==1.6.0
     # via fastapi
 structlog==25.5.0
     # via syfthub (pyproject.toml)
