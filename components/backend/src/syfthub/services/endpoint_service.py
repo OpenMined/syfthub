@@ -6,13 +6,13 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
-from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
 from syfthub.core.config import settings
 from syfthub.core.url_builder import transform_connection_urls
-from syfthub.domain.base_url import TUNNELING_PREFIX
+from syfthub.domain.base_url import BaseUrl
+from syfthub.domain.exceptions import ValidationError
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
@@ -230,20 +230,6 @@ class EndpointService(BaseService):
             if isinstance(children, list) and children:
                 yield from EndpointService._iter_policy_configs(children)
 
-    @staticmethod
-    def _host_under_domain(url: str, domain_host: str) -> bool:
-        """Whether ``url``'s host equals or is a subdomain of ``domain_host``.
-
-        ``domain_host`` must be a bare lowercase hostname (no scheme or port).
-        For ``domain_host="spaces.openmined.org"``:
-
-        - ``https://spaces.openmined.org/api/...`` → True (exact match)
-        - ``https://wallet.spaces.openmined.org/...`` → True (subdomain)
-        - ``https://spaces.openmined.org.evil.com/...`` → False
-        """
-        host = (urlparse(url).hostname or "").lower()
-        return bool(host) and (host == domain_host or host.endswith("." + domain_host))
-
     # Server-owned: names the satellite-token audience and is derived from the
     # verified ``wallet_owner`` id. Publishers never send it (syft-space
     # publishes the id), so any incoming value is dropped on every policy type
@@ -327,35 +313,15 @@ class EndpointService(BaseService):
                     f"cluster policy 'wallet_owner' {raw_owner} does not "
                     "resolve to an active user"
                 )
-            # Sourced from the owner's registered space, not the retired
-            # account-wide users.domain field.
-            owner_origin = self.satellite_service.primary_space_url(owner.id)
-            if not owner_origin:
-                return (
-                    f"cluster wallet owner '{owner.username}' has no registered "
-                    "domain on SyftHub; the wallet URLs cannot be verified"
-                )
-            if owner_origin.startswith(TUNNELING_PREFIX):
-                # Tunneling spaces have no public hostname, so host-based
-                # wallet URL verification can never succeed — reject clearly
-                # instead of failing against a bogus "tunneling" host.
-                return (
-                    f"cluster wallet owner '{owner.username}' uses a tunneling "
-                    "domain; cluster wallet URLs require a public http(s) domain"
-                )
-            domain = owner_origin
-            if "://" not in domain:
-                domain = f"https://{domain}"
-            domain_host = (urlparse(domain).hostname or "").lower()
-            if not domain_host:
-                return (
-                    f"cluster wallet owner '{owner.username}' has an invalid "
-                    "registered domain"
-                )
-
             payment_url = config.get("payment_url") or config.get("paymentUrl")
             credits_url = config.get("credits_url") or config.get("creditsUrl")
             invoices_url = config.get("invoices_url") or config.get("invoicesUrl")
+
+            # Each wallet URL must be an exact satellite of the owner, any kind
+            # — the same question minting asks, so publish and mint agree by
+            # construction. They did not before: publish matched the owner's
+            # first space by suffix, which both admitted subdomains mint would
+            # refuse and rejected a legitimately registered station host.
             for field_name, url, required in (
                 ("payment_url", payment_url, True),
                 ("credits_url", credits_url, True),
@@ -367,10 +333,20 @@ class EndpointService(BaseService):
                     ("https://", "http://")
                 ):
                     return f"cluster policy requires a valid http(s) '{field_name}'"
-                if not self._host_under_domain(url, domain_host):
+                try:
+                    origin = BaseUrl(url)
+                except ValidationError:
+                    return f"cluster policy '{field_name}' is not a valid URL"
+                if (
+                    self.satellite_service.satellite_repository.find_by_base_url(
+                        owner.id, origin
+                    )
+                    is None
+                ):
                     return (
-                        f"cluster policy '{field_name}' host is not under the "
-                        f"wallet owner's registered domain '{domain_host}'"
+                        f"cluster policy '{field_name}' names '{origin.value}', "
+                        f"which '{owner.username}' has not registered as a "
+                        "satellite on SyftHub"
                     )
 
             # Canonicalize to snake_case + server-derived enrichment (the

@@ -196,15 +196,38 @@ class TestHealthNoLongerFlipFlops:
             sat_service.list_satellites(owner.id)[0].base_url == "https://a.example.com"
         )
 
-    def test_two_spaces_without_an_id_is_ambiguous(self, services, owner):
-        """Test S3: the forcing function, once a second space exists."""
+    def test_a_reported_url_identifies_its_space(self, services, owner):
+        """Test that an unmodified space keeps reporting after a second appears.
+
+        Health always carries the URL it is reporting for, so it never needs
+        ``satellite_id`` while that URL is one the account has registered — which
+        is what keeps un-upgraded spaces working as a fleet grows.
+        """
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        _register(sat_service, owner.id, "https://b.example.com")
+
+        ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://a.example.com")
+        )
+
+        by_id = {s.id: s.base_url for s in sat_service.list_satellites(owner.id)}
+        assert by_id[a.id] == "https://a.example.com"
+
+    def test_two_spaces_and_an_unknown_url_is_ambiguous(self, services, owner):
+        """Test S3: the forcing function, narrowed to where it belongs.
+
+        Only a space that *moved* while the account owns several is ambiguous —
+        nothing on record says which one relocated, and guessing would attribute
+        the new origin to the wrong host.
+        """
         ep_service, sat_service = services
         _register(sat_service, owner.id, "https://a.example.com")
         _register(sat_service, owner.id, "https://b.example.com")
 
         with pytest.raises(AmbiguousSatelliteError):
             ep_service.report_endpoint_health(
-                current_user=owner, **_health("https://a.example.com")
+                current_user=owner, **_health("https://moved.example.com")
             )
 
 

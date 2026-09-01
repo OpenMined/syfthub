@@ -2608,9 +2608,16 @@ def test_cluster_policy_owner_username_is_server_derived(
     assert config["wallet_owner_username"] == "station"
 
 
-def test_cluster_policy_accepts_subdomain_of_owner_domain(
+def test_cluster_policy_rejects_unregistered_subdomain(
     client: TestClient, user1_token: str, station_owner: dict
 ) -> None:
+    """A subdomain of a registered origin is no longer accepted on its own.
+
+    The old check matched by suffix, so a registered domain of
+    ``herokuapp.com`` admitted every host beneath it. Each wallet host must now
+    be a satellite the owner registered exactly — the same question token
+    minting asks, so publish and mint agree.
+    """
     headers = {"Authorization": f"Bearer {user1_token}"}
     sub = f"https://wallet.spaces.openmined.org/api/v1/credits/{_STATION_WALLET_ID}"
     policy = _cluster_policy(
@@ -2622,7 +2629,8 @@ def test_cluster_policy_accepts_subdomain_of_owner_domain(
     response = client.post(
         "/api/v1/endpoints", json=_cluster_endpoint_payload(policy), headers=headers
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 422
+    assert "has not registered as a satellite" in response.json()["detail"]
 
 
 def test_cluster_policy_rejects_unknown_wallet_owner(
@@ -2712,7 +2720,7 @@ def test_cluster_policy_rejects_owner_without_domain(
     payload = _cluster_endpoint_payload(_cluster_policy(user2_id))
     response = client.post("/api/v1/endpoints", json=payload, headers=headers)
     assert response.status_code == 422
-    assert "domain" in response.json()["detail"]
+    assert "has not registered as a satellite" in response.json()["detail"]
 
 
 def test_non_cluster_prepaid_policy_strips_wallet_audience_fields(
@@ -2826,7 +2834,9 @@ def test_cluster_policy_rejects_tunneling_domain_owner(
     payload = _cluster_endpoint_payload(_cluster_policy(user2_id))
     response = client.post("/api/v1/endpoints", json=payload, headers=headers)
     assert response.status_code == 422
-    assert "tunneling" in response.json()["detail"]
+    # No tunneling special case any more: a "tunneling:" satellite simply is not
+    # the http origin the policy claims, so it fails the same exact-match check.
+    assert "has not registered as a satellite" in response.json()["detail"]
 
 
 def test_cluster_policy_update_enriches_owner_username(

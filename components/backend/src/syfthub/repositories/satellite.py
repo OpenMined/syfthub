@@ -1,9 +1,8 @@
 """Satellite repository.
 
-Unlike its neighbours, this repository does not swallow ``SQLAlchemyError``.
-Resolution branches on how many satellites an account owns, and zero means
-"register one" — a swallowed error returning ``[]`` would read as "no
-satellites" and silently create a duplicate.
+Unlike its neighbours, this one does not swallow ``SQLAlchemyError``: resolution
+branches on how many satellites an account owns, so an error returning ``[]``
+would read as "none" and silently create a duplicate.
 """
 
 from __future__ import annotations
@@ -74,12 +73,8 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
     ) -> list[SatelliteRef]:
         """The account's satellites, oldest first, optionally of one kind.
 
-        Ordered by ``id``, not ``created_at``, so the graduated rule's
-        one-satellite branch stays deterministic for same-transaction rows.
-
-        ``kind`` matters because an account may own a station *and* a space.
-        Counting both would make an endpoint write ambiguous on an account that
-        simply runs a station alongside its one space.
+        Ordered by ``id`` rather than ``created_at`` so the one-satellite branch
+        stays deterministic for rows created in the same transaction.
         """
         stmt = select(self.model).where(self.model.user_id == user_id)
         if kind is not None:
@@ -108,21 +103,17 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
     ) -> SatelliteRef:
         """Register a new satellite.
 
+        **Idempotent on the origin**, so a space can call this unconditionally
+        at startup — "ensure a satellite exists at this URL" — with no need to
+        remember whether it registered before.
+
         Named ``register``, not ``create``: overriding
-        ``BaseRepository.create(**kwargs)`` with a different signature would
-        break substitutability.
-
-        **Idempotent on the origin.** Re-registering an origin the account
-        already holds returns the existing satellite rather than conflicting, so
-        a space can call this unconditionally at startup — "ensure a satellite
-        exists at this URL" — without needing to remember whether it has
-        registered before or to recover from a 409 by listing and matching.
-
+        ``BaseRepository.create(**kwargs)`` would break substitutability.
         Commits, per this package's convention.
 
         Raises:
-            SatelliteKindMismatchError: The origin is already registered under
-                the other kind, which is a genuine conflict rather than a repeat.
+            SatelliteKindMismatchError: The origin is registered under the other
+                kind — a real conflict, not a repeat.
         """
         existing = self.find_by_base_url(user_id, base_url)
         if existing is not None:
@@ -153,7 +144,7 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
         """Record the origin a satellite reported, and that it was seen.
 
         The heartbeat write. Unlike the ``users.domain`` update it replaces, two
-        hosts cannot overwrite each other: each writes its own row.
+        hosts cannot overwrite each other — each writes its own row.
 
         Raises:
             ConflictError: A sibling satellite already claims the origin.
@@ -172,8 +163,9 @@ class SatelliteRepository(BaseRepository[SatelliteModel]):
     def move(self, satellite_id: int, base_url: BaseUrl) -> Optional[SatelliteRef]:
         """Point a satellite at a new origin, keeping its identity.
 
-        Distinct from ``set_base_url``, which is the heartbeat write and also
-        stamps ``last_seen_at``; this is an explicit reconfiguration.
+        Explicit reconfiguration; ``set_base_url`` is the heartbeat equivalent
+        and also stamps ``last_seen_at``. Moving to the origin it already holds
+        is a no-op, not a conflict.
 
         Raises:
             ConflictError: A sibling satellite already claims the origin.

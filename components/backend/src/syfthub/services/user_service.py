@@ -140,10 +140,15 @@ class UserService(BaseService):
             raise NotFoundError("User")
         previous_email = before.email
 
-        # A submitted ``domain`` registers a space rather than writing the old
-        # account-wide field. Never rejected: spaces have always set their URL
-        # this way at setup, and they must keep working untouched. Idempotent,
-        # so a space that re-runs setup resolves to the satellite it already has.
+        # Legacy path: a submitted ``domain`` registers or moves the account's
+        # space instead of writing the old account-wide field. Idempotent, so a
+        # space re-running setup lands on the satellite it already has.
+        #
+        # Clearing it (``domain: null``) is accepted and deliberately ignored.
+        # It used to mean "this space shut down" and deactivated the whole
+        # account; liveness is per-endpoint now, so TTL expiry already covers it.
+        # Not rejected either — older spaces are not ours to upgrade. The field
+        # goes once they move to POST /satellites.
         if user_data.domain:
             self.satellite_service.register_or_move_space(user_id, user_data.domain)
 

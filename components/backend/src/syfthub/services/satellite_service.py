@@ -1,13 +1,9 @@
 """Satellite management and resolution.
 
-Two responsibilities, kept together because they share a repository and the
-resolution rule is small: CRUD for the ``/satellites`` endpoints, and
-``resolve()`` — the single answer to "which satellite is this write for".
-
-``resolve()`` is the important half. Every write path that used to update
-``users.domain`` account-wide goes through it, and they must all agree; five
-copies of these branches would drift into either misattributed endpoints or a
-token minted for the wrong audience.
+CRUD for ``/satellites``, plus ``resolve()`` — the single answer to "which
+satellite is this write for". Every path that used to update ``users.domain``
+account-wide goes through it, and they must all agree: copies of these branches
+would drift into misattributed endpoints or a wrong-audience token.
 """
 
 from __future__ import annotations
@@ -104,13 +100,11 @@ class SatelliteService(BaseService):
     def delete_satellite(self, user_id: int, satellite_id: uuid.UUID) -> None:
         """Delete a satellite and every endpoint it served.
 
-        "Delete this space" means the space and what it served. The endpoints go
-        via the FK's ON DELETE CASCADE — leaving them behind deactivated would
-        keep their slugs held and block the owner from republishing them.
+        Endpoints go via the FK's ON DELETE CASCADE — leaving them deactivated
+        would hold their slugs and block republishing.
 
-        Callers should confirm first: this also takes each endpoint's stars,
-        uptime history, and collective memberships, none of which a resync can
-        restore.
+        **Confirm before calling:** this also takes each endpoint's stars, uptime
+        history and collective memberships, none of which a resync restores.
 
         Raises:
             NotFoundError: No such satellite on this account.
@@ -125,33 +119,40 @@ class SatelliteService(BaseService):
         user_id: int,
         satellite_id: Optional[uuid.UUID] = None,
         kind: Optional[SatelliteKind] = SatelliteKind.SPACE,
+        reported_url: Optional[str] = None,
     ) -> Optional[SatelliteRef]:
         """Pick the satellite a write belongs to, without creating one.
 
-            explicit satellite_id  ->  use it (must belong to the caller)
-            account owns exactly 1 ->  use it            <- every account today
-            account owns 2+        ->  refuse, naming the ambiguity
-            account owns 0         ->  None
+            explicit satellite_id     ->  use it (must belong to the caller)
+            reported_url matches one  ->  use it
+            owns exactly 1            ->  use it      <- every account today
+            owns 2+                   ->  refuse, naming the ambiguity
+            owns 0                    ->  None
 
-        The count is over one ``kind``, defaulting to spaces. An account may run
-        a station alongside its single space; counting both would make every
-        endpoint write on that account ambiguous, for a satellite that can never
-        serve endpoints anyway. Pass ``kind=None`` to count all of them.
+        The order is load-bearing. A URL beats the count, so an unmodified space
+        keeps reporting after a second appears; the count beats a *failed* URL
+        match, so a lone space that moved is updated rather than refused.
 
-        The 1-satellite branch is why this rollout is safe: nothing changes for
-        anyone until they add a second space, at which point the ambiguity is
-        real and guessing would corrupt data.
+        Counted over one ``kind``, spaces by default: a station cannot serve
+        endpoints, so counting it would make every write ambiguous for nothing.
+        ``kind=None`` counts all.
 
-        ``None`` is for writes that carry no URL — publish and sync. They leave
-        the endpoint unattached rather than failing, which is exactly what
-        happens today for an account that has never reported a domain.
+        ``None`` means the account owns none — publish and sync then leave the
+        endpoint unattached, as they do today for an account with no domain.
 
         Raises:
             NotFoundError: An explicit satellite_id that is not the caller's.
-            AmbiguousSatelliteError: 2+ satellites and no explicit choice.
+            AmbiguousSatelliteError: 2+ and nothing to disambiguate on.
         """
         if satellite_id is not None:
             return self._require(user_id, satellite_id)
+
+        if reported_url:
+            matched = self.satellite_repository.find_by_base_url(
+                user_id, BaseUrl(reported_url)
+            )
+            if matched is not None and (kind is None or matched.kind is kind):
+                return matched
 
         owned = self.satellite_repository.list_for_user(user_id, kind=kind)
         if len(owned) == 1:
@@ -169,15 +170,17 @@ class SatelliteService(BaseService):
     ) -> SatelliteRef:
         """Same rule, but register from the reported URL if the account owns none.
 
-        For writes that carry a URL — today only the health report, which has
-        always sent one, so no space-side change is needed.
+        For writes carrying a URL — today only the health report, which has
+        always sent one.
 
         Raises:
             NotFoundError: An explicit satellite_id that is not the caller's.
             AmbiguousSatelliteError: 2+ satellites and no explicit choice.
             ValidationError: No satellites, and no URL to register one from.
         """
-        ref = self.resolve_existing(user_id, satellite_id, kind=kind)
+        ref = self.resolve_existing(
+            user_id, satellite_id, kind=kind, reported_url=reported_url
+        )
         if ref is not None:
             return ref
 
@@ -198,10 +201,9 @@ class SatelliteService(BaseService):
     ) -> SatelliteRef:
         """Resolve the satellite a health report is for and record its origin.
 
-        Replaces the ``users.domain`` update this used to perform. That was one
-        field for the whole account, so two spaces overwrote each other on every
-        cycle and whichever reported last decided where *all* the account's
-        endpoints appeared to live. Each satellite now writes its own row.
+        Replaces the ``users.domain`` update: that was one field per account, so
+        two spaces overwrote each other every cycle and the last to report
+        decided where *all* their endpoints appeared to live.
 
         Raises:
             NotFoundError: An explicit satellite_id that is not the caller's.
@@ -225,11 +227,9 @@ class SatelliteService(BaseService):
     def register_or_move_space(self, user_id: int, base_url: str) -> SatelliteRef:
         """Point the account's space at this origin, registering one if it has none.
 
-        Backs the legacy ``PUT /users/me {domain}`` path, which carries no
-        satellite id and which spaces have always called at setup. It must
-        **move** the existing space rather than add one: a space whose public URL
-        changed between deployments would otherwise leave the account owning two
-        satellites, and every subsequent endpoint write would then be ambiguous.
+        Backs the legacy ``PUT /users/me {domain}`` path. It must **move** rather
+        than add: a space whose URL changed between deployments would otherwise
+        leave the account with two, making later writes ambiguous.
 
         Raises:
             AmbiguousSatelliteError: The account already owns several spaces, so
@@ -254,14 +254,12 @@ class SatelliteService(BaseService):
     def _mirror_legacy_domain(self, user_id: int, ref: SatelliteRef) -> None:
         """Keep ``users.domain`` in step with the account's single space.
 
-        Rollback insurance. Nothing reads the column any more, but if this
-        release is rolled back the previous code does, and a value frozen at
-        deploy time would send every endpoint to wherever the space used to be.
+        Rollback insurance only — nothing reads the column now. But a rollback
+        puts the old code back on it, and a value frozen at deploy time would
+        send every endpoint to wherever the space used to be.
 
-        Mirrored **only when the account has exactly one space** — which is the
-        only situation the column could ever represent, and the only one a
-        rollback could land in. An account with two spaces is post-migration by
-        definition, and no single field can describe it.
+        Only when the account has exactly one space: no single field can
+        describe two, and a two-space account is post-migration anyway.
         """
         if ref.kind is not SatelliteKind.SPACE:
             return
@@ -274,31 +272,22 @@ class SatelliteService(BaseService):
             self.session.commit()
 
     def resolve_audience(self, owner_username: str, resource: str) -> SatelliteRef:
-        """Which satellite (resource) a token should be bound to.
+        """Which satellite (resource server) a token should be bound to.
 
-        A satellite is a **resource server**: the token is scoped to one host
-        rather than being valid at everything its owner runs. This is RFC 8707
-        resource-indicator validation, with ``satellites`` as the registry.
+        Scopes the token to one host instead of everything its owner runs — RFC
+        8707 resource indicators, with ``satellites`` as the registry.
 
-        The audience is *not* the caller — a buyer mints a token to send to a
-        seller's host — so the resource URL is resolved inside the **owner's**
-        satellites and refused when none serves it.
-
-        **The refusal is the security property, not the ``aud`` value.** Both
-        halves of the pair are load-bearing: the owner alone names an account
-        but not a host, and the URL alone identifies nothing, since
-        ``(user_id, base_url)`` is unique per account so anyone may register any
-        origin under their own. Together they ask the only question that
-        matters: *does the account you claim to be dealing with run this host?*
-
-        Naming the owner by username loses nothing. The safety is in the
-        conjunction, not in the identifier being opaque — and the username is
-        already public, since it is in the endpoint address the buyer chose.
+        **The refusal is the security property, not the ``aud`` value.** Owner
+        alone names an account but not a host; URL alone identifies nothing,
+        since ``(user_id, base_url)`` is unique per account so anyone may
+        register any origin under their own. Together they ask the only question
+        that matters: *does the account you claim to be dealing with run this
+        host?*
 
         Args:
-            owner_username: The account that owns the resource.
-            resource: URL the caller is about to send the token to. Only its
-                origin matters; any path is discarded.
+            owner_username: Account that owns the resource. A username suffices —
+                the safety is in the conjunction, and it is public anyway.
+            resource: URL the token will be sent to; only its origin is used.
 
         Raises:
             AudienceNotFoundError: No such account.
@@ -320,14 +309,10 @@ class SatelliteService(BaseService):
     def resolve_legacy_audience(self, username: str) -> SatelliteRef:
         """Which satellite ``?aud=<username>`` means.
 
-        Deprecated shape, kept because the published SDK sends it and those
-        versions are not ours to upgrade. The account named its owner, not a
-        host, so this can only work while the owner runs exactly one — which is
-        every account today, since the backfill creates spaces and nothing
-        registers a station implicitly.
-
-        Counted over **all** kinds on purpose: the caller did not say whether it
-        wants a space or a station, so neither may be silently preferred.
+        Deprecated, kept because the published SDK sends it. It names the
+        *account*, not a host, so it works only while that account runs exactly
+        one satellite. Counted over **all** kinds: the caller did not say whether
+        it wants a space or a station, so neither may be preferred.
 
         Raises:
             AudienceNotFoundError: No such user, or they run no satellite.
@@ -352,25 +337,21 @@ class SatelliteService(BaseService):
         username: str,
         satellite_id: Optional[uuid.UUID] = None,
     ) -> list[str]:
-        """Which audiences this caller is allowed to verify tokens for.
+        """Which audiences this caller may verify tokens for.
 
-        A **membership set**, not a resolution — deliberately. The token already
-        carries the satellite it was minted for; the only question is whether
-        that satellite belongs to the caller. Routing this through ``resolve``
-        would refuse an account that owns two satellites, on the payment path,
-        for a question that was never ambiguous.
+        A **membership set**, not a resolution: the token already names its
+        satellite, so the only question is whether that satellite is the
+        caller's. Resolving instead would refuse a two-satellite account on the
+        payment path, for a question that was never ambiguous.
 
-        * ``satellite_id`` given — that satellite alone. This is the strict
-          check: a token for one of the caller's hosts is rejected at another.
-        * absent — every satellite the caller owns, which is exactly today's
-          account-level behaviour. A station authenticates with an account-level
-          PAT and cannot say which host it is, so the tighter check arrives
-          per-PAT as stations are re-provisioned.
+        * ``satellite_id`` given — that one alone. The strict check: a token for
+          one of the caller's hosts is rejected at another.
+        * absent — all of them, i.e. today's account-level behaviour. A station
+          authenticates with an account-wide PAT and cannot say which host it is.
 
-        The username is included in the permissive branch only, so tokens minted
-        in the seconds before this release deployed still verify. Tokens live 60
-        seconds, so that window closes on its own; the entry can go after one
-        deploy.
+        The username is in the permissive branch only, so tokens minted just
+        before this release still verify. **Remove it after one deploy** — they
+        live 60 seconds.
         """
         if satellite_id is not None:
             return [str(self._require(user_id, satellite_id).public_id)]
@@ -381,13 +362,9 @@ class SatelliteService(BaseService):
     def primary_space_url(self, user_id: int) -> Optional[str]:
         """The origin to show as "the account's domain", or None.
 
-        A domain is per-endpoint now, so this exists only to keep the
-        per-account ``domain`` field on the profile responses meaningful. It is
-        the account's oldest **space** — never a station, whose origin is not
-        where anything is served from.
-
-        Returns None for an account with no space, which is the honest answer
-        and what the field already carried for such accounts.
+        A domain is per-endpoint now; this exists only to keep the per-account
+        ``domain`` field on profile responses meaningful. The oldest **space** —
+        never a station, which serves nothing.
         """
         spaces = self.satellite_repository.list_for_user(
             user_id, kind=SatelliteKind.SPACE

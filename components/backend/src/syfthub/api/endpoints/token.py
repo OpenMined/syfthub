@@ -64,27 +64,18 @@ def _resolve_token_audience(
     resource: Optional[str],
     aud: Optional[str],
 ) -> str:
-    """Work out which satellite (resource) a token should be bound to.
-
-    A satellite is a **resource server**, and a token is scoped to one rather
-    than being valid at everything its owner runs. ``resource`` is named after
-    RFC 8707's parameter, which does the same job.
-
-    Two shapes:
+    """Which satellite a token should be bound to, as a public_id string.
 
     * ``owner_username`` + ``resource`` — the caller names the account and the
-      exact URL it is about to send the token to. The URL is resolved inside that
-      account's satellites and refused if none serves it, so a token cannot be
-      minted for a host its supposed owner does not run.
-    * ``aud`` — deprecated. Names the *account*, not a resource, so it can only
-      work while that account runs exactly one satellite. Kept because the
-      published SDK sends it and those versions are not ours to upgrade.
+      exact URL it is about to send the token to. Resolved inside that account's
+      satellites and refused if none serves it, so a token cannot be minted for a
+      host its supposed owner does not run. ``resource`` is RFC 8707's name.
+    * ``aud`` — deprecated. Names the *account*, so it works only while that
+      account runs one satellite. Kept because the published SDK sends it.
 
-    Note the deliberate asymmetry: ``aud`` as a *parameter* carries a username,
-    while the ``aud`` *claim* carries a satellite id. The claim is derived, never
-    echoed — which is why the parameter is deprecated rather than extended.
-
-    Returns the satellite's public_id as a string, ready to be signed as ``aud``.
+    Watch the asymmetry: ``aud`` the *parameter* is a username, ``aud`` the
+    *claim* is a satellite id. The claim is derived, never echoed — which is why
+    the parameter was deprecated rather than extended.
     """
     if owner_username and resource:
         return str(

@@ -300,15 +300,62 @@ class TestGraduatedResolution:
         assert ref.public_id == created.id
         assert len(service.list_satellites(users[0].id)) == 1
 
-    def test_two_satellites_without_a_choice_is_ambiguous(self, service, users):
-        """Test the 2+ branch — the intended forcing function."""
+    def test_two_satellites_and_an_unrecognised_url_is_ambiguous(self, service, users):
+        """Test the 2+ branch — the intended forcing function.
+
+        The URL must be one none of them serves: a *recognised* origin answers
+        the question on its own and resolves (see the test below).
+        """
         _create(service, users[0].id, base_url="https://a.example.com")
         _create(service, users[0].id, base_url="https://b.example.com")
 
         with pytest.raises(AmbiguousSatelliteError) as exc:
-            service.resolve(users[0].id, reported_url="https://a.example.com")
+            service.resolve(users[0].id, reported_url="https://moved.example.com")
         assert exc.value.count == 2
         assert "satellite_id" in str(exc.value), "must name the remedy"
+
+    def test_a_recognised_url_resolves_even_with_several(self, service, users):
+        """Test that a caller naming its origin is not refused.
+
+        The health path always carries the URL it is reporting for, so refusing
+        it would be discarding an answer the caller already gave.
+        """
+        a = _create(service, users[0].id, base_url="https://a.example.com")
+        _create(service, users[0].id, base_url="https://b.example.com")
+
+        ref = service.resolve(users[0].id, reported_url="https://a.example.com")
+        assert ref.public_id == a.id
+
+    def test_a_recognised_url_matches_across_spellings(self, service, users):
+        """Test that the match is on the canonical origin, not the string."""
+        a = _create(service, users[0].id, base_url="https://a.example.com")
+        _create(service, users[0].id, base_url="https://b.example.com")
+
+        ref = service.resolve(
+            users[0].id, reported_url="  HTTPS://A.Example.com:443/v1/  "
+        )
+        assert ref.public_id == a.id
+
+    def test_an_explicit_id_still_wins_over_a_matching_url(self, service, users):
+        """Test the ordering: an explicit choice beats URL matching."""
+        _create(service, users[0].id, base_url="https://a.example.com")
+        b = _create(service, users[0].id, base_url="https://b.example.com")
+
+        ref = service.resolve(
+            users[0].id, satellite_id=b.id, reported_url="https://a.example.com"
+        )
+        assert ref.public_id == b.id
+
+    def test_one_satellite_still_wins_over_a_url_mismatch(self, service, users):
+        """Test S6: a single space that moved is updated, not refused.
+
+        URL matching sits above the count, so this pins that a *failed* match
+        falls through to the count rather than refusing.
+        """
+        a = _create(service, users[0].id, base_url="https://old.example.com")
+
+        ref = service.resolve(users[0].id, reported_url="https://new.example.com")
+        assert ref.public_id == a.id
 
     def test_ambiguity_is_a_422(self, service, users):
         """Test that ambiguity is a client error, not a server error."""
