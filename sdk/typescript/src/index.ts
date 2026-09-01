@@ -184,6 +184,11 @@ export { SearchResource } from './resources/search.js';
 // SyftAI Resource (for type hints)
 export { SyftAIResource } from './resources/syftai.js';
 
+// Satellite-token targeting: a token is bound to one host, so callers name the
+// host they are minting for and read the returned map back by the same key.
+export { tokenKey, satelliteTokenParams } from './resources/auth.js';
+export type { AudienceTarget } from './resources/auth.js';
+
 // API Tokens Resource (for type hints)
 export { APITokensResource } from './resources/api-tokens.js';
 

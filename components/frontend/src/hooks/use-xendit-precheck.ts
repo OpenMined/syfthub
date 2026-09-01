@@ -34,7 +34,8 @@ import {
   isPrepaidPolicyType,
   parseXenditConfig,
   resolveWalletAudience,
-  resolveWalletKey
+  resolveWalletKey,
+  tokenScope
 } from '@/lib/xendit-client';
 
 export type EndpointRole = 'model' | 'data_source';
@@ -225,15 +226,20 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       const candidates = [...collectCandidates(model, dataSources), ...collectiveLists.flat()];
       if (candidates.length === 0) return [];
 
-      // One satellite token per distinct audience — the wallet-hosting
-      // account for cluster wallets, the endpoint owner otherwise. Multiple
-      // wallets sharing an audience reuse the token.
-      const audiences = [...new Set(candidates.map((c) => c.policy.audience))];
-      const tokenByAudience = new Map<string, string>();
+      // One satellite token per distinct credits URL, not per audience: a token
+      // is bound to the host it is sent to, so two wallets on different hosts of
+      // the same account need different tokens — reusing one would be rejected
+      // at the second. Wallets that do share a URL still share a token.
+      const targets = new Map<string, XenditCandidate>(); // token scope -> sample
+      for (const c of candidates) {
+        const scope = tokenScope(c.policy.creditsUrl);
+        if (!targets.has(scope)) targets.set(scope, c);
+      }
+      const tokenByScope = new Map<string, string>();
       await Promise.all(
-        audiences.map(async (audience) => {
-          const token = await getSatelliteToken(audience);
-          if (token) tokenByAudience.set(audience, token);
+        [...targets].map(async ([scope, c]) => {
+          const token = await getSatelliteToken(c.policy.audience, c.policy.creditsUrl);
+          if (token) tokenByScope.set(scope, token);
         })
       );
 
@@ -241,8 +247,8 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       // wallet's own audience. Multiple endpoints can share a wallet — paying
       // once funds them all — but the gate UI lists each endpoint separately,
       // so we need each row's status without re-hitting the same wallet.
-      // Deduping by walletKey (not creditsUrl) keeps the audience paired with
-      // its wallet: two wallets could share a URL yet mint different tokens.
+      // Deduping by walletKey (not creditsUrl) keeps each wallet distinct: two
+      // wallets can share a host, and the gate lists them separately.
       const walletSamples = new Map<string, XenditCandidate>();
       for (const c of candidates) {
         if (!walletSamples.has(c.policy.walletKey)) {
@@ -252,7 +258,7 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       const balanceByWalletKey = new Map<string, number | null>();
       await Promise.all(
         [...walletSamples.values()].map(async (c) => {
-          const token = tokenByAudience.get(c.policy.audience);
+          const token = tokenByScope.get(tokenScope(c.policy.creditsUrl));
           if (!token) return;
           const balance = await fetchBalance(c.policy.creditsUrl, token, signal);
           balanceByWalletKey.set(c.policy.walletKey, balance);

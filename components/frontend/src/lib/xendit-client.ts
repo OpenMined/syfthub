@@ -210,9 +210,33 @@ export function openCheckoutWindow(url: string): void {
   window.open(url, 'xendit-checkout', features);
 }
 
-export async function getSatelliteToken(audience: string): Promise<string | null> {
+/**
+ * Origin of `url`, or the raw string if it will not parse.
+ *
+ * The cache key for a satellite token. SyftHub resolves a satellite by origin,
+ * so a wallet's credits and payment URLs share one token.
+ */
+export function tokenScope(url: string): string {
   try {
-    const response = await syftClient.auth.getSatelliteToken(audience);
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Mint a satellite token for `audience`, bound to `resource`.
+ *
+ * `resource` is the URL the token is sent to. A token only works at that one
+ * host, so cache per {@link tokenScope}, never per audience — one account can
+ * serve from several hosts.
+ */
+export async function getSatelliteToken(
+  audience: string,
+  resource?: string
+): Promise<string | null> {
+  try {
+    const response = await syftClient.auth.getSatelliteToken(audience, resource);
     return response.targetToken;
   } catch {
     return null;

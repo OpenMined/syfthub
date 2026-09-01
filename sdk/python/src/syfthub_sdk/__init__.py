@@ -39,6 +39,7 @@ from syfthub_sdk.agent import (
 )
 from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.api_tokens import APITokensResource
+from syfthub_sdk.auth import AudienceTarget, token_key
 from syfthub_sdk.chat import (
     ChatResource,
     ChatStreamEvent,
@@ -133,6 +134,10 @@ __all__ = [
     "AuthTokens",
     "PeerTokenResponse",
     "SatelliteTokenResponse",
+    # Satellite-token targeting: a token is bound to one host, so callers name
+    # the host they mint for and read the returned map back by the same key.
+    "AudienceTarget",
+    "token_key",
     "Visibility",
     "Policy",
     "Connection",

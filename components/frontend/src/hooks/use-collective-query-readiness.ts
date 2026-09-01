@@ -24,12 +24,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useWalletContext } from '@/context/wallet-context';
 import {
   dedupeWalletsByKey,
-  distinctWalletOwners,
-  fetchWalletBalances
+  fetchWalletBalances,
+  mintWalletTokens
 } from '@/hooks/use-prepaid-wallet-balances';
 import { useWalletBalance } from '@/hooks/use-wallet-api';
 import { billingSummaryKeys } from '@/lib/query-keys';
-import { getSatelliteToken } from '@/lib/xendit-client';
 
 export type QueryReadiness = 'idle' | 'loading' | 'ready' | 'blocked';
 
@@ -90,17 +89,10 @@ export function useCollectiveQueryReadiness(
     enabled: enabled && wallets.length > 0,
     staleTime: 15_000,
     queryFn: async ({ signal }) => {
-      const owners = distinctWalletOwners(wallets);
-      const tokenByOwner = new Map<string, string>();
-      await Promise.all(
-        owners.map(async (owner) => {
-          const token = await getSatelliteToken(owner);
-          if (token) tokenByOwner.set(owner, token);
-        })
-      );
+      const tokenByScope = await mintWalletTokens(wallets);
       // Tuples key the balance map by walletKey (wallet_id or credits_url).
       // Keep the raw null (unreachable wallet) — it must BLOCK ready below.
-      const updates = await fetchWalletBalances(wallets, tokenByOwner, signal);
+      const updates = await fetchWalletBalances(wallets, tokenByScope, signal);
       const out: Record<string, number | null> = {};
       for (const [walletKey, balance] of updates) out[walletKey] = balance;
       return out;

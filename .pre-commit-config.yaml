@@ -81,6 +81,7 @@ repos:
         additional_dependencies: [
           httpx,
           pydantic,
+          websocket-client,
         ]
       # Aggregator mypy
       - id: mypy

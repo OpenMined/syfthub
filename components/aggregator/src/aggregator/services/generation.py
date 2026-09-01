@@ -56,7 +56,15 @@ class GenerationService:
     def _get_token_for_endpoint(
         self, endpoint: ResolvedEndpoint, token_mapping: dict[str, str]
     ) -> str | None:
-        """Get a token for an endpoint based on its owner username."""
+        """The satellite token for this endpoint, by URL then owner.
+
+        URL first: one account may serve from several hosts, and a token minted
+        for one is rejected at another, so keying by owner would send the wrong
+        token. Owner is the deprecated fallback, kept so a caller on an older
+        SDK — which keys by account — still works.
+        """
+        if endpoint.url and endpoint.url in token_mapping:
+            return token_mapping[endpoint.url]
         if endpoint.owner_username and endpoint.owner_username in token_mapping:
             return token_mapping[endpoint.owner_username]
         return None

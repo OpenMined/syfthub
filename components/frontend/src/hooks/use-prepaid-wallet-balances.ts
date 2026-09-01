@@ -4,24 +4,24 @@
  * Shared prepaid-wallet polling engine for the chat PaymentGate and the
  * collective accounts modal. Both sites poll a set of publisher wallets
  * (one per `credits_url`) on a fixed interval, minting one satellite token
- * per owner and fetching each wallet's live balance until it crosses the
+ * per host and fetching each wallet's live balance until it crosses the
  * per-request price threshold.
  *
  * This module exposes:
  *
  * - a small pure core (no React) — the {@link PrepaidWalletDescriptor} type plus
  *   {@link descriptorFromPending}, {@link dedupeWalletsByKey},
- *   {@link distinctWalletOwners}, {@link isWalletFunded} and the shared
+ *   {@link distinctWalletTargets}, {@link isWalletFunded} and the shared
  *   {@link fetchWalletBalances} fetch helper — reused by the React-Query-based
  *   {@link useCollectiveQueryReadiness} too; and
  * - {@link usePrepaidWalletBalances}, the `setInterval` engine hook that wraps
  *   that core in `useState` + polling for the two settlement UIs.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { PendingSubscription } from '@/hooks/use-xendit-precheck';
 
-import { fetchBalance, getSatelliteToken, POLL_INTERVAL_MS } from '@/lib/xendit-client';
+import { fetchBalance, getSatelliteToken, POLL_INTERVAL_MS, tokenScope } from '@/lib/xendit-client';
 
 // ── shared pure core (no React) ──────────────────────────────────────────────
 
@@ -80,11 +80,36 @@ export function dedupeWalletsByKey(wallets: PrepaidWalletDescriptor[]): PrepaidW
   return [...byKey.values()];
 }
 
-/** Distinct token audiences across descriptors, insertion order (token-fetch dedup). */
-export function distinctWalletOwners(wallets: PrepaidWalletDescriptor[]): string[] {
-  const owners = new Set<string>();
-  for (const wallet of wallets) owners.add(wallet.owner);
-  return [...owners];
+/**
+ * One wallet per token scope, insertion order — the token-fetch dedup set.
+ *
+ * Keyed by {@link tokenScope}, not by owner: a token is bound to the host it is
+ * sent to, so an account serving two hosts needs one token each. Wallets on the
+ * same host still share a token.
+ */
+export function distinctWalletTargets(
+  wallets: PrepaidWalletDescriptor[]
+): [string, PrepaidWalletDescriptor][] {
+  const byScope = new Map<string, PrepaidWalletDescriptor>();
+  for (const wallet of wallets) {
+    const scope = tokenScope(wallet.creditsUrl);
+    if (!byScope.has(scope)) byScope.set(scope, wallet);
+  }
+  return [...byScope];
+}
+
+/** Mint one token per distinct scope. Wallets whose mint fails are absent. */
+export async function mintWalletTokens(
+  wallets: PrepaidWalletDescriptor[]
+): Promise<Map<string, string>> {
+  const tokenByScope = new Map<string, string>();
+  await Promise.all(
+    distinctWalletTargets(wallets).map(async ([scope, wallet]) => {
+      const token = await getSatelliteToken(wallet.owner, wallet.creditsUrl);
+      if (token) tokenByScope.set(scope, token);
+    })
+  );
+  return tokenByScope;
 }
 
 /** balance >= threshold, with `balances[key] ?? 0` default. */
@@ -97,21 +122,21 @@ export function isWalletFunded(
 }
 
 /**
- * Fetch the live balance for each wallet using a pre-built owner→token map.
+ * Fetch the live balance for each wallet using a pre-built scope→token map.
  *
- * Returns `[walletKey, number | null]` tuples — `null` when the owner has no
+ * Returns `[walletKey, number | null]` tuples — `null` when the wallet has no
  * token or the balance fetch fails. Callers decide what `null` means: the
  * engine drops nulls (keeps the previous balance), while readiness keeps them
  * to block the ready state. This helper never coerces missing to 0.
  */
 export async function fetchWalletBalances(
   wallets: PrepaidWalletDescriptor[],
-  tokenByOwner: Map<string, string>,
+  tokenByScope: Map<string, string>,
   signal: AbortSignal
 ): Promise<[string, number | null][]> {
   return Promise.all(
     wallets.map(async (wallet) => {
-      const token = tokenByOwner.get(wallet.owner);
+      const token = tokenByScope.get(tokenScope(wallet.creditsUrl));
       const balance = token ? await fetchBalance(wallet.creditsUrl, token, signal) : null;
       return [wallet.walletKey, balance] as [string, number | null];
     })
@@ -166,29 +191,22 @@ export function usePrepaidWalletBalances(
     [balances]
   );
 
-  // One satellite token per distinct owner, fetched when enabled (and refreshed
-  // only when the owner set changes). Gated by `enabled` so a disabled modal
+  // One satellite token per distinct host, fetched when enabled (and refreshed
+  // only when the wallet set changes). Gated by `enabled` so a disabled modal
   // never mints tokens.
-  const owners = useMemo(() => distinctWalletOwners(wallets), [wallets]);
   const tokensReference = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
     void (async () => {
-      const next = new Map<string, string>();
-      await Promise.all(
-        owners.map(async (owner) => {
-          const token = await getSatelliteToken(owner);
-          if (token) next.set(owner, token);
-        })
-      );
+      const next = await mintWalletTokens(wallets);
       if (controller.signal.aborted) return;
       tokensReference.current = next;
     })();
     return () => {
       controller.abort();
     };
-  }, [owners, enabled]);
+  }, [wallets, enabled]);
 
   // Fire the funding callback the first time we observe a non-zero balance for a
   // wallet — locally deduped so it runs once per wallet per session.
