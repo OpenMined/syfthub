@@ -32,6 +32,7 @@ from syfthub.core.url_builder import (
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
     get_endpoint_repository,
+    get_satellite_repository,
     get_user_repository,
 )
 from syfthub.jobs.health_monitor import EndpointHealthMonitor
@@ -44,6 +45,7 @@ from syfthub.observability import (
 )
 from syfthub.observability.handlers import register_exception_handlers
 from syfthub.repositories.endpoint import EndpointRepository
+from syfthub.repositories.satellite import SatelliteRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
@@ -71,16 +73,28 @@ PROXY_TIMEOUT_DATA_SOURCE = 30.0
 PROXY_TIMEOUT_MODEL = 120.0
 
 
+def _origins_for_owner(
+    satellite_repo: SatelliteRepository, user_id: int
+) -> dict[Optional[int], Optional[str]]:
+    """Map an owner's satellite ids to their origins.
+
+    One query per request rather than per endpoint. An account owns a handful of
+    satellites at most, and every caller here has already resolved the owner.
+    """
+    return {ref.id: ref.base_url.value for ref in satellite_repo.list_for_user(user_id)}
+
+
 def build_invocation_url(
-    owner: User,
+    domain: Optional[str],
     connections: list[dict[str, Any]],
     endpoint_slug: str,
     endpoint_path: str,
 ) -> str:
-    """Build the invocation URL from owner domain and connection config.
+    """Build the invocation URL from the serving origin and connection config.
 
     Args:
-        owner: The endpoint owner
+        domain: Origin of the satellite serving this endpoint. Per endpoint, not
+            per account — one account may serve from several hosts.
         connections: List of connection configurations from the endpoint
         endpoint_slug: The endpoint's slug for building the query path
         endpoint_path: Path identifier for error messages (e.g., "owner/endpoint")
@@ -89,14 +103,14 @@ def build_invocation_url(
         The full query URL for invoking the endpoint
 
     Raises:
-        HTTPException: If no domain or connections are configured
+        HTTPException: If no origin or connections are configured
     """
-    # Check owner has a domain configured
-    domain = getattr(owner, "domain", None)
     if not domain:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Owner of endpoint '{endpoint_path}' has no domain configured",
+            detail=(
+                f"Endpoint '{endpoint_path}' has no serving space registered on SyftHub"
+            ),
         )
 
     if not connections:
@@ -396,6 +410,7 @@ def list_owner_public_endpoints(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    satellite_repo: Annotated[SatelliteRepository, Depends(get_satellite_repository)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
 ) -> list[EndpointPublicResponse]:
@@ -431,18 +446,19 @@ def list_owner_public_endpoints(
     # Apply pagination
     accessible_endpoints = accessible_endpoints[skip : skip + limit]
 
-    # Build response with owner_username and transformed URLs
-    # Get owner's domain for URL transformation
-    owner_domain = getattr(owner, "domain", None)
+    # Build response with owner_username and transformed URLs. The origin is
+    # per endpoint now — one account may serve from several spaces — so fetch
+    # the owner's satellites once and look each endpoint's up.
+    origins = _origins_for_owner(satellite_repo, owner.id)
 
     response_list = []
     for ds in accessible_endpoints:
         ds_dict = ds.model_dump()
 
-        # Transform connection URLs using owner's domain
+        # Transform connection URLs using the serving satellite's origin
         if ds_dict.get("connect"):
             ds_dict["connect"] = transform_connection_urls(
-                owner_domain,
+                origins.get(ds.space_id),
                 ds_dict["connect"],
             )
 
@@ -463,6 +479,7 @@ def get_owner_endpoint(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    satellite_repo: Annotated[SatelliteRepository, Depends(get_satellite_repository)],
 ) -> Union[HTMLResponse, EndpointResponse, EndpointPublicResponse]:
     """Get a specific endpoint by owner and slug."""
     # Resolve owner
@@ -528,15 +545,14 @@ def get_owner_endpoint(
             },
         )
     else:
-        # Return JSON for API clients with transformed URLs
-        # Get owner's domain for URL transformation
-        owner_domain = getattr(owner, "domain", None)
+        # Return JSON for API clients with transformed URLs, built from the
+        # origin of the satellite serving this endpoint.
+        origin = _origins_for_owner(satellite_repo, owner.id).get(endpoint.space_id)
         endpoint_dict = endpoint.model_dump()
 
-        # Transform connection URLs using owner's domain
         if endpoint_dict.get("connect"):
             endpoint_dict["connect"] = transform_connection_urls(
-                owner_domain,
+                origin,
                 endpoint_dict["connect"],
             )
 
@@ -559,6 +575,7 @@ def _resolve_invocation_target(
     current_user: Optional[User],
     endpoint_repo: EndpointRepository,
     user_repo: UserRepository,
+    satellite_repo: SatelliteRepository,
 ) -> tuple[Endpoint, str]:
     """Resolve owner + endpoint, enforce access, build the invocation URL, and
     run the SSRF check.
@@ -608,17 +625,17 @@ def _resolve_invocation_target(
         for conn in endpoint.connect
     ]
 
-    # Build the full query URL using owner's domain
+    # The origin comes from the satellite serving this endpoint.
+    origin = _origins_for_owner(satellite_repo, owner.id).get(endpoint.space_id)
     query_url = build_invocation_url(
-        owner, connections_data, endpoint_slug, endpoint_path
+        origin, connections_data, endpoint_slug, endpoint_path
     )
 
-    # SSRF Protection: Validate owner's domain before making requests
-    # This is placed after build_invocation_url to ensure connection validation
-    # happens first (no connections, no domain errors returned before SSRF check)
-    owner_domain = getattr(owner, "domain", None)
-    if owner_domain:
-        validate_domain_for_ssrf(owner_domain)
+    # SSRF Protection: validate the origin before making requests. Placed after
+    # build_invocation_url so connection validation happens first (no
+    # connections, no origin errors returned before the SSRF check)
+    if origin:
+        validate_domain_for_ssrf(origin)
 
     return endpoint, query_url
 
@@ -631,6 +648,7 @@ async def invoke_owner_endpoint(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    satellite_repo: Annotated[SatelliteRepository, Depends(get_satellite_repository)],
 ) -> JSONResponse:
     """Invoke a specific endpoint by owner and slug.
 
@@ -646,6 +664,7 @@ async def invoke_owner_endpoint(
         current_user,
         endpoint_repo,
         user_repo,
+        satellite_repo,
     )
 
     # Get the request body

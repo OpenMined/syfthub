@@ -112,11 +112,14 @@ async def _resolve_endpoint(
 
 
 async def _get_guest_satellite_token(
-    client: httpx.AsyncClient, audience: str, base_url: str
+    client: httpx.AsyncClient, audience: str, resource: str, base_url: str
 ) -> str | None:
-    """Fetch a guest satellite token from the backend."""
+    """Fetch a guest satellite token bound to ``resource``."""
     try:
-        resp = await client.get(f"{base_url}/api/v1/token/guest", params={"aud": audience})
+        resp = await client.get(
+            f"{base_url}/api/v1/token/guest",
+            params={"owner_username": audience, "resource": resource},
+        )
         resp.raise_for_status()
         token: str | None = resp.json().get("target_token")
         return token
@@ -126,13 +129,13 @@ async def _get_guest_satellite_token(
 
 
 async def _get_satellite_token(
-    client: httpx.AsyncClient, audience: str, user_token: str, base_url: str
+    client: httpx.AsyncClient, audience: str, resource: str, user_token: str, base_url: str
 ) -> str | None:
-    """Fetch an authenticated satellite token from the backend."""
+    """Fetch an authenticated satellite token bound to ``resource``."""
     try:
         resp = await client.get(
             f"{base_url}/api/v1/token",
-            params={"aud": audience},
+            params={"owner_username": audience, "resource": resource},
             headers={"Authorization": f"Bearer {user_token}"},
         )
         resp.raise_for_status()
@@ -143,7 +146,7 @@ async def _get_satellite_token(
             "Failed to get satellite token for audience '%s', falling back to guest",
             audience,
         )
-        return await _get_guest_satellite_token(client, audience, base_url)
+        return await _get_guest_satellite_token(client, audience, resource, base_url)
 
 
 def _error_result(query: str, model: str, data_sources: list[str], error: str) -> dict[str, Any]:
@@ -264,19 +267,30 @@ async def query_render(
                 )
 
         # --- Acquire satellite tokens in parallel ---
-        unique_owners: list[str] = list(
-            {ref.owner_username for ref in resolved if ref.owner_username}
+        unique_owners: list[tuple[str, str]] = list(
+            {(ref.owner_username, ref.url) for ref in resolved if ref.owner_username}
         )
         is_guest = user_token is None
 
-        async def _fetch_token(owner: str) -> tuple[str, str | None]:
+        async def _fetch_token(owner: str, resource: str) -> tuple[str, str | None]:
+            # Keyed by the host, not the owner: a token is bound to one host, so
+            # an account serving from two would otherwise get one token reused
+            # across both — and rejected at the second.
             if is_guest:
-                return (owner, await _get_guest_satellite_token(client, owner, base_url))
+                return (
+                    resource,
+                    await _get_guest_satellite_token(client, owner, resource, base_url),
+                )
             assert user_token is not None  # narrowing for type checker
-            return (owner, await _get_satellite_token(client, owner, user_token, base_url))
+            return (
+                resource,
+                await _get_satellite_token(client, owner, resource, user_token, base_url),
+            )
 
-        token_results = await asyncio.gather(*[_fetch_token(owner) for owner in unique_owners])
-        endpoint_tokens = {owner: token for owner, token in token_results if token}
+        token_results = await asyncio.gather(
+            *[_fetch_token(owner, url) for owner, url in unique_owners]
+        )
+        endpoint_tokens = {resource: token for resource, token in token_results if token}
 
     # --- Build ChatRequest and run pipeline ---
     model_path = (

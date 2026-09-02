@@ -11,6 +11,7 @@ from syfthub.repositories import (
     CollectiveMemberRepository,
     CollectiveRepository,
     EndpointRepository,
+    SatelliteRepository,
     UserRepository,
     UserXenditSubscriptionRepository,
 )
@@ -22,6 +23,7 @@ from syfthub.services.collective_service import CollectiveService
 from syfthub.services.email_verification_service import EmailVerificationService
 from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.otp_service import OTPService
+from syfthub.services.satellite_service import SatelliteService
 from syfthub.services.user_service import UserService
 
 __all__ = ["get_db_session"]
@@ -46,6 +48,20 @@ def get_endpoint_repository(
 ) -> EndpointRepository:
     """Get EndpointRepository dependency."""
     return EndpointRepository(session)
+
+
+def get_satellite_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> SatelliteService:
+    """Get SatelliteService dependency."""
+    return SatelliteService(session)
+
+
+def get_satellite_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> SatelliteRepository:
+    """Get SatelliteRepository dependency."""
+    return SatelliteRepository(session)
 
 
 def get_endpoint_star_repository(

@@ -22,7 +22,6 @@ Audience Validation:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -30,8 +29,6 @@ import jwt
 
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
-    AudienceInactiveError,
-    AudienceNotFoundError,
     KeyNotConfiguredError,
 )
 
@@ -47,89 +44,6 @@ GUEST_SUB = "guest"
 GUEST_EMAIL = "guest@syfthub.org"
 GUEST_USERNAME = "guest"
 GUEST_ROLE = "guest"
-
-
-@dataclass
-class AudienceValidationResult:
-    """Result of audience validation.
-
-    Attributes:
-        valid: Whether the audience is valid
-        error: Error message if invalid
-        error_code: Error code for programmatic handling
-    """
-
-    valid: bool
-    error: Optional[str] = None
-    error_code: Optional[str] = None
-
-
-def validate_audience(
-    audience: str,
-    user_repo: Optional[UserRepository] = None,
-) -> AudienceValidationResult:
-    """Validate that the requested audience is a valid, active user.
-
-    The audience must be the username of an active user account. This ensures
-    that tokens can only be minted for registered services/users.
-
-    When user_repo is provided (recommended), validation is done against the
-    database. This is the dynamic audience validation approach where any
-    active user's username is a valid audience.
-
-    Args:
-        audience: The requested service identifier (username)
-        user_repo: User repository for database lookup. If None, falls back
-                   to static config (deprecated behavior).
-
-    Returns:
-        AudienceValidationResult with validation status and error details
-    """
-    # Normalize to lowercase for comparison
-    normalized_audience = audience.strip().lower()
-
-    if user_repo is not None:
-        # Dynamic validation: Check if audience is an active user's username
-        try:
-            user = user_repo.get_by_username(normalized_audience)
-        except Exception as e:
-            # Fail closed on database errors - deny access
-            logger.error(f"Database error during audience validation: {e}")
-            return AudienceValidationResult(
-                valid=False,
-                error="Unable to validate audience. Please try again.",
-                error_code="validation_error",
-            )
-
-        if user is None:
-            return AudienceValidationResult(
-                valid=False,
-                error=f"Audience '{audience}' is not a registered user.",
-                error_code="audience_not_found",
-            )
-
-        if not user.is_active:
-            return AudienceValidationResult(
-                valid=False,
-                error=f"Audience '{audience}' is inactive.",
-                error_code="audience_inactive",
-            )
-
-        return AudienceValidationResult(valid=True)
-
-    # Fallback to static config (deprecated)
-    logger.warning(
-        "Using deprecated static audience validation. "
-        "Pass user_repo for dynamic validation."
-    )
-    if normalized_audience in settings.allowed_audiences:
-        return AudienceValidationResult(valid=True)
-
-    return AudienceValidationResult(
-        valid=False,
-        error=f"Audience '{audience}' is not in the allowed list.",
-        error_code="invalid_audience",
-    )
 
 
 def get_allowed_audiences(
@@ -171,36 +85,28 @@ def _mint_satellite_token(
     role: str,
     audience: str,
     key_manager: RSAKeyManager,
-    user_repo: Optional[UserRepository] = None,
 ) -> str:
-    """Shared implementation for minting audience-bound satellite tokens.
+    """Shared implementation for minting satellite-bound tokens.
 
-    Validates the audience, checks key configuration, builds the JWT payload,
-    and signs it with RS256.
+    A pure claims-to-JWT transformation: it does no lookups and reaches no
+    database. ``audience`` arrives already resolved — the caller has proved the
+    satellite exists and belongs to the account it claims — which keeps this
+    module free of repositories and keeps resolution in one place.
 
     Args:
         sub: Subject claim (user ID or "guest").
         role: Role claim (user role or "guest").
-        audience: Target service identifier (username of target user/service).
+        audience: The **satellite's public_id**, as a string. Not a username:
+            an account may run several hosts, so naming the account would let a
+            token minted for one be accepted at another.
         key_manager: RSA key manager for signing.
-        user_repo: User repository for audience validation.
 
     Returns:
         RS256-signed JWT string.
 
     Raises:
-        AudienceNotFoundError: If audience is not a registered user.
-        AudienceInactiveError: If audience user is inactive.
         KeyNotConfiguredError: If RSA keys are not configured.
     """
-    # Validate audience against database (dynamic) or config (deprecated)
-    validation_result = validate_audience(audience, user_repo)
-    if not validation_result.valid:
-        if validation_result.error_code == "audience_inactive":
-            raise AudienceInactiveError(audience)
-        else:
-            raise AudienceNotFoundError(audience)
-
     # Check that key manager is configured
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
@@ -212,7 +118,7 @@ def _mint_satellite_token(
     payload = {
         "sub": sub,
         "iss": settings.issuer_url,
-        "aud": audience.strip().lower(),
+        "aud": audience,
         "exp": expire,
         "iat": now,
         "role": role,
@@ -237,7 +143,6 @@ def _mint_satellite_token(
 def create_guest_satellite_token(
     audience: str,
     key_manager: RSAKeyManager,
-    user_repo: Optional[UserRepository] = None,
 ) -> str:
     """Create an audience-bound satellite token for a guest (unauthenticated) user.
 
@@ -246,16 +151,13 @@ def create_guest_satellite_token(
     policy-free endpoints.
 
     Args:
-        audience: Target service identifier (username of target user/service)
+        audience: The target satellite's public_id, already resolved
         key_manager: RSA key manager for signing
-        user_repo: User repository for audience validation.
 
     Returns:
         RS256-signed JWT string
 
     Raises:
-        AudienceNotFoundError: If audience is not a registered user
-        AudienceInactiveError: If audience user is inactive
         KeyNotConfiguredError: If RSA keys are not configured
     """
     return _mint_satellite_token(
@@ -263,7 +165,6 @@ def create_guest_satellite_token(
         role=GUEST_ROLE,
         audience=audience,
         key_manager=key_manager,
-        user_repo=user_repo,
     )
 
 
@@ -271,7 +172,6 @@ def create_satellite_token(
     user: User,
     audience: str,
     key_manager: RSAKeyManager,
-    user_repo: Optional[UserRepository] = None,
 ) -> str:
     """Create an audience-bound satellite token for a user.
 
@@ -280,16 +180,13 @@ def create_satellite_token(
 
     Args:
         user: The authenticated user requesting the token
-        audience: Target service identifier (username of target user/service)
+        audience: The target satellite's public_id, already resolved
         key_manager: RSA key manager for signing
-        user_repo: User repository for audience validation.
 
     Returns:
         RS256-signed JWT string
 
     Raises:
-        AudienceNotFoundError: If audience is not a registered user
-        AudienceInactiveError: If audience user is inactive
         KeyNotConfiguredError: If RSA keys are not configured
     """
     return _mint_satellite_token(
@@ -297,7 +194,6 @@ def create_satellite_token(
         role=user.role,
         audience=audience,
         key_manager=key_manager,
-        user_repo=user_repo,
     )
 
 
@@ -376,22 +272,22 @@ class TokenVerificationResult:
 def verify_satellite_token_for_service(
     token: str,
     key_manager: RSAKeyManager,
-    authorized_audience: str,
+    authorized_audiences: list[str],
 ) -> TokenVerificationResult:
     """Verify a satellite token for a specific service.
 
     This function verifies that:
     1. The token has a valid signature (signed by our private key)
     2. The token has not expired
-    3. The token's audience matches the authorized_audience
+    3. The token's audience is one of authorized_audiences
 
-    The authorized_audience is typically the service's username, ensuring
+    The audiences are the caller's satellites, ensuring
     that services can only verify tokens intended for them.
 
     Args:
         token: The JWT string to verify
         key_manager: RSA key manager for verification
-        authorized_audience: The audience this service is authorized to verify
+        authorized_audiences: The audiences this caller may verify for
                            (typically the service's username)
 
     Returns:
@@ -432,14 +328,14 @@ def verify_satellite_token_for_service(
             message=f"Unknown key ID: {kid}. The token may be from a different issuer.",
         )
 
-    # Decode and verify the token
-    # We verify against the authorized_audience (service's username)
+    # Decode and verify. PyJWT accepts a list for `audience` and passes when
+    # the token's aud is any one of them — which is the membership test we want.
     try:
         payload = jwt.decode(
             token,
             public_key,
             algorithms=["RS256"],
-            audience=authorized_audience,
+            audience=authorized_audiences,
             issuer=settings.issuer_url,
         )
         return TokenVerificationResult(valid=True, payload=payload)
@@ -468,8 +364,8 @@ def verify_satellite_token_for_service(
         return TokenVerificationResult(
             valid=False,
             error="audience_mismatch",
-            message=f"Token audience '{actual_aud}' does not match authorized audience "
-            f"'{authorized_audience}'. You are not authorized to verify this token.",
+            message=f"Token audience '{actual_aud}' is not one of yours. "
+            "You are not authorized to verify this token.",
         )
 
     except jwt.InvalidIssuerError:

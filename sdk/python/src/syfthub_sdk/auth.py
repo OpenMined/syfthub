@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from syfthub_sdk.models import (
@@ -17,6 +17,35 @@ from syfthub_sdk.models import (
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
+
+#: A mint target: a username alone, or ``(username, resource_url)``.
+AudienceTarget = str | tuple[str, str]
+
+
+def _as_target(target: AudienceTarget) -> tuple[str, str | None]:
+    """Normalise a target to ``(audience, resource)``."""
+    return target if isinstance(target, tuple) else (target, None)
+
+
+def token_key(audience: str, resource: str | None = None) -> str:
+    """Cache key for a minted token: the resource it is bound to, else the owner.
+
+    A token only works at the host it was minted for, so callers holding tokens
+    for several hosts of one owner must key on the resource to tell them apart.
+    """
+    return resource or audience
+
+
+def satellite_token_params(audience: str, resource: str | None) -> dict[str, str]:
+    """Mint query params.
+
+    With a resource, SyftHub derives the satellite from the URL — the binding
+    that makes the token unusable elsewhere. Without one it falls back to the
+    legacy ``aud`` alias, which only resolves an owner with a single satellite.
+    """
+    if resource:
+        return {"owner_username": audience, "resource": resource}
+    return {"aud": audience}
 
 
 class AuthResource:
@@ -389,7 +418,9 @@ class AuthResource:
             include_auth=False,
         )
 
-    def get_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+    def get_satellite_token(
+        self, audience: str, resource: str | None = None
+    ) -> SatelliteTokenResponse:
         """Get a satellite token for a specific audience (target service).
 
         Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
@@ -397,105 +428,124 @@ class AuthResource:
         SyftHub for every request.
 
         Args:
-            audience: Target service identifier (username of the service owner)
+            audience: Username of the account that owns the target service
+            resource: URL the token will be sent to. Pass it whenever known:
+                the token is bound to that one host, and without it SyftHub
+                can only resolve an owner who has exactly one satellite.
 
         Returns:
             SatelliteTokenResponse with token and expiry
 
         Raises:
             AuthenticationError: If not authenticated
-            ValidationError: If audience is invalid or inactive
+            ValidationError: If the audience or resource is unknown or inactive
 
         Example:
             # Get a token for querying alice's SyftAI-Space endpoints
-            token_response = client.auth.get_satellite_token("alice")
+            token_response = client.auth.get_satellite_token(
+                "alice", "https://alice.syft.example"
+            )
             print(f"Token expires in {token_response.expires_in} seconds")
         """
-        response = self._http.get("/api/v1/token", params={"aud": audience})
+        response = self._http.get(
+            "/api/v1/token", params=satellite_token_params(audience, resource)
+        )
         data = response if isinstance(response, dict) else {}
         return SatelliteTokenResponse.model_validate(data)
 
     def _parallel_fetch_tokens(
         self,
-        audiences: list[str],
-        fetch_one: Callable[[str], SatelliteTokenResponse],
+        audiences: Sequence[AudienceTarget],
+        fetch_one: Callable[[str, str | None], SatelliteTokenResponse],
     ) -> dict[str, str]:
-        """Fetch tokens for multiple audiences in parallel.
+        """Fetch tokens for multiple targets in parallel, keyed by token_key.
 
         Failures are silently skipped — the aggregator handles missing tokens.
         """
-        unique_audiences = list(set(audiences))
+        unique = list({_as_target(a) for a in audiences})
         token_map: dict[str, str] = {}
 
-        if not unique_audiences:
+        if not unique:
             return token_map
 
-        def fetch(aud: str) -> tuple[str, str | None]:
+        def fetch(target: tuple[str, str | None]) -> tuple[str, str | None]:
+            audience, resource = target
+            key = token_key(audience, resource)
             try:
-                return (aud, fetch_one(aud).target_token)
+                return (key, fetch_one(audience, resource).target_token)
             except Exception:
-                return (aud, None)
+                return (key, None)
 
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(unique_audiences), 10)
+            max_workers=min(len(unique), 10)
         ) as executor:
-            results = list(executor.map(fetch, unique_audiences))
+            results = list(executor.map(fetch, unique))
 
-        for aud, token in results:
+        for key, token in results:
             if token is not None:
-                token_map[aud] = token
+                token_map[key] = token
 
         return token_map
 
-    def get_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
-        """Get satellite tokens for multiple audiences in parallel.
+    def get_satellite_tokens(
+        self, audiences: Sequence[AudienceTarget]
+    ) -> dict[str, str]:
+        """Get satellite tokens for multiple targets in parallel.
 
         This is useful when making requests to endpoints owned by different users.
-        Tokens are cached and reused where possible.
 
         Args:
-            audiences: List of audience identifiers (usernames)
+            audiences: Usernames, or ``(username, resource_url)`` pairs. Prefer
+                pairs: an owner serving several hosts needs one token per host.
 
         Returns:
-            Dict mapping audience to satellite token
+            Dict mapping :func:`token_key` (the resource URL when given, else
+            the username) to satellite token
 
         Raises:
             AuthenticationError: If not authenticated
 
         Example:
-            # Get tokens for multiple endpoint owners
-            tokens = client.auth.get_satellite_tokens(["alice", "bob"])
+            tokens = client.auth.get_satellite_tokens(
+                [("alice", "https://a.example"), ("alice", "https://b.example")]
+            )
             print(f"Got {len(tokens)} tokens")
         """
         return self._parallel_fetch_tokens(audiences, self.get_satellite_token)
 
-    def get_guest_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+    def get_guest_satellite_token(
+        self, audience: str, resource: str | None = None
+    ) -> SatelliteTokenResponse:
         """Get a guest satellite token for a specific audience without authentication.
 
         Args:
-            audience: Target service identifier (username of the service owner)
+            audience: Username of the account that owns the target service
+            resource: URL the token will be sent to. See
+                :meth:`get_satellite_token`.
 
         Returns:
             SatelliteTokenResponse with token and expiry
         """
         response = self._http.get(
             "/api/v1/token/guest",
-            params={"aud": audience},
+            params=satellite_token_params(audience, resource),
             include_auth=False,
         )
         data = response if isinstance(response, dict) else {}
         return SatelliteTokenResponse.model_validate(data)
 
-    def get_guest_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
-        """Get guest satellite tokens for multiple audiences in parallel.
+    def get_guest_satellite_tokens(
+        self, audiences: Sequence[AudienceTarget]
+    ) -> dict[str, str]:
+        """Get guest satellite tokens for multiple targets in parallel.
 
         No authentication is required to call this method.
 
         Args:
-            audiences: List of audience identifiers (usernames)
+            audiences: Usernames, or ``(username, resource_url)`` pairs
 
         Returns:
-            Dict mapping audience to satellite token
+            Dict mapping :func:`token_key` to satellite token
         """
         return self._parallel_fetch_tokens(audiences, self.get_guest_satellite_token)
 

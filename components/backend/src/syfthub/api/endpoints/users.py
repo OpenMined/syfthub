@@ -59,9 +59,19 @@ def list_users(
 @router.get("/me", response_model=UserResponse)
 def get_current_user_profile(
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> UserResponse:
-    """Get current user's profile."""
-    return UserResponse.model_validate(current_user)
+    """Get current user's profile.
+
+    Goes through the service so ``domain`` is derived from the account's oldest
+    space rather than read from the column, which is no longer written.
+    """
+    profile = user_service.get_user_profile(current_user.id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    return profile
 
 
 @router.get("/me/tunnel-credentials", response_model=TunnelCredentialsResponse)

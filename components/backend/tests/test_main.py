@@ -355,40 +355,21 @@ class TestBuildInvocationUrl:
     """Tests for build_invocation_url helper function."""
 
     @pytest.fixture
-    def user_with_domain(self):
-        """Create a test user with domain configured."""
-        return User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            domain="https://api.example.com",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
+    def origin(self):
+        """The serving satellite's origin.
+
+        ``build_invocation_url`` used to take the owner and read
+        ``users.domain``. The origin is per endpoint now — one account may serve
+        from several spaces — so it is passed in.
+        """
+        return "https://api.example.com"
 
     @pytest.fixture
-    def user_without_domain(self):
-        """Create a test user without domain configured."""
-        return User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            domain=None,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
+    def no_origin(self):
+        """No serving satellite, so no origin to build from."""
+        return None
 
-    def test_build_url_from_user_with_domain(self, user_with_domain):
+    def test_build_url_from_the_serving_origin(self, origin):
         """Test building URL from user owner with domain."""
         connections = [
             {
@@ -398,11 +379,11 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert result == "https://api.example.com/v1/api/v1/endpoints/my-endpoint/query"
 
-    def test_build_url_skips_disabled_connections(self, user_with_domain):
+    def test_build_url_skips_disabled_connections(self, origin):
         """Test that disabled connections are skipped."""
         connections = [
             {
@@ -417,14 +398,14 @@ class TestBuildInvocationUrl:
             },
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert (
             result
             == "https://api.example.com/enabled-path/api/v1/endpoints/my-endpoint/query"
         )
 
-    def test_build_url_defaults_enabled_to_true(self, user_with_domain):
+    def test_build_url_defaults_enabled_to_true(self, origin):
         """Test that connections without enabled field default to True."""
         connections = [
             {
@@ -433,14 +414,14 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert (
             result
             == "https://api.example.com/default-enabled-path/api/v1/endpoints/my-endpoint/query"
         )
 
-    def test_build_url_fallback_to_first_connection(self, user_with_domain):
+    def test_build_url_fallback_to_first_connection(self, origin):
         """Test fallback to first connection when no enabled ones found."""
         connections = [
             {
@@ -450,14 +431,14 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert (
             result
             == "https://api.example.com/fallback-path/api/v1/endpoints/my-endpoint/query"
         )
 
-    def test_build_url_no_domain_raises_error(self, user_without_domain):
+    def test_build_url_no_origin_raises_error(self, no_origin):
         """Test that missing domain raises HTTPException."""
         from fastapi import HTTPException
 
@@ -471,28 +452,26 @@ class TestBuildInvocationUrl:
 
         with pytest.raises(HTTPException) as exc_info:
             build_invocation_url(
-                user_without_domain,
+                no_origin,
                 connections,
                 "my-endpoint",
                 "testuser/my-endpoint",
             )
 
         assert exc_info.value.status_code == 400
-        assert "no domain configured" in exc_info.value.detail
+        assert "no serving space registered" in exc_info.value.detail
 
-    def test_build_url_empty_connections_raises_error(self, user_with_domain):
+    def test_build_url_empty_connections_raises_error(self, origin):
         """Test that empty connections list raises HTTPException."""
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            build_invocation_url(
-                user_with_domain, [], "my-endpoint", "testuser/my-endpoint"
-            )
+            build_invocation_url(origin, [], "my-endpoint", "testuser/my-endpoint")
 
         assert exc_info.value.status_code == 400
         assert "no connections configured" in exc_info.value.detail
 
-    def test_build_url_websocket_protocol(self, user_with_domain):
+    def test_build_url_websocket_protocol(self, origin):
         """Test building URL with websocket connection type."""
         connections = [
             {
@@ -502,13 +481,13 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert (
             result == "wss://api.example.com/ws/v1/api/v1/endpoints/my-endpoint/query"
         )
 
-    def test_build_url_empty_path(self, user_with_domain):
+    def test_build_url_empty_path(self, origin):
         """Test building URL when config.url is empty."""
         connections = [
             {
@@ -518,11 +497,11 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert result == "https://api.example.com/api/v1/endpoints/my-endpoint/query"
 
-    def test_build_url_with_leading_slash_in_path(self, user_with_domain):
+    def test_build_url_with_leading_slash_in_path(self, origin):
         """Test building URL when config.url has leading slash."""
         connections = [
             {
@@ -532,7 +511,7 @@ class TestBuildInvocationUrl:
             }
         ]
         result = build_invocation_url(
-            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+            origin, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert (
             result
@@ -563,6 +542,23 @@ class TestInvokeOwnerEndpoint:
         self._mock_http_client = mock_client
         yield
         del app.state.http_client
+
+    @pytest.fixture(autouse=True)
+    def stub_serving_origin(self):
+        """Stub the per-endpoint origin lookup.
+
+        The origin now comes from the satellite serving the endpoint. These
+        tests exercise the proxy, not satellite resolution, and run against a
+        session with no tables, so the lookup is stubbed. Tests that need *no*
+        origin override this with their own patch.
+        """
+
+        class _AnyOrigin(dict):
+            def get(self, _key, _default=None):
+                return "https://syftai-space:8080"
+
+        with patch("syfthub.main._origins_for_owner", return_value=_AnyOrigin()):
+            yield
 
     @pytest.fixture
     def mock_endpoint_with_connection(self):
@@ -804,8 +800,8 @@ class TestInvokeOwnerEndpoint:
         client,
         mock_endpoint_with_connection,
     ):
-        """Test endpoint invocation when owner has no domain configured."""
-        user_without_domain = User(
+        """Test endpoint invocation when the endpoint has no serving space."""
+        owner = User(
             id=1,
             username="testuser",
             email="test@example.com",
@@ -814,22 +810,23 @@ class TestInvokeOwnerEndpoint:
             role=UserRole.USER,
             password_hash="hash",
             is_active=True,
-            domain=None,  # No domain configured
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
 
         mock_get_user.return_value = None
-        mock_resolve.return_value = user_without_domain
+        mock_resolve.return_value = owner
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        response = client.post(
-            "/testuser/test-model",
-            json={"user_email": "test@example.com"},
-        )
+        # No satellite serves it, so there is no origin to build a URL from.
+        with patch("syfthub.main._origins_for_owner", return_value={}):
+            response = client.post(
+                "/testuser/test-model",
+                json={"user_email": "test@example.com"},
+            )
 
         assert response.status_code == 400
-        assert "no domain configured" in response.json()["detail"]
+        assert "no serving space registered" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")

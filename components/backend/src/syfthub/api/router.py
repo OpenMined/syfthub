@@ -10,6 +10,7 @@ from syfthub.api.endpoints import (
     feedback,
     nats,
     peer,
+    satellites,
     token,
     user_aggregators,
     users,
@@ -30,6 +31,7 @@ api_router.include_router(endpoints.router, prefix="/endpoints", tags=["endpoint
 api_router.include_router(
     collectives.router, prefix="/collectives", tags=["collectives"]
 )
+api_router.include_router(satellites.router, prefix="/satellites", tags=["satellites"])
 
 # Identity Provider (IdP) endpoints
 api_router.include_router(token.router, tags=["identity-provider"])

@@ -46,7 +46,7 @@ import type {
 import { SyftHubError } from '../errors.js';
 import { readSSEEvents } from '../utils.js';
 import type { HubResource } from './hub.js';
-import type { AuthResource } from './auth.js';
+import type { AudienceTarget, AuthResource } from './auth.js';
 import { EndpointType } from '../models/index.js';
 
 /**
@@ -175,31 +175,34 @@ export class ChatResource {
    * Collect unique owner usernames from all endpoints.
    * Used to determine which satellite tokens need to be fetched.
    */
-  private collectUniqueOwners(modelRef: EndpointRef, dataSourceRefs: EndpointRef[]): string[] {
-    const owners = new Set<string>();
+  private collectUniqueOwners(
+    modelRef: EndpointRef,
+    dataSourceRefs: EndpointRef[]
+  ): AudienceTarget[] {
+    // Owner *and* URL: a token is bound to the host it will be sent to, so the
+    // pair is what identifies a mint target. Deduped by the SDK on the same key.
+    const targets = new Map<string, AudienceTarget>();
 
-    if (modelRef.ownerUsername) {
-      owners.add(modelRef.ownerUsername);
-    }
-
-    for (const ds of dataSourceRefs) {
-      if (ds.ownerUsername) {
-        owners.add(ds.ownerUsername);
+    for (const ref of [modelRef, ...dataSourceRefs]) {
+      if (ref.ownerUsername) {
+        targets.set(ref.url, { owner: ref.ownerUsername, resource: ref.url });
       }
     }
 
-    return [...owners];
+    return [...targets.values()];
   }
 
   /**
-   * Get satellite tokens for all unique endpoint owners.
-   * Returns a map of owner username to satellite token.
+   * Get satellite tokens for every host being queried.
    *
-   * @param owners - Array of unique owner usernames
+   * Keyed by the endpoint URL, not the owner: one account may serve from
+   * several hosts, and a token minted for one is rejected at another.
+   *
+   * @param owners - Owner/URL pairs, one per host
    * @param guestMode - If true, fetch guest tokens (no auth required)
    */
   private async getSatelliteTokensForOwners(
-    owners: string[],
+    owners: AudienceTarget[],
     guestMode = false
   ): Promise<Record<string, string>> {
     if (owners.length === 0) {

@@ -151,8 +151,10 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
-            if "domain" in user_data.model_fields_set:
-                user_model.domain = user_data.domain
+            # ``domain`` is deliberately NOT written here any more. It was one
+            # field per account and could only ever describe one host; the
+            # service redirects it into satellite registration instead. The
+            # column stays for the deploy window and is dropped later.
             # Aggregator URL
             if user_data.aggregator_url is not None:
                 user_model.aggregator_url = user_data.aggregator_url
@@ -283,26 +285,23 @@ class UserRepository(BaseRepository[UserModel]):
             self.session.rollback()
             return False
 
-    def update_domain(self, user_id: int, domain: str) -> bool:
-        """Update the user's domain for dynamic endpoint URL construction.
+    def set_legacy_domain(self, user_id: int, domain: str) -> bool:
+        """Mirror a space's origin back into the retired ``users.domain`` column.
 
-        Set when an owner reports endpoint health (POST /endpoints/health):
-        the domain is extracted from the report URL so the health monitor and
-        endpoint URL construction know where the owner's node lives.
+        **Rollback insurance only — nothing in this codebase reads the column.**
+        If this release is rolled back, the previous code reads ``users.domain``
+        again, and a value frozen at deploy time would point every one of that
+        account's endpoints at wherever its space used to be. Keeping it current
+        makes a rollback a non-event.
 
-        Does NOT commit — the caller manages the transaction.
+        Delete this, and the column, once rolling back past satellites is no
+        longer a possibility.
 
-        Args:
-            user_id: ID of the user to update
-            domain: Normalized domain (scheme + netloc, or tunneling URL)
-
-        Returns:
-            True if the user was found and updated, False otherwise
+        Does NOT commit; the caller owns the transaction.
         """
         user_model = self.session.get(self.model, user_id)
-        if not user_model:
+        if user_model is None:
             return False
-
         user_model.domain = domain
         return True
 

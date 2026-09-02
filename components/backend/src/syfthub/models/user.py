@@ -12,6 +12,7 @@ from syfthub.models.base import BaseModel, TimestampMixin
 if TYPE_CHECKING:
     from syfthub.models.collective import CollectiveModel
     from syfthub.models.endpoint import EndpointModel
+    from syfthub.models.satellite import SatelliteModel
     from syfthub.models.user_aggregator import UserAggregatorModel
 
 
@@ -122,6 +123,9 @@ class UserModel(BaseModel, TimestampMixin):
     )
     collectives: Mapped[List["CollectiveModel"]] = relationship(
         "CollectiveModel", back_populates="owner", cascade="all, delete-orphan"
+    )
+    satellites: Mapped[List["SatelliteModel"]] = relationship(
+        "SatelliteModel", back_populates="user", cascade="all, delete-orphan"
     )
 
     # Indexes for performance

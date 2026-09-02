@@ -26,8 +26,15 @@ def db_session():
 
 @pytest.fixture
 def user_service(db_session):
-    """Create UserService instance for testing."""
-    return UserService(db_session)
+    """Create UserService instance for testing.
+
+    ``db_session`` is the real app session with no tables created, so every DB
+    call has to be patched. The derived ``domain`` reads the account's spaces,
+    so that lookup is stubbed out by default; tests that care about it override.
+    """
+    service = UserService(db_session)
+    service.satellite_service.primary_space_url = lambda _user_id: None  # type: ignore[method-assign]
+    return service
 
 
 @pytest.fixture

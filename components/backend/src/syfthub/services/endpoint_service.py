@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
-from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
 from syfthub.core.config import settings
 from syfthub.core.url_builder import transform_connection_urls
+from syfthub.domain.base_url import BaseUrl
+from syfthub.domain.exceptions import ValidationError
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
@@ -40,9 +42,9 @@ from syfthub.schemas.endpoint import (
     get_matching_types,
 )
 from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
-from syfthub.schemas.user import TUNNELING_PREFIX
 from syfthub.services.base import BaseService
 from syfthub.services.rag_service import RAGService, get_rag_service
+from syfthub.services.satellite_service import SatelliteService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -65,33 +67,32 @@ class EndpointService(BaseService):
         self.endpoint_repository = EndpointRepository(session)
         self.star_repository = EndpointStarRepository(session)
         self.user_repository = UserRepository(session)
+        self.satellite_service = SatelliteService(session)
         self.rag_service: RAGService = get_rag_service()
 
-    def _get_owner_domain(self, endpoint: Endpoint) -> str | None:
-        """Get the domain for an endpoint's owner."""
-        user = self.user_repository.get_by_id(endpoint.user_id)
-        return user.domain if user else None
+    def _serving_origin(self, endpoint: Endpoint) -> str | None:
+        """The origin serving this endpoint, or None if it has no satellite."""
+        if endpoint.space_id is None:
+            return None
+        ref = self.satellite_service.satellite_repository.get_by_id(endpoint.space_id)
+        return ref.base_url if ref else None
 
     def _to_response_with_urls(
         self,
         endpoint: Endpoint,
-        owner_domain: Optional[str] = None,
+        base_url: Optional[str] = None,
         current_user: Optional[User] = None,
     ) -> EndpointResponse:
         """Convert Endpoint to EndpointResponse with transformed URLs.
 
         Args:
             endpoint: The endpoint model to convert.
-            owner_domain: Pre-fetched owner domain. When provided, skips the
+            base_url: Pre-fetched serving origin. When provided, skips the
                 per-endpoint DB lookup (use in listing methods to avoid N+1).
             current_user: The authenticated viewer. Used to filter policies
                 whose `config.applied_to` does not include the viewer.
         """
-        domain = (
-            owner_domain
-            if owner_domain is not None
-            else self._get_owner_domain(endpoint)
-        )
+        domain = base_url if base_url is not None else self._serving_origin(endpoint)
 
         # Transform connection URLs
         transformed_connect = transform_connection_urls(
@@ -229,20 +230,6 @@ class EndpointService(BaseService):
             if isinstance(children, list) and children:
                 yield from EndpointService._iter_policy_configs(children)
 
-    @staticmethod
-    def _host_under_domain(url: str, domain_host: str) -> bool:
-        """Whether ``url``'s host equals or is a subdomain of ``domain_host``.
-
-        ``domain_host`` must be a bare lowercase hostname (no scheme or port).
-        For ``domain_host="spaces.openmined.org"``:
-
-        - ``https://spaces.openmined.org/api/...`` → True (exact match)
-        - ``https://wallet.spaces.openmined.org/...`` → True (subdomain)
-        - ``https://spaces.openmined.org.evil.com/...`` → False
-        """
-        host = (urlparse(url).hostname or "").lower()
-        return bool(host) and (host == domain_host or host.endswith("." + domain_host))
-
     # Server-owned: names the satellite-token audience and is derived from the
     # verified ``wallet_owner`` id. Publishers never send it (syft-space
     # publishes the id), so any incoming value is dropped on every policy type
@@ -326,32 +313,15 @@ class EndpointService(BaseService):
                     f"cluster policy 'wallet_owner' {raw_owner} does not "
                     "resolve to an active user"
                 )
-            if not owner.domain:
-                return (
-                    f"cluster wallet owner '{owner.username}' has no registered "
-                    "domain on SyftHub; the wallet URLs cannot be verified"
-                )
-            if owner.domain.startswith(TUNNELING_PREFIX):
-                # Tunneling spaces have no public hostname, so host-based
-                # wallet URL verification can never succeed — reject clearly
-                # instead of failing against a bogus "tunneling" host.
-                return (
-                    f"cluster wallet owner '{owner.username}' uses a tunneling "
-                    "domain; cluster wallet URLs require a public http(s) domain"
-                )
-            domain = owner.domain
-            if "://" not in domain:
-                domain = f"https://{domain}"
-            domain_host = (urlparse(domain).hostname or "").lower()
-            if not domain_host:
-                return (
-                    f"cluster wallet owner '{owner.username}' has an invalid "
-                    "registered domain"
-                )
-
             payment_url = config.get("payment_url") or config.get("paymentUrl")
             credits_url = config.get("credits_url") or config.get("creditsUrl")
             invoices_url = config.get("invoices_url") or config.get("invoicesUrl")
+
+            # Each wallet URL must be an exact satellite of the owner, any kind
+            # — the same question minting asks, so publish and mint agree by
+            # construction. They did not before: publish matched the owner's
+            # first space by suffix, which both admitted subdomains mint would
+            # refuse and rejected a legitimately registered station host.
             for field_name, url, required in (
                 ("payment_url", payment_url, True),
                 ("credits_url", credits_url, True),
@@ -363,10 +333,20 @@ class EndpointService(BaseService):
                     ("https://", "http://")
                 ):
                     return f"cluster policy requires a valid http(s) '{field_name}'"
-                if not self._host_under_domain(url, domain_host):
+                try:
+                    origin = BaseUrl(url)
+                except ValidationError:
+                    return f"cluster policy '{field_name}' is not a valid URL"
+                if (
+                    self.satellite_service.satellite_repository.find_by_base_url(
+                        owner.id, origin
+                    )
+                    is None
+                ):
                     return (
-                        f"cluster policy '{field_name}' host is not under the "
-                        f"wallet owner's registered domain '{domain_host}'"
+                        f"cluster policy '{field_name}' names '{origin.value}', "
+                        f"which '{owner.username}' has not registered as a "
+                        "satellite on SyftHub"
                     )
 
             # Canonicalize to snake_case + server-derived enrichment (the
@@ -397,6 +377,7 @@ class EndpointService(BaseService):
         endpoint_data: EndpointCreate,
         owner_id: int,
         current_user: Optional[User] = None,
+        satellite_id: Optional[uuid.UUID] = None,
     ) -> EndpointResponse:
         """Create a new endpoint."""
         # Validate and sanitize contributors
@@ -452,8 +433,14 @@ class EndpointService(BaseService):
             contributors=valid_contributors,
         )
 
+        # Which satellite serves it. None when the account has registered none,
+        # which leaves the endpoint unattached exactly as it would be today.
+        satellite = self.satellite_service.resolve_existing(owner_id, satellite_id)
+
         # Create endpoint with validated data
-        endpoint = self.endpoint_repository.create_endpoint(validated_data, owner_id)
+        endpoint = self.endpoint_repository.create_endpoint(
+            validated_data, owner_id, space_id=satellite.id if satellite else None
+        )
 
         if not endpoint:
             raise HTTPException(
@@ -492,9 +479,10 @@ class EndpointService(BaseService):
             user_id, skip, limit, visibility, search
         )
 
-        # Look up user domain once for all endpoints (avoids N+1)
-        user = self.user_repository.get_by_id(user_id)
-        user_domain = user.domain if user else None
+        # One lookup for the account's satellites, then a dict hit per endpoint.
+        # The domain is per endpoint now, so a single account-wide value would be
+        # wrong the moment the account owns a second space.
+        origins = self._origins_for(user_id)
 
         accessible_endpoints = []
         for endpoint in endpoints:
@@ -502,12 +490,25 @@ class EndpointService(BaseService):
                 accessible_endpoints.append(
                     self._to_response_with_urls(
                         endpoint,
-                        owner_domain=user_domain,
+                        base_url=origins.get(endpoint.space_id),
                         current_user=current_user,
                     )
                 )
 
         return accessible_endpoints
+
+    def _origins_for(self, user_id: int) -> dict[Optional[int], Optional[str]]:
+        """Map the account's satellite ids to their origins.
+
+        Fetched once per listing rather than per row. Accounts own a handful of
+        satellites at most, so this stays a single small query.
+        """
+        return {
+            ref.id: ref.base_url.value
+            for ref in self.satellite_service.satellite_repository.list_for_user(
+                user_id
+            )
+        }
 
     def get_public_endpoints(
         self,
@@ -1336,11 +1337,14 @@ class EndpointService(BaseService):
         self,
         endpoints_data: List[EndpointCreate],
         current_user: User,
+        satellite_id: Optional[uuid.UUID] = None,
     ) -> SyncEndpointsResponse:
         """Synchronize user's endpoints with provided list.
 
         This operation is ATOMIC: either all endpoints are synced, or none are.
-        It replaces ALL user-owned endpoints with the provided list.
+        It replaces the endpoints served by ONE satellite — not the account's
+        entire catalogue, which is what it used to do and which meant one space
+        syncing wiped another's endpoints.
 
         Flow:
         1. Validate all endpoints in the batch (no DB changes)
@@ -1384,10 +1388,20 @@ class EndpointService(BaseService):
                 },
             )
 
-        # Phase 2: Remove old endpoints from RAG (best effort, before DB delete)
+        # Which satellite is this sync for? None means the account owns none, so
+        # the endpoints stay unattached exactly as they would today.
+        satellite = self.satellite_service.resolve_existing(
+            current_user.id, satellite_id
+        )
+        space_id = satellite.id if satellite else None
+
+        # Phase 2: Remove old endpoints from the search index (best effort,
+        # before the DB delete). Scoped the same way as the delete below: an
+        # unscoped sweep would drop another space's endpoints out of Meilisearch
+        # permanently, since Phase 4 only re-indexes what this sync creates.
         if self.rag_service.is_available:
-            old_rag_files = self.endpoint_repository.get_user_rag_file_ids(
-                current_user.id
+            old_rag_files = self.endpoint_repository.get_rag_file_ids_for_space(
+                current_user.id, space_id
             )
             for endpoint_id, file_id in old_rag_files:
                 try:
@@ -1400,15 +1414,15 @@ class EndpointService(BaseService):
 
         # Phase 3: Atomic database operation
         try:
-            # Delete all existing user endpoints
-            deleted_count = self.endpoint_repository.delete_all_user_endpoints(
-                current_user.id
+            # Delete only the endpoints this satellite serves
+            deleted_count = self.endpoint_repository.delete_endpoints_for_space(
+                current_user.id, space_id
             )
 
-            # Create all new endpoints
+            # Create all new endpoints, attached to the resolved satellite
             if validated_endpoints:
                 created_endpoints = self.endpoint_repository.bulk_create_endpoints(
-                    validated_endpoints, current_user.id
+                    validated_endpoints, current_user.id, space_id=space_id
                 )
             else:
                 created_endpoints = []
@@ -1427,12 +1441,12 @@ class EndpointService(BaseService):
                     if endpoint.visibility == EndpointVisibility.PUBLIC:
                         self._ingest_to_rag(endpoint.id)
 
-            # Transform URLs for response (look up user domain once)
-            user = self.user_repository.get_by_id(current_user.id)
-            user_domain = user.domain if user else None
+            # Everything in this batch is served by the satellite we resolved,
+            # so one origin covers the whole response.
+            origin = satellite.base_url.value if satellite else None
             response_endpoints = [
                 self._to_response_with_urls(
-                    ep, owner_domain=user_domain, current_user=current_user
+                    ep, base_url=origin, current_user=current_user
                 )
                 for ep in created_endpoints
             ]
@@ -1468,41 +1482,39 @@ class EndpointService(BaseService):
         url: str,
         current_user: User,
         ttl_seconds: Optional[int] = None,
+        satellite_id: Optional[uuid.UUID] = None,
     ) -> EndpointHealthResponse:
         """Report per-endpoint health status from client.
 
         This method:
-        1. Extracts domain from URL and caps TTL at server max
-        2. Matches slugs against the user's endpoints
-        3. Updates health_status, health_checked_at, health_ttl_seconds per endpoint
-        4. Updates the owner's domain (used for endpoint URL construction)
+        1. Caps TTL at server max
+        2. Resolves which satellite the report is for and records its origin
+        3. Matches slugs against the user's endpoints
+        4. Updates health_status, health_checked_at, health_ttl_seconds per endpoint
 
         Args:
             endpoints_health: List of EndpointHealthItem with slug, status, checked_at
-            url: Domain URL from the client
+            url: The reporting satellite's origin
             current_user: The authenticated user
             ttl_seconds: Requested TTL (optional, capped by server max)
+            satellite_id: Which satellite is reporting. Optional — the URL
+                identifies it for any account owning fewer than two.
 
         Returns:
             EndpointHealthResponse with updated and ignored counts
         """
-        from syfthub.schemas.user import TUNNELING_PREFIX
-
         # --- TTL calculation ---
         requested_ttl = ttl_seconds or settings.health_default_ttl_seconds
         effective_ttl = min(requested_ttl, settings.health_max_ttl_seconds)
 
-        # --- Domain extraction ---
-        if url.startswith(TUNNELING_PREFIX):
-            domain = url
-        else:
-            parsed = urlparse(url)
-            if not parsed.netloc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Invalid URL: could not extract domain",
-                )
-            domain = f"{parsed.scheme}://{parsed.netloc}"
+        # --- Satellite origin ---
+        # Replaces the account-wide users.domain write. BaseUrl also validates
+        # and canonicalises, which the old scheme://netloc extraction did not.
+        self.satellite_service.record_heartbeat(
+            user_id=current_user.id,
+            reported_url=url,
+            satellite_id=satellite_id,
+        )
 
         # --- Bulk slug match (single query, no is_active filter) ---
         slugs = [item.slug for item in endpoints_health]
@@ -1538,12 +1550,6 @@ class EndpointService(BaseService):
             updated = self.endpoint_repository.bulk_update_health_status(health_updates)
 
         ignored = len(endpoints_health) - updated
-
-        # --- Update owner domain for dynamic endpoint URL construction ---
-        self.user_repository.update_domain(
-            user_id=current_user.id,
-            domain=domain,
-        )
 
         # --- Commit all changes ---
         try:

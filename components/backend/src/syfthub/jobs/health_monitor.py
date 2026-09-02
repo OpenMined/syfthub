@@ -36,6 +36,7 @@ from sqlalchemy.sql.expression import literal
 
 from syfthub.database.connection import db_manager
 from syfthub.models.endpoint import EndpointModel
+from syfthub.models.satellite import SatelliteModel
 from syfthub.models.user import UserModel
 
 if TYPE_CHECKING:
@@ -60,7 +61,8 @@ class EndpointHealthInfo:
     endpoint_type: str  # "model" or "data_source"
     is_active: bool
     connect: list[dict[str, Any]]
-    owner_domain: Optional[str]  # None if owner has no domain configured
+    # Origin of the satellite serving this endpoint; None when it has none.
+    base_url: Optional[str]
     owner_id: int  # ID of the owning user
     owner_type: str  # Always "user"
     # Per-endpoint health fields (reported by client via POST /endpoints/health)
@@ -142,35 +144,39 @@ class EndpointHealthMonitor:
     def _get_endpoints_for_health_check(
         self, session: Session
     ) -> list[EndpointHealthInfo]:
-        """Query all endpoints with their owner's domain and per-endpoint health.
+        """Query all endpoints with their serving origin and per-endpoint health.
 
-        This method joins endpoints with their owning user to get the domain
-        and client-reported per-endpoint health fields needed for the health
-        check cycle.
+        The origin comes from the satellite serving each endpoint, not from the
+        owning account — one account can serve endpoints from several hosts.
 
-        Endpoints without owner domains are included and will be marked as
-        unhealthy (is_active=False) during the health check cycle.
+        Endpoints with no serving satellite are included and will be marked
+        unhealthy (is_active=False): there is no origin, so nothing can reach
+        them. The satellite join is therefore an OUTER join.
 
         Args:
             session: Database session to use for the query
 
         Returns:
-            List of EndpointHealthInfo objects containing endpoint data,
-            owner domain, and per-endpoint health fields
+            List of EndpointHealthInfo objects containing endpoint data, the
+            serving origin, and per-endpoint health fields
         """
         # Query endpoints joined with their owning user
-        user_endpoints_stmt = select(
-            EndpointModel.id,
-            EndpointModel.slug,
-            EndpointModel.type,
-            EndpointModel.is_active,
-            EndpointModel.connect,
-            UserModel.domain,
-            label("owner_id", UserModel.id),
-            EndpointModel.health_status,
-            EndpointModel.health_checked_at,
-            EndpointModel.health_ttl_seconds,
-        ).join(UserModel, EndpointModel.user_id == UserModel.id)
+        user_endpoints_stmt = (
+            select(
+                EndpointModel.id,
+                EndpointModel.slug,
+                EndpointModel.type,
+                EndpointModel.is_active,
+                EndpointModel.connect,
+                SatelliteModel.base_url,
+                label("owner_id", UserModel.id),
+                EndpointModel.health_status,
+                EndpointModel.health_checked_at,
+                EndpointModel.health_ttl_seconds,
+            )
+            .join(UserModel, EndpointModel.user_id == UserModel.id)
+            .outerjoin(SatelliteModel, EndpointModel.space_id == SatelliteModel.id)
+        )
 
         endpoints: list[EndpointHealthInfo] = []
 
@@ -182,14 +188,14 @@ class EndpointHealthMonitor:
                 endpoint_type,
                 is_active,
                 connect,
-                domain,
+                base_url,
                 owner_id,
                 health_status,
                 health_checked_at,
                 health_ttl_seconds,
             ) = row
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
+            # Include endpoints with connections (even if there is no origin);
+            # those are marked unhealthy during the health check
             if connect:
                 endpoints.append(
                     EndpointHealthInfo(
@@ -198,7 +204,7 @@ class EndpointHealthMonitor:
                         endpoint_type=endpoint_type,
                         is_active=is_active,
                         connect=connect,
-                        owner_domain=domain,  # May be None
+                        base_url=base_url,  # May be None
                         owner_id=owner_id,
                         owner_type="user",
                         health_status=health_status,
@@ -255,11 +261,9 @@ class EndpointHealthMonitor:
         """
         now = datetime.now(timezone.utc)
 
-        # Check if owner has a domain configured
-        if not endpoint.owner_domain:
-            logger.debug(
-                f"Endpoint {endpoint.id}: no owner domain configured (unhealthy)"
-            )
+        # No serving satellite means no origin, so nothing can reach it.
+        if not endpoint.base_url:
+            logger.debug(f"Endpoint {endpoint.id}: no serving satellite (unhealthy)")
             return (endpoint.id, False)
 
         # Per-endpoint health (client-reported)
