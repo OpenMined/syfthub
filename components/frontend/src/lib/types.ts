@@ -227,7 +227,126 @@ export interface EndpointUpdate {
   connect?: Connection[];
 }
 
-export interface Endpoint extends EndpointBase {
+/**
+ * What kind of product a benchmark measured.
+ *
+ * Nothing may render a score without it. An endpoint in `retrieval` mode never
+ * writes an answer — it finds material and someone else's model answers — so
+ * its score is how often the search found the right thing. An `answering`
+ * endpoint writes the answer and its score is the accuracy of that answer.
+ * "Finds 82%" and "correct 82%" are different claims about different products.
+ */
+export type BenchmarkKind = 'answering' | 'retrieval';
+
+/** One subject model's result on this endpoint's material. */
+export interface BenchmarkModelRow {
+  model: string;
+  samples: number;
+  accuracy: number;
+  fabrication?: number | null;
+  lmi?: number | null;
+  context_gain?: number | null;
+}
+
+/** How the endpoint does on one type of task. */
+export interface BenchmarkSkillRow {
+  generator: string;
+  samples: number;
+  accuracy: number;
+}
+
+/**
+ * What the figures rest on.
+ *
+ * `flags` are codes, not sentences — the benchmark does not write our UI's
+ * words. Known codes: few_samples, judges_disagree, uneven_coverage,
+ * pending_verdicts, failed_calls.
+ */
+export interface BenchmarkTrust {
+  judges: number;
+  agreement?: number | null;
+  consistency?: number | null;
+  even_coverage: boolean;
+  failed: number;
+  pending: number;
+  flags: string[];
+}
+
+/** Which set of questions this was measured on. */
+export interface BenchmarkDataset {
+  mode: string;
+  window_days: number;
+  cohort: string;
+  questions: number;
+}
+
+/**
+ * What did the measuring.
+ *
+ * Endpoints measured by one benchmark installation share a grader, a panel and
+ * a list of subject models, and so compare with each other. Between two
+ * installations nothing is guaranteed — and this marketplace lists both.
+ */
+export interface BenchmarkInstrument {
+  profile: string;
+  judge: string;
+  judges: number;
+  subjects: number;
+}
+
+/** The whole card, as the endpoint's owner reported it. */
+export interface BenchmarkCard {
+  version: number;
+  kind: BenchmarkKind;
+  arm: string;
+  checked_at: string;
+  score?: number | null;
+  fabrication_rate?: number | null;
+  reliable: boolean;
+  samples: number;
+  answerable?: {
+    samples: number;
+    correct: number;
+    abstain: number;
+    hallucinate: number;
+    lmi?: number | null;
+  } | null;
+  unanswerable?: { samples: number; fabricated: number } | null;
+  discrimination?: number | null;
+  retrieval?: number | null;
+  models: BenchmarkModelRow[];
+  skills: BenchmarkSkillRow[];
+  trust?: BenchmarkTrust | null;
+  dataset?: BenchmarkDataset | null;
+  instrument?: BenchmarkInstrument | null;
+}
+
+/**
+ * The benchmark card reported by the endpoint's owner (POST /endpoints/quality).
+ *
+ * Health says the endpoint responds; this says whether what comes back is any
+ * good. Every field is optional: an endpoint nobody ever measured has nothing
+ * to show, and "never measured" must never be rendered as a zero score — the
+ * first is the absence of a claim, the second is a bad one.
+ */
+export interface EndpointQuality {
+  /** 'answering' or 'retrieval'; the score cannot be read without it */
+  quality_kind?: BenchmarkKind | null;
+  /** Headline share for that kind (0..1) */
+  quality_score?: number | null;
+  /** Share of questions with no answer that got an answer anyway (0..1) */
+  quality_fabrication_rate?: number | null;
+  /** How many questions the last benchmark graded */
+  quality_samples?: number | null;
+  /** Whether the benchmark vouches for these figures */
+  quality_reliable?: boolean | null;
+  /** ISO timestamp of the benchmark run */
+  quality_checked_at?: string | null;
+  /** The whole card, for the detail page */
+  quality_report?: BenchmarkCard | null;
+}
+
+export interface Endpoint extends EndpointBase, EndpointQuality {
   id: number;
   user_id?: number;
   slug: string;
@@ -308,6 +427,8 @@ export interface ChatSource {
   tenant_name?: string; // Tenant name from connect[0].config.tenant_name (for SyftAI-Space multi-tenancy)
   connections?: Connection[]; // Full connection configurations (for detailed view)
   policies?: Policy[]; // Access policies for the endpoint
+  /** Benchmark card, absent when nobody ever measured this endpoint */
+  quality?: EndpointQuality;
 }
 
 // API Error interface

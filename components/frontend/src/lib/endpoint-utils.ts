@@ -14,7 +14,9 @@ import type {
   ChatSource,
   EndpointCreate,
   EndpointFilters,
+  BenchmarkCard,
   EndpointGroup,
+  EndpointQuality,
   EndpointResponse,
   EndpointType,
   EndpointUpdate,
@@ -241,7 +243,43 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     url: url,
     tenant_name: tenantName,
     connections: mappedConnections,
-    policies: mappedPolicies
+    policies: mappedPolicies,
+    quality: mapQuality(endpoint)
+  };
+}
+
+/**
+ * Pull the benchmark card off an SDK endpoint.
+ *
+ * Returns undefined unless a card was actually reported. The kind, the score
+ * and the timestamp are the three the badge cannot do without — the kind
+ * because a score without it is ambiguous, and half a card is no card.
+ *
+ * Keeping "never measured" distinct from "measured and scored zero" is the
+ * whole point: the UI must not brand an unmeasured endpoint as a bad one.
+ */
+function mapQuality(
+  endpoint: SdkEndpoint | SdkEndpointPublic
+): EndpointQuality | undefined {
+  const score = endpoint.qualityScore;
+  const kind = endpoint.qualityKind;
+  const checkedAt = endpoint.qualityCheckedAt;
+  if (score == undefined || checkedAt == undefined || kind == undefined) return undefined;
+
+  return {
+    quality_kind: kind,
+    quality_score: score,
+    quality_fabrication_rate: endpoint.qualityFabricationRate ?? undefined,
+    quality_samples: endpoint.qualitySamples ?? undefined,
+    quality_reliable: endpoint.qualityReliable ?? undefined,
+    quality_checked_at: new Date(checkedAt).toISOString(),
+    // The SDK carries the card as an opaque document on purpose: its shape is
+    // the benchmark's to grow, and a published package that mirrors it would
+    // have to be released in step. This UI is the one place that reads inside,
+    // so the cast is here rather than in the SDK — and every field this UI
+    // reads is optional, so a card from a newer benchmark degrades to what it
+    // does understand instead of breaking the page.
+    quality_report: (endpoint.qualityReport as BenchmarkCard | undefined) ?? undefined
   };
 }
 
@@ -320,6 +358,14 @@ interface RawEndpointPublic {
   }>;
   created_at: string;
   updated_at: string;
+  // The benchmark card. Absent for endpoints nobody ever measured.
+  quality_kind?: 'answering' | 'retrieval' | null;
+  quality_score?: number | null;
+  quality_fabrication_rate?: number | null;
+  quality_samples?: number | null;
+  quality_reliable?: boolean | null;
+  quality_checked_at?: string | null;
+  quality_report?: unknown;
 }
 
 /**
@@ -341,7 +387,14 @@ function transformRawEndpoint(raw: RawEndpointPublic): SdkEndpointPublic {
     policies: raw.policies,
     connect: raw.connect,
     createdAt: new Date(raw.created_at),
-    updatedAt: new Date(raw.updated_at)
+    updatedAt: new Date(raw.updated_at),
+    qualityKind: raw.quality_kind,
+    qualityScore: raw.quality_score,
+    qualityFabricationRate: raw.quality_fabrication_rate,
+    qualitySamples: raw.quality_samples,
+    qualityReliable: raw.quality_reliable,
+    qualityCheckedAt: raw.quality_checked_at ? new Date(raw.quality_checked_at) : undefined,
+    qualityReport: raw.quality_report
   } as unknown as SdkEndpointPublic;
 }
 

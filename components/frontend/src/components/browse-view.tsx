@@ -31,6 +31,8 @@ import {
   extractUniqueTags,
   hasActiveFilters
 } from './browse-filters-modal';
+import { QualityBadge } from './endpoint/quality-badge';
+
 import { BrowseSearchBar } from './browse-search-bar';
 import { CollectivesBrowse } from './collectives/collectives-browse';
 import { EndpointTypeIcon } from './endpoint-type-icon';
@@ -544,6 +546,9 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                                   <span>{endpoint.stars_count}</span>
                                 </div>
                               )}
+                              {endpoint.quality ? (
+                                <QualityBadge quality={endpoint.quality} />
+                              ) : null}
                               <div className='flex items-center gap-1'>
                                 <Calendar className='h-3 w-3' aria-hidden='true' />
                                 <span>{endpoint.updated}</span>

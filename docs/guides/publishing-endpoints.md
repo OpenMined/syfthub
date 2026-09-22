@@ -95,7 +95,31 @@ POST /api/v1/endpoints/health
 }
 ```
 
-The health monitor also checks endpoint URLs every 30 seconds automatically.
+The health monitor re-evaluates reported health every 30 seconds: once a
+report's TTL has expired the endpoint stops counting as healthy, and after
+enough consecutive failures it is deactivated. The monitor does not call
+endpoint URLs itself — status is what the owner reports.
+
+## Benchmark Reporting
+
+Report the results of your own benchmark run against your own endpoint —
+alongside health status, but for output quality rather than reachability:
+
+```
+POST /api/v1/endpoints/quality
+```
+
+The badge needs two figures: the headline (answer accuracy, or for a
+search-only endpoint, how often it found the right material) and the share of
+unanswerable questions it answered anyway. `reliable` says whether the
+benchmark vouches for the figures at all; a card it does not vouch for is
+still shown, but muted rather than colored.
+
+Unlike health, a card has no TTL: it stands until replaced or withdrawn with
+`DELETE /api/v1/endpoints/quality/{slug}`. The marketplace shows nothing for
+an endpoint that has never been measured.
+
+See the [API reference](../api/backend.md) for the full request/response shape.
 
 ## Endpoint Sync
 

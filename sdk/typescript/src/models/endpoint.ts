@@ -42,6 +42,29 @@ export interface Endpoint {
   readonly connect: readonly Connection[];
   readonly createdAt: Date;
   readonly updatedAt: Date;
+  /**
+   * The benchmark card reported by the endpoint's owner (POST
+   * /endpoints/quality). Undefined/null throughout when nobody ever measured
+   * it — which is not the same as a bad score and must not be rendered as one.
+   *
+   * 'answering' or 'retrieval'. The score cannot be read without it: an
+   * endpoint that only searches has no accuracy, and "finds 82%" is not
+   * "correct 82%".
+   */
+  readonly qualityKind?: 'answering' | 'retrieval' | null;
+  /** Headline share for that kind (0..1) */
+  readonly qualityScore?: number | null;
+  /** Share of questions with no answer in the corpus answered anyway (0..1) */
+  readonly qualityFabricationRate?: number | null;
+  /** How many questions the last benchmark graded */
+  readonly qualitySamples?: number | null;
+  /** Whether the benchmark vouches for these figures */
+  readonly qualityReliable?: boolean | null;
+  /** When the benchmark that produced this card ran */
+  readonly qualityCheckedAt?: Date | null;
+  /** The whole card: both halves of the dataset, the spread across subject
+   *  models, the breakdown by task type, and what the figures rest on */
+  readonly qualityReport?: Record<string, unknown> | null;
 }
 
 /**
@@ -63,6 +86,29 @@ export interface EndpointPublic {
   readonly connect: readonly Connection[];
   readonly createdAt: Date;
   readonly updatedAt: Date;
+  /**
+   * The benchmark card reported by the endpoint's owner (POST
+   * /endpoints/quality). Undefined/null throughout when nobody ever measured
+   * it — which is not the same as a bad score and must not be rendered as one.
+   *
+   * 'answering' or 'retrieval'. The score cannot be read without it: an
+   * endpoint that only searches has no accuracy, and "finds 82%" is not
+   * "correct 82%".
+   */
+  readonly qualityKind?: 'answering' | 'retrieval' | null;
+  /** Headline share for that kind (0..1) */
+  readonly qualityScore?: number | null;
+  /** Share of questions with no answer in the corpus answered anyway (0..1) */
+  readonly qualityFabricationRate?: number | null;
+  /** How many questions the last benchmark graded */
+  readonly qualitySamples?: number | null;
+  /** Whether the benchmark vouches for these figures */
+  readonly qualityReliable?: boolean | null;
+  /** When the benchmark that produced this card ran */
+  readonly qualityCheckedAt?: Date | null;
+  /** The whole card: both halves of the dataset, the spread across subject
+   *  models, the breakdown by task type, and what the figures rest on */
+  readonly qualityReport?: Record<string, unknown> | null;
 }
 
 /**

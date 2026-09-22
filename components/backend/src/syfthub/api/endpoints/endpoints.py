@@ -19,6 +19,9 @@ from syfthub.schemas.endpoint import (
     EndpointHealthRequest,
     EndpointHealthResponse,
     EndpointPublicResponse,
+    EndpointQualityClearResponse,
+    EndpointQualityRequest,
+    EndpointQualityResponse,
     EndpointResponse,
     EndpointType,
     EndpointUpdate,
@@ -483,6 +486,72 @@ def report_endpoint_health(
         current_user=current_user,
         ttl_seconds=health_data.ttl_seconds,
         satellite_id=health_data.satellite_id,
+    )
+
+
+@router.post(
+    "/quality",
+    response_model=EndpointQualityResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Report Endpoint Benchmark Cards",
+    description="""
+Report benchmark results for your own endpoints.
+
+**Authentication Required** - Bearer token (JWT or API token).
+
+**Behavior:**
+- Matches endpoints by slug among those you own, regardless of is_active
+- Stores the badge figures and the whole card in one write
+- ``kind`` decides what ``score`` means: ``answering`` is answer accuracy,
+  ``retrieval`` is how often search found the right material
+- Unknown or unowned slugs are counted in ``ignored`` rather than failing the
+  request
+- No TTL, unlike health: a card stands until replaced or retracted, and its age
+  is read from ``checked_at``
+
+**Refused (422):**
+- An unknown ``version`` or ``kind``
+- A string where an identifier was expected (model id, task type, flag, etc.)
+""",
+)
+def report_endpoint_quality(
+    quality_data: EndpointQualityRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointQualityResponse:
+    """Store benchmark cards reported by the endpoints' owner."""
+    return endpoint_service.report_endpoint_quality(
+        endpoints_quality=quality_data.endpoints,
+        current_user=current_user,
+    )
+
+
+@router.delete(
+    "/quality/{slug}",
+    response_model=EndpointQualityClearResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Retract Endpoint Benchmark Card",
+    description="""
+Withdraw the benchmark card for one of your own endpoints.
+
+**Authentication Required** - Bearer token (JWT or API token).
+
+**Behavior:**
+- Resets every quality column, including the stored card, to NULL
+- The endpoint then reads as never measured, not as a score of zero
+- Idempotent: an endpoint with no card returns ``cleared: false``, not an error
+- Single-slug and owner-only, unlike bulk reporting
+""",
+)
+def clear_endpoint_quality(
+    slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointQualityClearResponse:
+    """Retract the benchmark card for one of the owner's endpoints."""
+    return endpoint_service.clear_endpoint_quality(
+        slug=slug,
+        current_user=current_user,
     )
 
 

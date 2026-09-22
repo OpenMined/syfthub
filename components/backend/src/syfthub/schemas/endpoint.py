@@ -8,7 +8,13 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class EndpointVisibility(str, Enum):
@@ -461,6 +467,54 @@ class Endpoint(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
+
+    # --- The benchmark card, reported by the owner via POST /endpoints/quality.
+    # NULL throughout means nobody ever measured this endpoint, which is not a
+    # score of zero and must not render as one.
+    quality_kind: Optional[str] = Field(
+        None,
+        description=(
+            "What kind of product was measured: 'answering' (it writes the "
+            "answer) or 'retrieval' (it finds material and someone else's "
+            "model answers). quality_score cannot be read without it"
+        ),
+    )
+    quality_score: Optional[float] = Field(
+        None,
+        description=(
+            "Headline share for that kind: accuracy of the answer, or share of "
+            "questions where the search found the right material (0..1)"
+        ),
+    )
+    quality_fabrication_rate: Optional[float] = Field(
+        None,
+        description=(
+            "Share of questions with no answer in the corpus that were "
+            "answered anyway (0..1). Nearly independent of how hard the corpus "
+            "is, which makes it the figure that compares across endpoints"
+        ),
+    )
+    quality_samples: Optional[int] = Field(
+        None, description="How many questions the last benchmark graded"
+    )
+    quality_reliable: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether the benchmark vouches for these figures. False means show "
+            "them greyed out or not at all; the reasons are in quality_report"
+        ),
+    )
+    quality_checked_at: Optional[datetime] = Field(
+        None, description="When the benchmark that produced this card ran"
+    )
+    quality_report: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "The whole card: both halves of the dataset, the spread across "
+            "subject models, the breakdown by task type, what the figures rest "
+            "on, and what did the measuring"
+        ),
+    )
     model_config = {"from_attributes": True}
 
 
@@ -506,6 +560,54 @@ class EndpointResponse(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
+
+    # --- The benchmark card, reported by the owner via POST /endpoints/quality.
+    # NULL throughout means nobody ever measured this endpoint, which is not a
+    # score of zero and must not render as one.
+    quality_kind: Optional[str] = Field(
+        None,
+        description=(
+            "What kind of product was measured: 'answering' (it writes the "
+            "answer) or 'retrieval' (it finds material and someone else's "
+            "model answers). quality_score cannot be read without it"
+        ),
+    )
+    quality_score: Optional[float] = Field(
+        None,
+        description=(
+            "Headline share for that kind: accuracy of the answer, or share of "
+            "questions where the search found the right material (0..1)"
+        ),
+    )
+    quality_fabrication_rate: Optional[float] = Field(
+        None,
+        description=(
+            "Share of questions with no answer in the corpus that were "
+            "answered anyway (0..1). Nearly independent of how hard the corpus "
+            "is, which makes it the figure that compares across endpoints"
+        ),
+    )
+    quality_samples: Optional[int] = Field(
+        None, description="How many questions the last benchmark graded"
+    )
+    quality_reliable: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether the benchmark vouches for these figures. False means show "
+            "them greyed out or not at all; the reasons are in quality_report"
+        ),
+    )
+    quality_checked_at: Optional[datetime] = Field(
+        None, description="When the benchmark that produced this card ran"
+    )
+    quality_report: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "The whole card: both halves of the dataset, the spread across "
+            "subject models, the breakdown by task type, what the figures rest "
+            "on, and what did the measuring"
+        ),
+    )
     model_config = {"from_attributes": True}
 
 
@@ -544,6 +646,59 @@ class EndpointPublicResponse(BaseModel):
     )
     health_checked_at: Optional[datetime] = Field(
         None, description="When the client last checked this endpoint's health"
+    )
+
+    # --- The benchmark card, reported by the owner via POST /endpoints/quality.
+    # NULL throughout means nobody ever measured this endpoint, which is not a
+    # score of zero and must not render as one.
+    quality_kind: Optional[str] = Field(
+        None,
+        description=(
+            "What kind of product was measured: 'answering' (it writes the "
+            "answer) or 'retrieval' (it finds material and someone else's "
+            "model answers). quality_score cannot be read without it"
+        ),
+    )
+    quality_score: Optional[float] = Field(
+        None,
+        description=(
+            "Headline share for that kind: accuracy of the answer, or share of "
+            "questions where the search found the right material (0..1)"
+        ),
+    )
+    quality_fabrication_rate: Optional[float] = Field(
+        None,
+        description=(
+            "Share of questions with no answer in the corpus that were "
+            "answered anyway (0..1). Nearly independent of how hard the corpus "
+            "is, which makes it the figure that compares across endpoints"
+        ),
+    )
+    quality_samples: Optional[int] = Field(
+        None, description="How many questions the last benchmark graded"
+    )
+    quality_reliable: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether the benchmark vouches for these figures. False means show "
+            "them greyed out or not at all; the reasons are in quality_report"
+        ),
+    )
+    quality_checked_at: Optional[datetime] = Field(
+        None, description="When the benchmark that produced this card ran"
+    )
+    # The whole card rides on the public view too, and not only on the owner's.
+    # There is no public route for one endpoint that returns anything else: the
+    # detail page is built from this same shape, so leaving the document off
+    # here would mean the card could never be shown to the people it is for.
+    # The cost is proportionate — this response already carries the full README.
+    quality_report: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "The whole card: both halves of the dataset, the spread across "
+            "subject models, the breakdown by task type, what the figures rest "
+            "on, and what did the measuring"
+        ),
     )
     archived: bool = Field(
         default=False, description="Whether the endpoint is archived"
@@ -810,6 +965,259 @@ class EndpointHealthResponse(BaseModel):
         ...,
         ge=0,
         description="Number of slugs that were not found or not accessible",
+    )
+
+
+# ===========================================
+# ENDPOINT BENCHMARK CARD SCHEMAS
+# ===========================================
+
+# The card format this Hub reads. A card of any other version is refused rather
+# than guessed at: a number understood wrongly is worse than a number not shown,
+# because nobody can see that it was misread.
+CARD_VERSION = 2
+
+KIND_ANSWERING = "answering"
+KIND_RETRIEVAL = "retrieval"
+
+
+class CardAnswerable(BaseModel):
+    """How it did on questions the corpus can answer."""
+
+    samples: int = Field(..., ge=0)
+    correct: float = Field(..., ge=0.0, le=1.0)
+    abstain: float = Field(..., ge=0.0, le=1.0)
+    hallucinate: float = Field(..., ge=0.0, le=1.0)
+    lmi: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Of the times it chose to answer, the share that were wrong. The "
+            "consumer's risk per answer, and it does not punish honest silence"
+        ),
+    )
+
+
+class CardUnanswerable(BaseModel):
+    """How it did on questions the corpus cannot answer.
+
+    There is no right answer to these, so there is no accuracy: any reply at
+    all is an invention. This is the half a consumer cannot check for himself
+    and cannot recover from.
+    """
+
+    samples: int = Field(..., ge=0)
+    fabricated: float = Field(..., ge=0.0, le=1.0)
+
+
+class CardModel(BaseModel):
+    """What one subject model got out of this endpoint's material.
+
+    One row per model, never averaged: a mean over them would move when the
+    benchmark changes its own list of models while nothing happened here.
+    """
+
+    model: str = Field(..., max_length=120)
+    samples: int = Field(..., ge=0)
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+    fabrication: Optional[float] = Field(None, ge=0.0, le=1.0)
+    lmi: Optional[float] = Field(None, ge=0.0, le=1.0)
+    context_gain: Optional[float] = Field(
+        None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "What this endpoint's material did to the model's honesty. "
+            "Positive means the context made it bolder, not better"
+        ),
+    )
+
+
+class CardSkill(BaseModel):
+    """How it does on one type of task."""
+
+    generator: str = Field(..., max_length=64)
+    samples: int = Field(..., ge=0)
+    accuracy: float = Field(..., ge=0.0, le=1.0)
+
+
+class CardTrust(BaseModel):
+    """What the figures rest on.
+
+    ``flags`` are codes, not sentences: the wording belongs to whoever renders
+    them, in the reader's own language.
+    """
+
+    judges: int = Field(default=0, ge=0)
+    agreement: Optional[float] = Field(None, ge=0.0, le=1.0)
+    consistency: Optional[float] = Field(None, ge=0.0, le=1.0)
+    even_coverage: bool = Field(default=True)
+    failed: int = Field(default=0, ge=0)
+    pending: int = Field(default=0, ge=0)
+    flags: List[str] = Field(default_factory=list, max_length=16)
+
+
+class CardDataset(BaseModel):
+    """Which set of questions this was measured on.
+
+    "71% over yesterday's documents" and "71% over the whole corpus" are
+    different claims, and the difference is invisible in the share itself.
+    """
+
+    mode: str = Field(default="", max_length=32)
+    window_days: int = Field(default=0, ge=0)
+    cohort: str = Field(default="", max_length=64)
+    questions: int = Field(default=0, ge=0)
+
+
+class CardInstrument(BaseModel):
+    """What did the measuring.
+
+    Endpoints measured by one benchmark installation share a grader, a panel
+    and a list of subject models, and so compare with each other. Between two
+    installations nothing is guaranteed — and this marketplace puts both in the
+    same list, so it has to be able to tell.
+    """
+
+    profile: str = Field(default="", max_length=64)
+    judge: str = Field(default="", max_length=120)
+    judges: int = Field(default=0, ge=0)
+    subjects: int = Field(default=0, ge=0)
+
+
+class EndpointQualityItem(BaseModel):
+    """A benchmark card for one endpoint, reported by its owner."""
+
+    slug: str = Field(
+        ...,
+        min_length=3,
+        max_length=63,
+        description="Endpoint slug this card is about",
+    )
+    version: int = Field(..., description="Card format version")
+    kind: str = Field(..., description="'answering' or 'retrieval'")
+    arm: str = Field(default="", max_length=32)
+    checked_at: datetime = Field(..., description="When the benchmark ran")
+
+    score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    fabrication_rate: Optional[float] = Field(None, ge=0.0, le=1.0)
+    reliable: bool = Field(default=False)
+    samples: int = Field(..., ge=0)
+
+    answerable: Optional[CardAnswerable] = None
+    unanswerable: Optional[CardUnanswerable] = None
+    discrimination: Optional[float] = Field(
+        None,
+        ge=-1.0,
+        le=1.0,
+        description=(
+            "Refusals on unanswerable questions minus refusals on answerable "
+            "ones. Says whether this endpoint's silence is a signal at all"
+        ),
+    )
+    retrieval: Optional[float] = Field(None, ge=0.0, le=1.0)
+    models: List[CardModel] = Field(default_factory=list, max_length=64)
+    skills: List[CardSkill] = Field(default_factory=list, max_length=32)
+    trust: Optional[CardTrust] = None
+    dataset: Optional[CardDataset] = None
+    instrument: Optional[CardInstrument] = None
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, v: int) -> int:
+        """Refuse a card this Hub was not written to read."""
+        if v != CARD_VERSION:
+            raise ValueError(
+                f"unsupported card version {v}; this hub reads {CARD_VERSION}"
+            )
+        return v
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, v: str) -> str:
+        """Refuse a kind nothing can render.
+
+        Without a kind the headline share is ambiguous, and a badge that reads
+        "finds 82%" as "correct 82%" misrepresents the endpoint to everyone who
+        sees it.
+        """
+        if v not in (KIND_ANSWERING, KIND_RETRIEVAL):
+            raise ValueError(
+                f"unknown kind '{v}'; expected '{KIND_ANSWERING}' or '{KIND_RETRIEVAL}'"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_no_prose(self) -> EndpointQualityItem:
+        """Refuse anything that looks like text rather than an identifier.
+
+        A benchmark builds its questions from a private corpus, and promises
+        that nothing but shares, counts and identifiers leaves that perimeter.
+        This is the last place that promise can be checked before the figures
+        become a public document, and it is checked by form rather than by a
+        list of forbidden words: every string here is one token, and a fragment
+        of somebody's private corpus always has spaces in it.
+        """
+        for name in ("kind", "arm"):
+            value = getattr(self, name)
+            if value and " " in value:
+                raise ValueError(f"{name} must be an identifier, not text")
+        for row in self.models:
+            if " " in row.model:
+                raise ValueError("models[].model must be an identifier, not text")
+        for skill in self.skills:
+            if " " in skill.generator:
+                raise ValueError("skills[].generator must be an identifier, not text")
+        if self.trust:
+            for flag in self.trust.flags:
+                if " " in flag or len(flag) > 64:
+                    raise ValueError("trust.flags must be codes, not sentences")
+        if self.instrument:
+            for name in ("profile", "judge"):
+                value = getattr(self.instrument, name)
+                if value and " " in value:
+                    raise ValueError(
+                        f"instrument.{name} must be an identifier, not text"
+                    )
+        if self.dataset and " " in self.dataset.cohort:
+            raise ValueError("dataset.cohort must be an identifier, not text")
+        return self
+
+
+class EndpointQualityRequest(BaseModel):
+    """Request schema for bulk benchmark-card reporting."""
+
+    endpoints: List[EndpointQualityItem] = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+        description="One card per endpoint",
+    )
+
+
+class EndpointQualityResponse(BaseModel):
+    """Response schema for bulk benchmark-card reporting."""
+
+    updated: int = Field(
+        ..., ge=0, description="Number of endpoints whose card was stored"
+    )
+    ignored: int = Field(
+        ...,
+        ge=0,
+        description="Number of slugs that were not found or not accessible",
+    )
+
+
+class EndpointQualityClearResponse(BaseModel):
+    """Response schema for withdrawing a published benchmark card."""
+
+    cleared: bool = Field(
+        ...,
+        description=(
+            "Whether a card was removed; False means there was none, which is "
+            "not an error"
+        ),
     )
 
 

@@ -26,6 +26,9 @@ from syfthub.schemas.endpoint import (
     EndpointHealthItem,
     EndpointHealthResponse,
     EndpointPublicResponse,
+    EndpointQualityClearResponse,
+    EndpointQualityItem,
+    EndpointQualityResponse,
     EndpointResponse,
     EndpointType,
     EndpointUpdate,
@@ -1575,6 +1578,166 @@ class EndpointService(BaseService):
             updated=updated,
             ignored=ignored,
         )
+
+    # ===========================================
+    # ENDPOINT BENCHMARK CARD
+    # ===========================================
+
+    def report_endpoint_quality(
+        self,
+        endpoints_quality: List[EndpointQualityItem],
+        current_user: User,
+    ) -> EndpointQualityResponse:
+        """Store benchmark cards reported by the endpoints' owner.
+
+        Health reporting answers "does it respond"; this answers "is what comes
+        back any good". The figures come from a benchmark the owner runs
+        against his own endpoint, handed to his Space and forwarded here, so
+        the marketplace can show them next to the endpoint along with the date
+        of the run.
+
+        The card is stored twice over in one row of ``endpoint_benchmark_cards``:
+        the scalar figures a listing paints a badge from, and the whole document
+        the detail page reads. Which is which is decided here rather than by the
+        caller, so a card gaining a section does not need a migration.
+
+        Unlike health, there is no TTL. A benchmark run is deliberate and
+        expensive, not a heartbeat: a card stands until it is replaced or
+        retracted, and the UI judges its age from ``quality_checked_at``.
+
+        Args:
+            endpoints_quality: One card per endpoint slug
+            current_user: The authenticated user (must own the endpoints)
+
+        Returns:
+            EndpointQualityResponse with updated and ignored counts
+        """
+        # --- Bulk slug match (shared with health: owner's endpoints, any state)
+        slugs = [item.slug for item in endpoints_quality]
+        matched_endpoints = self.endpoint_repository.get_endpoints_by_slugs_for_health(
+            user_id=current_user.id,
+            slugs=slugs,
+        )
+        slug_to_endpoint = {ep.slug: ep for ep in matched_endpoints}
+
+        quality_updates = []
+        for item in endpoints_quality:
+            endpoint = slug_to_endpoint.get(item.slug.lower())  # type: ignore[call-overload]
+            if endpoint is None:
+                continue
+
+            # The slug identifies the row; it is not part of the card, and
+            # storing it inside the document would let the two disagree.
+            card = item.model_dump(mode="json", exclude={"slug"})
+
+            quality_updates.append(
+                {
+                    "endpoint_id": endpoint.id,
+                    "kind": item.kind,
+                    "score": item.score,
+                    "fabrication_rate": item.fabrication_rate,
+                    "samples": item.samples,
+                    "reliable": item.reliable,
+                    "checked_at": item.checked_at,
+                    "report": card,
+                }
+            )
+
+        updated = 0
+        failed_endpoint_ids: list[int] = []
+        if quality_updates:
+            updated, failed_endpoint_ids = self.endpoint_repository.bulk_update_quality(
+                quality_updates
+            )
+
+        ignored = len(endpoints_quality) - len(quality_updates)
+
+        try:
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(
+                f"Failed to commit benchmark cards for user {current_user.id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to store endpoint benchmark cards",
+            ) from e
+
+        logger.info(
+            f"Benchmark cards reported by user {current_user.id}: "
+            f"updated={updated}, ignored={ignored}, failed={len(failed_endpoint_ids)}"
+        )
+
+        return EndpointQualityResponse(updated=updated, ignored=ignored)
+
+    def clear_endpoint_quality(
+        self,
+        slug: str,
+        current_user: User,
+    ) -> EndpointQualityClearResponse:
+        """Withdraw a published benchmark card.
+
+        The counterpart to report_endpoint_quality, and the reason it exists: a
+        card has no TTL, so a published figure stands until someone takes it
+        down. Retracting removes the row, which leaves the endpoint looking
+        exactly as it did before it was ever benchmarked.
+
+        Deliberately single-slug and owner-only, unlike bulk reporting.
+        Publishing is a claim that may be delegated to a tool; retracting is an
+        act of ownership over that claim, and a broken or hostile benchmark
+        must not be able to erase cards it did not report.
+
+        Args:
+            slug: Slug of the endpoint whose card is withdrawn
+            current_user: The authenticated user (must own the endpoint)
+
+        Returns:
+            EndpointQualityClearResponse; cleared is False when there was
+            nothing to remove, which makes repeated calls harmless
+
+        Raises:
+            HTTPException: 404 if the user owns no endpoint with that slug
+        """
+        endpoint = self.endpoint_repository.get_by_owner_and_slug_any_state(
+            user_id=current_user.id,
+            slug=slug,
+        )
+        if endpoint is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        # Nothing reported means nothing to retract. Saying so plainly beats a
+        # delete that removes no rows, and keeps the call idempotent. A card
+        # always carries the date of its run, so no date is no card — there is
+        # no half-reported state left to consider.
+        if endpoint.quality_checked_at is None:
+            return EndpointQualityClearResponse(cleared=False)
+
+        cleared = self.endpoint_repository.clear_quality(endpoint_id=endpoint.id)
+
+        try:
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(
+                f"Failed to commit card retraction for endpoint {endpoint.id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retract endpoint benchmark card",
+            ) from e
+
+        logger.info(
+            f"Benchmark card retracted by user {current_user.id} for "
+            f"endpoint {endpoint.id}: cleared={cleared}"
+        )
+
+        return EndpointQualityClearResponse(cleared=cleared)
 
     # ===========================================
     # ENDPOINT UPTIME / TELEMETRY

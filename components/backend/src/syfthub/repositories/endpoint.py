@@ -6,11 +6,24 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import Text, and_, cast, delete, func, or_, select, text, update
+from sqlalchemy import (
+    Text,
+    and_,
+    cast,
+    delete,
+    func,
+    insert,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import lazyload
 
 from syfthub.core.url_builder import transform_connection_urls
 from syfthub.models.endpoint import (
+    EndpointBenchmarkCardModel,
     EndpointModel,
     EndpointStarModel,
     EndpointUptimeSampleModel,
@@ -102,6 +115,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             connect=transformed_connect,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            # The benchmark card. Public on purpose: it is exactly what a
+            # consumer browsing the marketplace needs in order to choose
+            # between two endpoints that both answer.
+            quality_kind=row.quality_kind,
+            quality_score=row.quality_score,
+            quality_fabrication_rate=row.quality_fabrication_rate,
+            quality_samples=row.quality_samples,
+            quality_reliable=row.quality_reliable,
+            quality_checked_at=row.quality_checked_at,
+            quality_report=row.quality_report,
         )
 
     def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
@@ -537,23 +560,41 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 func.count().over(partition_by=owner_username_expr).label("owner_count")
             )
 
-            # Build the main query with ranking
+            # Build the main query with ranking.
+            #
+            # The card columns are selected and labelled by hand, and the
+            # relationship's joined eager load is turned off for this one
+            # query. Everywhere else the ORM loads the card for us, but this
+            # statement is wrapped in a subquery and read as plain rows, where
+            # an ORM eager load has nothing to populate — the labels below are
+            # what makes the row look like an endpoint to
+            # ``_build_public_response``.
+            card = EndpointBenchmarkCardModel
             stmt = (
                 select(
                     self.model,
                     owner_username_expr.label("owner_username"),
                     base_url_expr.label("base_url"),
+                    card.kind.label("quality_kind"),
+                    card.score.label("quality_score"),
+                    card.fabrication_rate.label("quality_fabrication_rate"),
+                    card.samples.label("quality_samples"),
+                    card.reliable.label("quality_reliable"),
+                    card.checked_at.label("quality_checked_at"),
+                    card.report.label("quality_report"),
                     row_number,
                     count_per_owner,
                 )
                 .join(UserModel, self.model.user_id == UserModel.id)
                 .outerjoin(SatelliteModel, self.model.space_id == SatelliteModel.id)
+                .outerjoin(card, self.model.id == card.endpoint_id)
                 .where(
                     and_(
                         self.model.visibility == EndpointVisibility.PUBLIC.value,
                         self.model.is_active,
                     )
                 )
+                .options(lazyload(self.model.benchmark_card))
             )
 
             # Wrap in a subquery to filter by row number
@@ -1206,6 +1247,117 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     f"Failed to update health for endpoint {item['endpoint_id']}: {e}"
                 )
         return updated_count
+
+    def bulk_update_quality(
+        self,
+        updates: list[dict],
+    ) -> tuple[int, list[int]]:
+        """Bulk-store benchmark cards.
+
+        Each item in updates should contain ``endpoint_id`` plus the card's
+        scalar figures and the whole card as ``report``.
+
+        A card is one row in ``endpoint_benchmark_cards``, keyed by the
+        endpoint, so storing one is an upsert: replace the row if this endpoint
+        has been benchmarked before, insert it if this is the first run. Update
+        first rather than checking first — the common case is a re-run, and a
+        SELECT before every write would double the statements to learn what the
+        UPDATE already reports.
+
+        Each row gets its own savepoint. Without one, a single bad row would
+        abort the whole transaction on PostgreSQL and take the rest of the
+        batch down with it, which is the opposite of what reporting 300 cards
+        at once should do.
+
+        Slug matching is shared with health reporting
+        (``get_endpoints_by_slugs_for_health``): both report on the owner's own
+        endpoints regardless of is_active, and an inactive endpoint's last
+        known card is still worth showing.
+
+        Does NOT commit — caller manages the transaction.
+
+        Args:
+            updates: List of dicts with card data
+
+        Returns:
+            Tuple of (number of endpoints whose card was stored, endpoint_ids
+            whose write failed)
+        """
+        updated_count = 0
+        failed_endpoint_ids: list[int] = []
+        now = datetime.now(timezone.utc)
+        for item in updates:
+            try:
+                with self.session.begin_nested():
+                    stmt = (
+                        update(EndpointBenchmarkCardModel)
+                        .where(
+                            EndpointBenchmarkCardModel.endpoint_id
+                            == item["endpoint_id"]
+                        )
+                        .values(
+                            kind=item["kind"],
+                            score=item["score"],
+                            fabrication_rate=item["fabrication_rate"],
+                            samples=item["samples"],
+                            reliable=item["reliable"],
+                            checked_at=item["checked_at"],
+                            report=item["report"],
+                            updated_at=now,
+                        )
+                    )
+                    result = self.session.execute(stmt)
+
+                    if result.rowcount == 0:
+                        self.session.execute(
+                            insert(EndpointBenchmarkCardModel).values(
+                                endpoint_id=item["endpoint_id"],
+                                kind=item["kind"],
+                                score=item["score"],
+                                fabrication_rate=item["fabrication_rate"],
+                                samples=item["samples"],
+                                reliable=item["reliable"],
+                                checked_at=item["checked_at"],
+                                report=item["report"],
+                                created_at=now,
+                                updated_at=now,
+                            )
+                        )
+                updated_count += 1
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"Failed to store card for endpoint {item['endpoint_id']}: {e}"
+                )
+                failed_endpoint_ids.append(item["endpoint_id"])
+        return updated_count, failed_endpoint_ids
+
+    def clear_quality(self, endpoint_id: int) -> bool:
+        """Withdraw a published benchmark card.
+
+        Deleting the row rather than blanking it or flagging it as withdrawn: a
+        retracted card is not a card with a note on it, and leaving the figures
+        behind a flag invites a later reader to render them anyway. No row is
+        also exactly what "never benchmarked" looks like, so a retracted
+        endpoint reads the same as one that was never measured — which is the
+        claim the owner is making by retracting.
+
+        Does NOT commit — caller manages the transaction.
+
+        Args:
+            endpoint_id: Endpoint whose card is withdrawn
+
+        Returns:
+            True if a row was removed, False if there was nothing to remove
+        """
+        try:
+            stmt = delete(EndpointBenchmarkCardModel).where(
+                EndpointBenchmarkCardModel.endpoint_id == endpoint_id
+            )
+            result = self.session.execute(stmt)
+            return bool(result.rowcount > 0)
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to clear card for endpoint {endpoint_id}: {e}")
+            return False
 
     def get_by_owner_and_slug_any_state(
         self,

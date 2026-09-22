@@ -20,6 +20,8 @@ import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint
 
 import { AccessPoliciesCard } from './access-policies-card';
 import { ApiTab } from './api-tab';
+import { BenchmarkCard } from './benchmark-card';
+import { QualityBadge } from './quality-badge';
 import { EndpointCollectivesCard } from './endpoint-collectives-card';
 import { UptimeTab } from './uptime-tab';
 
@@ -305,6 +307,9 @@ export const EndpointDetail = memo(function EndpointDetail({
                   <Calendar className='mr-1 h-3 w-3' />
                   Updated {endpoint.updated}
                 </Badge>
+                {endpoint.quality ? (
+                  <QualityBadge quality={endpoint.quality} size='full' />
+                ) : null}
               </div>
             </div>
           </div>
@@ -342,6 +347,11 @@ export const EndpointDetail = memo(function EndpointDetail({
                   )}
                 </div>
               </article>
+
+              {/* What a consumer gets if he plugs in his own model. Above the
+                  policies, because it decides whether he wants the endpoint at
+                  all; the policies decide what it costs him. */}
+              <BenchmarkCard quality={endpoint.quality} />
 
               {/* Access Policies Card */}
               <AccessPoliciesCard

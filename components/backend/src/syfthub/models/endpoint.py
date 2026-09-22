@@ -7,6 +7,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -122,6 +123,23 @@ class EndpointModel(BaseModel, TimestampMixin):
     space: Mapped[Optional["SatelliteModel"]] = relationship(
         "SatelliteModel", back_populates="endpoints"
     )
+
+    # The benchmark card the owner reports via POST /endpoints/quality, kept
+    # in endpoint_benchmark_cards. One card or none: an endpoint nobody has
+    # benchmarked has no row there at all, which is what lets the card's own
+    # fields be NOT NULL instead of seven nullable columns on this table.
+    #
+    # Joined rather than lazy: almost every read of an endpoint is on its way
+    # to a listing or a detail page that paints the badge, so a lazy load would
+    # cost one extra query per endpoint on every catalogue page we serve.
+    benchmark_card: Mapped[Optional["EndpointBenchmarkCardModel"]] = relationship(
+        "EndpointBenchmarkCardModel",
+        back_populates="endpoint",
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="joined",
+    )
+
     shared_endpoint_memberships: Mapped[List["CollectiveSharedEndpointMemberModel"]] = (
         relationship(
             "CollectiveSharedEndpointMemberModel",
@@ -146,9 +164,124 @@ class EndpointModel(BaseModel, TimestampMixin):
         Index("idx_endpoints_rag_file_id", "rag_file_id"),
     )
 
+    # --- The card, flattened.
+    #
+    # The card is stored in its own table, but the API has always described it
+    # as flat ``quality_*`` fields of the endpoint, and the response schemas
+    # validate straight off these attributes. Reading through the relationship
+    # here keeps a storage decision out of the wire format. Read-only on
+    # purpose: a card is written whole, through the repository, never a figure
+    # at a time.
+    @property
+    def quality_kind(self) -> Optional[str]:
+        """Which claim the score makes: 'answering' or 'retrieval'."""
+        return self.benchmark_card.kind if self.benchmark_card else None
+
+    @property
+    def quality_score(self) -> Optional[float]:
+        """The headline share, meaningless without quality_kind."""
+        return self.benchmark_card.score if self.benchmark_card else None
+
+    @property
+    def quality_fabrication_rate(self) -> Optional[float]:
+        """Share of answers the benchmark judged invented."""
+        return self.benchmark_card.fabrication_rate if self.benchmark_card else None
+
+    @property
+    def quality_samples(self) -> Optional[int]:
+        """How many questions the run asked."""
+        return self.benchmark_card.samples if self.benchmark_card else None
+
+    @property
+    def quality_reliable(self) -> Optional[bool]:
+        """Whether the benchmark vouches for its own figures."""
+        return self.benchmark_card.reliable if self.benchmark_card else None
+
+    @property
+    def quality_checked_at(self) -> Optional[datetime]:
+        """When the run happened; the card has no TTL, so readers judge its age."""
+        return self.benchmark_card.checked_at if self.benchmark_card else None
+
+    @property
+    def quality_report(self) -> Optional[dict]:
+        """The whole card, for the detail page."""
+        return self.benchmark_card.report if self.benchmark_card else None
+
     def __repr__(self) -> str:
         """String representation of Endpoint."""
         return f"<Endpoint(id={self.id}, slug='{self.slug}', user={self.user_id})>"
+
+
+class EndpointBenchmarkCardModel(Base, TimestampMixin):
+    """The benchmark card an endpoint's owner publishes for it.
+
+    Health says the endpoint answers; this says whether what comes back is any
+    good. The figures come from a benchmark the owner runs against his own
+    endpoint and pushes through his Space; the Hub never measures anything
+    itself.
+
+    One row per endpoint, keyed by the endpoint itself. The row *is* the card:
+    an endpoint nobody has measured has no row, so the UI can say "not
+    measured" rather than show a zero — "no data" and "bad" are different
+    claims, and only one of them is the endpoint's fault. That is also why
+    everything that makes a card a card is NOT NULL here; on the endpoints
+    table each of these had to be nullable, and a score with no ``kind`` to
+    read it by was a shape the schema had to allow.
+
+    Two shapes in one row on purpose: the scalar columns are what a list of
+    endpoints paints a badge from without opening a document per row, and
+    ``report`` is the whole card the detail page reads. A card gaining a
+    section changes the document, not the schema.
+    """
+
+    __tablename__ = "endpoint_benchmark_cards"
+
+    endpoint_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("endpoints.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    # Without this the headline share is ambiguous, and a badge that reads
+    # "finds 82%" as "correct 82%" misrepresents the endpoint to everyone who
+    # sees it. Hence NOT NULL: there is no card without the claim it makes.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    # Nullable, alone among the figures. A retrieval card has no fabrication
+    # rate to report, and a run cut short may vouch for nothing at all — a card
+    # with a hole in it, which is still a card.
+    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    fabrication_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    samples: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # A gate, not a grade: the benchmark declaring whether it stands behind its
+    # own numbers. A share nobody vouches for is worse than no share at all,
+    # because absence is visible to a reader and a bare number is not.
+    reliable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    # No TTL, unlike health. A benchmark run is deliberate and expensive, not a
+    # heartbeat: the card stands until replaced or retracted, and readers judge
+    # its age from here.
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    report: Mapped[dict] = mapped_column(JSONType, nullable=False)
+
+    endpoint: Mapped["EndpointModel"] = relationship(
+        "EndpointModel", back_populates="benchmark_card"
+    )
+
+    __table_args__ = (Index("idx_endpoint_benchmark_cards_score", "score"),)
+
+    def __repr__(self) -> str:
+        """String representation of EndpointBenchmarkCard."""
+        return (
+            f"<EndpointBenchmarkCard(endpoint_id={self.endpoint_id}, "
+            f"kind='{self.kind}', score={self.score}, "
+            f"reliable={self.reliable})>"
+        )
 
 
 class EndpointStarModel(BaseModel):

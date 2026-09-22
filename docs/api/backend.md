@@ -909,6 +909,92 @@ Report per-endpoint health status. This is the mechanism clients use to report t
 
 ---
 
+### `POST /endpoints/quality`
+
+Report benchmark cards for endpoints you own. Like health reporting, but for
+output quality rather than reachability.
+
+**Auth:** Hub token required.
+
+**Request body:**
+```json
+{
+  "endpoints": [
+    {
+      "slug": "my-model",
+      "version": 2,
+      "kind": "answering",
+      "arm": "open_book",
+      "checked_at": "2026-09-14T03:00:00Z",
+      "score": 0.71,
+      "fabrication_rate": 0.04,
+      "reliable": true,
+      "samples": 515,
+      "answerable":   {"samples": 412, "correct": 0.71, "abstain": 0.12,
+                       "hallucinate": 0.17, "lmi": 0.19},
+      "unanswerable": {"samples": 103, "fabricated": 0.04},
+      "discrimination": 0.63,
+      "retrieval": 0.82,
+      "models": [{"model": "anthropic/claude-sonnet-4", "samples": 412,
+                  "accuracy": 0.78, "fabrication": 0.02, "lmi": 0.10,
+                  "context_gain": 0.05}],
+      "skills": [{"generator": "mcq", "samples": 80, "accuracy": 0.9}],
+      "trust": {"judges": 3, "agreement": 0.86, "consistency": 0.91,
+                "even_coverage": true, "failed": 2, "pending": 0, "flags": []},
+      "dataset": {"mode": "rolling", "window_days": 7,
+                  "cohort": "20260914-0300", "questions": 515},
+      "instrument": {"profile": "default", "judge": "gemma3-4b-gpu",
+                     "judges": 3, "subjects": 9}
+    }
+  ]
+}
+```
+
+**Fields:**
+
+| Field | Description |
+|---|---|
+| `kind` | `answering` (`score` = answer accuracy) or `retrieval` (`score` = share of questions where search found the right material) |
+| `fabrication_rate` | Share of unanswerable questions answered anyway |
+| `unanswerable` | The half of the question set the corpus cannot answer |
+| `models` | Per-subject-model spread, not an average |
+| `reliable` | Whether the benchmark vouches for these figures |
+| `trust.flags` | Why `reliable` is false: `few_samples`, `judges_disagree`, `uneven_coverage`, `pending_verdicts`, `failed_calls` |
+| `instrument` | What did the measuring; comparable only across endpoints measured by the same installation |
+
+No TTL: a card stands until replaced or withdrawn, and consumers judge its age
+from `checked_at`. Up to 300 cards per call; unknown or unowned slugs are
+counted in `ignored` rather than failing the request. An unknown `version` or
+`kind`, a share outside 0..1, or a string that looks like prose is refused
+with `422`.
+
+**Response:**
+```json
+{
+  "updated": 2,
+  "ignored": 0
+}
+```
+
+---
+
+### `DELETE /endpoints/quality/{slug}`
+
+Withdraw the benchmark card for one of your own endpoints.
+
+**Auth:** Hub token required.
+
+**Response:**
+```json
+{
+  "cleared": true
+}
+```
+
+`cleared: false` means there was nothing to remove; the call is idempotent.
+
+---
+
 ### `GET /endpoints/{endpoint_id}`
 
 Get a specific endpoint by ID.
