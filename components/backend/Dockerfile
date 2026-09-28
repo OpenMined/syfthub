@@ -8,7 +8,8 @@ FROM python:3.12-slim AS base
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_PYTHON_DOWNLOADS=never
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,8 +33,8 @@ WORKDIR /app
 # Dependencies stage - install Python packages
 FROM base AS dependencies
 
-# Copy dependency files
-COPY --chown=syfthub:syfthub pyproject.toml ./
+# Copy dependency files (the lockfile is the source of truth for versions)
+COPY --chown=syfthub:syfthub pyproject.toml uv.lock ./
 
 # Create src structure for package installation
 RUN mkdir -p src/syfthub && \
@@ -43,9 +44,10 @@ RUN mkdir -p src/syfthub && \
 # Switch to non-root user
 USER syfthub
 
-# Create virtual environment and install production dependencies
-RUN uv venv .venv && \
-    uv pip install -e . --python .venv/bin/python
+# Create the virtual environment from uv.lock (production dependencies only).
+# --frozen never re-resolves, so an image build cannot pick up a package
+# version that isn't in the lockfile (e.g. a new major release on PyPI).
+RUN uv sync --frozen --no-dev
 
 # ==============================================================================
 # Development stage
@@ -54,8 +56,8 @@ FROM dependencies AS development
 # Switch back to root for dev dependencies installation
 USER root
 
-# Install development dependencies
-RUN uv pip install -e ".[dev]" --python .venv/bin/python
+# Install development dependencies (dev extra + dev dependency group), locked
+RUN uv sync --frozen --extra dev
 
 # Install additional dev tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -94,9 +96,9 @@ CMD ["/app/.venv/bin/uvicorn", "syfthub.main:app", \
 # Testing stage
 FROM dependencies AS testing
 
-# Install test dependencies
+# Install test dependencies, locked
 USER root
-RUN uv pip install -e ".[test]" --python .venv/bin/python
+RUN uv sync --frozen --no-dev --extra test
 
 # Copy source code (excluding .venv which is already created)
 COPY --chown=syfthub:syfthub src src
@@ -123,8 +125,9 @@ COPY --chown=syfthub:syfthub CHANGELOG* ./
 COPY --chown=syfthub:syfthub alembic.ini .
 COPY --chown=syfthub:syfthub alembic alembic
 
-# Build the package
-RUN uv build --wheel
+# Build the package and export the locked runtime requirements alongside it
+RUN uv build --wheel && \
+    uv export --frozen --no-dev --no-emit-project -o dist/requirements.txt
 
 # ==============================================================================
 # Production runtime stage
@@ -153,10 +156,11 @@ RUN useradd -m -u 1000 syfthub && \
 WORKDIR /app
 
 # Create fresh virtual environment and install the wheel
-COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /tmp/
+COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /app/dist/requirements.txt /tmp/
 RUN uv venv .venv && \
-    uv pip install /tmp/*.whl --python .venv/bin/python && \
-    rm -rf /tmp/*.whl
+    uv pip install -r /tmp/requirements.txt --python .venv/bin/python && \
+    uv pip install --no-deps /tmp/*.whl --python .venv/bin/python && \
+    rm -rf /tmp/*.whl /tmp/requirements.txt
 
 # Copy Alembic migration files for auto-migration on startup
 COPY --from=builder --chown=syfthub:syfthub /app/alembic.ini .
@@ -222,10 +226,11 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create fresh virtual environment and install the wheel
-COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /tmp/
+COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /app/dist/requirements.txt /tmp/
 RUN uv venv .venv && \
-    uv pip install /tmp/*.whl --python .venv/bin/python && \
-    rm -rf /tmp/*.whl && \
+    uv pip install -r /tmp/requirements.txt --python .venv/bin/python && \
+    uv pip install --no-deps /tmp/*.whl --python .venv/bin/python && \
+    rm -rf /tmp/*.whl /tmp/requirements.txt && \
     apk del .build-deps
 
 # Copy Alembic migration files for auto-migration on startup

@@ -2478,7 +2478,7 @@ requires-dist = [
     { name = "redis", extras = ["hiredis"], specifier = ">=5.0.0" },
     { name = "resend", specifier = ">=2.21.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.36" },
+    { name = "sqlalchemy", specifier = ">=2.0.36,<2.1" },
     { name = "structlog", specifier = ">=24.0.0" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
