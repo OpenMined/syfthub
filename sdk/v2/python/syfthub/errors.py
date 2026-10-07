@@ -1,44 +1,118 @@
-"""Exceptions are reserved for things the caller cannot act on inside the flow.
-Expected branches (payment required, insufficient credits, a source being
-down) are *outcomes* on the run, not exceptions."""
+"""Exceptions. Every raise in the package is a subclass of ``SyftHubError``.
+
+A Space's answer to a search or a chat message is never an exception: it becomes a row with an
+outcome and, where it applies, an action. Exceptions are for misuse of the SDK and for failures
+with no remedy inside the flow."""
+from __future__ import annotations
+
+from typing import Any
 
 
 class SyftHubError(Exception):
     """Base class for every error the SDK raises. Catch it to handle any SDK error in one place."""
-    pass
 
 
-class NotLoggedIn(SyftHubError):
-    """You called something that needs a signed-in user. Call ``hub.login(...)`` first."""
-    pass
+class ConfigurationError(SyftHubError):
+    """The session cannot be opened as configured: a bad URL, a missing token, invalid ``Options``.
+
+    Raised before any request is made."""
+
+
+class ValidationError(SyftHubError):
+    """An argument is wrong before any request is made.
+
+    For example a ``limit`` below one, a path that is not ``owner/slug``, or an unknown filter suffix."""
+
+
+class AuthError(SyftHubError):
+    """A 401 that re-minting the token did not fix.
+
+    Attributes:
+        who: ``"hub"`` or ``"space"``, whichever rejected the credentials."""
+
+    def __init__(self, message: str, *, who: str = "hub") -> None:
+        super().__init__(message)
+        self.who = who
+
+
+class NotLoggedIn(AuthError):
+    """The action needs a signed-in user. Call ``await hub.login(...)`` first."""
+
+    def __init__(self, message: str = "Nobody is signed in: await hub.login(username=..., password=...) or hub.login(token=...)") -> None:
+        super().__init__(message, who="hub")
+
+
+class HubError(SyftHubError):
+    """The Hub answered with a status the SDK cannot turn into a row.
+
+    Attributes:
+        status: The HTTP status.
+        method: The HTTP method.
+        url: The URL that was called.
+        body: The response body, when there was one.
+        request_id: The Hub's request id, when it sent one."""
+
+    def __init__(self, message: str, *, status: int = 0, method: str = "", url: str = "",
+                 body: dict[str, Any] | None = None, request_id: str | None = None) -> None:
+        super().__init__(message)
+        self.status, self.method, self.url, self.body, self.request_id = status, method, url, body or {}, request_id
+
+
+class NotFound(HubError):
+    """The endpoint, wallet or collective does not exist on the Hub."""
+
+
+class HubUnavailable(HubError):
+    """The Hub refused the connection or kept answering 5xx after every retry."""
+
+
+class SpaceError(SyftHubError):
+    """A Space call outside a search row failed, such as reading a balance or creating an invoice.
+
+    Attributes:
+        status: The HTTP status.
+        path: The endpoint as ``owner/slug``, when one applies.
+        url: The URL that was called.
+        body: The response body, when there was one."""
+
+    def __init__(self, message: str, *, status: int = 0, path: str | None = None, url: str = "",
+                 body: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.status, self.path, self.url, self.body = status, path, url, body or {}
+
+
+class InvoiceError(SpaceError):
+    """The Space refused to create the invoice, for example because the bundle does not exist."""
+
+
+class AggregatorError(SyftHubError):
+    """The Aggregator route is missing or failed. There is no row to attach this to.
+
+    Attributes:
+        status: The HTTP status, when there was a response."""
+
+    def __init__(self, message: str, *, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class BudgetExceeded(SyftHubError):
-    """An action would spend more than the session budget allows.
+    """Paying would cross the session budget you set with ``hub.set_budget``.
 
-    Raised by ``results.approve()`` when paying the pending MPP charges would cross the cap you set
-    with ``hub.set_budget``. Raise the budget, or approve fewer sources.
+    Raised only when you ask to pay: by ``results.approve()`` and by ``execute(ignore_budget=False)``
+    for a source pre-flight did not hold. Pre-flight itself never raises; it holds the row.
 
     Attributes:
-        needed: How much the action would cost, in ``currency``.
-        remaining: How much of the budget is left.
-        currency: The budget's currency."""
+        needed: What the action would cost.
+        remaining: What is left of the budget."""
 
-    def __init__(self, needed: float, remaining: float, currency: str = "USD") -> None:
-        super().__init__(f"Needs {needed:.2f} {currency}, budget has {remaining:.2f} left")
-        self.needed, self.remaining, self.currency = needed, remaining, currency
-
-
-class NothingToRun(SyftHubError):
-    """Nothing is left to send: every source is already answered, skipped by you, or not retryable.
-
-    Reserved for ``execute()`` and ``retry()``. The mock does not raise it yet."""
-    pass
+    def __init__(self, needed: Any, remaining: Any) -> None:
+        super().__init__(f"Needs {needed}, budget has {remaining} left: raise it with hub.set_budget(...)")
+        self.needed, self.remaining = needed, remaining
 
 
-class RunNotReady(SyftHubError):
-    """The action does not apply in the current state, and the message says what to do instead.
+class InvalidState(SyftHubError):
+    """The action does not apply right now; the message says what to do instead.
 
-    For example: topping up a source that is not short of credits, or sending a message in a chat
-    with no model in it."""
-    pass
+    For example: topping up a wallet that is not short, removing a model that is not in the room, or
+    sending a message to a chat with no model in it."""

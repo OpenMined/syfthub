@@ -15,487 +15,424 @@ import inspect
 import re
 from pathlib import Path
 
+from pydantic import BaseModel
+
 import syfthub
-from syfthub import errors as E
-from syfthub import hub as H
-from syfthub import models as M
-from syfthub import results as R
-from syfthub import search as S
+from syfthub import _sync, _transport as T, auth as A, chat as C, endpoints as EP, errors as E, hub as H, models as M
+from syfthub import results as R, search as S, wallets as W
+from syfthub.testing import World
 
 OUT = Path(__file__).parent / "docs" / "index.html"
 
 # ----------------------------------------------------------------------------- what goes on the page
 GROUPS = [
-    ("Connect", "Open a session and sign in.",
-     [H.connect, H.Hub, H._Login, M.Identity, M.Budget]),
-    ("Browse", "Find endpoints on the Hub and shortlist them.",
-     [M.Selection, M.Endpoint, M.Policy, M.Pricing, M.Connection]),
+    ("Session", "Open a session, tune the transport, sign in.",
+     [H.AsyncHub, _sync.Hub, T.Options, T.Retry, T.Timeout, T.CircuitBreaker, A.AuthNamespace, M.Identity, M.Budget, M.Money]),
+    ("Discovery", "Find endpoints on the Hub and shortlist them.",
+     [EP.EndpointsNamespace, M.EndpointList, M.Endpoint, M.Policy, M.Pricing, M.Bundle, M.Connection, M.Page]),
     ("Search", "Compose a search, review what it will cost, pay what is short, then send it.",
-     [S.Search, S.SearchRow]),
+     [S.SearchPlan, M.PlanRow, M.FilterSplit]),
     ("Results", "What came back, one row per source, and what you can do with it.",
-     [R.Results, M.SourceResult, M.Document, M.Answer]),
+     [R.Results, M.SourceResult, M.Document, M.ChargeEntry, M.RateLimit, M.Answer]),
     ("Chat", "Talk to one or more models about your results.",
-     [R.Chat, R.Replies, R.Reply, R.Context]),
-    ("Wallets and payment", "Prepaid credits, and what to do when a wallet runs short.",
-     [M.Wallets, M.Wallet, M.TopUp, M.Charge]),
-    ("Outcomes", "The states a source or a reply can end up in.",
-     [M.Outcome, M.SkipReason, M.Rail]),
-    ("Errors", "Raised only for mistakes in how the SDK is called. Payment problems are never exceptions.",
-     [E.SyftHubError, E.NotLoggedIn, E.BudgetExceeded, E.RunNotReady, E.NothingToRun]),
+     [C.Chat, C.Replies, C.Reply, C.Context, M.Message]),
+    ("Wallets and payment", "Prepaid credits, invoices, and what to do when a wallet runs short.",
+     [W.WalletsNamespace, M.WalletList, M.Wallet, M.Invoice, M.TopUp, M.Charge]),
+    ("Enums", "The closed sets. Every one is a str enum, so the wire value works too.",
+     [M.EndpointType, M.Rail, M.PolicyType, M.PriceUnit, M.Outcome, M.Reason, M.Verdict, M.ReturnKind, M.Include, M.Via,
+      M.AuthMethod, M.Health, M.InvoiceStatus]),
+    ("Errors", "Raised only for misuse and for failures with no remedy in the flow. A Space saying no is a row, never an exception.",
+     [E.SyftHubError, E.ConfigurationError, E.ValidationError, E.AuthError, E.NotLoggedIn, E.HubError, E.NotFound,
+      E.HubUnavailable, E.SpaceError, E.InvoiceError, E.AggregatorError, E.BudgetExceeded, E.InvalidState]),
+    ("Testing", "Offline doubles for your own tests.",
+     [World]),
 ]
 
 # Display names for things you reach through an attribute rather than by class name.
-ALIAS = {H._Login: "hub.login", H.connect: "syfthub.connect"}
+ALIAS = {A.AuthNamespace: "hub.auth", EP.EndpointsNamespace: "hub.endpoints", W.WalletsNamespace: "hub.wallets",
+         _sync.Hub: "syfthub.Hub", World: "syfthub.testing.World"}
+
+# Classes whose members need no example (test doubles).
+RELAXED = {World}
 
 # Hand-written examples, keyed "Label.member", or "Label" for the type itself.
 EX = {
-"syfthub.connect": '''import syfthub
+"AsyncHub": '''import syfthub
 
-hub = syfthub.connect("https://hub.example.com")
+async with syfthub.AsyncHub() as hub:                     # SYFTHUB_URL, SYFTHUB_TOKEN from the environment
+    results = await hub.search("adverse events in phase 3 trials").execute()''',
+"AsyncHub.login": '''await hub.login(username="alice", password="secret")
+await hub.login(token="syft_pat_...")                     # the headless path''',
+"AsyncHub.set_budget": '''hub.set_budget(2.00)                                      # hold any source that would push the session past $2
+hub.budget.remaining''',
+"AsyncHub.search": '''plan = hub.search("What adverse events were reported in phase 3 trials?", sources=picked, limit=5)
+await plan.preflight()                                    # costs, balances, verdicts; nothing sent
+results = await plan.execute()''',
+"AsyncHub.chat": '''live = hub.chat("bob/llama-3", sources=["carol/papers", "erin/trials"]).filter(published_gte="2024-01-01")
+await live.send("How many deaths were reported?")''',
+"AsyncHub.aggregate": '''answer = await hub.aggregate("phase 3 adverse events", sources=["carol/papers", "kim/ledger"], model="bob/llama-3")
+if answer.pending:
+    answer = await answer.approve()                       # or buy the bundle, then answer.resume()''',
+"AsyncHub.close": "await hub.close()                                        # async with does this for you",
+"AsyncHub.transport": "world = hub.transport.world                               # mock only: poke the fake world",
+"syfthub.Hub": '''with syfthub.Hub() as hub:
+    results = hub.search("adverse events in phase 3 trials").execute()''',
+"Options": '''from syfthub import Options, Retry, CircuitBreaker
 
-# In a notebook, render payment decisions as widgets with buttons
-hub = syfthub.connect("https://hub.example.com", interactive=True)''',
-"hub.login": '''hub.login(username="alice", password="secret")
-hub.login.google()
-hub.login.token("syft_pat_...")''',
-"hub.login.__call__": 'hub.login(username="alice", password="secret")',
-"hub.login.google": '''# Opens the browser; returns once the Hub confirms
-hub.login.google()''',
-"hub.login.token": 'hub.login.token("syft_pat_...")',
-"Hub": '''hub = syfthub.connect("https://hub.example.com")
-hub.login(username="alice", password="secret")
-hub.browse()''',
-"Hub.whoami": '''me = hub.whoami()
+hub = syfthub.AsyncHub(options=Options(
+    retries=Retry(max_attempts=4, rate_limit_wait=30),
+    circuit_breaker=CircuitBreaker(failures=2, cooldown=120),
+    concurrency=4,
+))''',
+"Options.user_agent": '''Options(user_agent_suffix="my-app/2.1").user_agent("0.1.0")
+# -> 'syfthub-python/0.1.0 python/3.12.4 my-app/2.1\'''',
+"Retry": "Retry(max_attempts=3, initial=0.5, multiplier=1.5, jitter=0.5, rate_limit_wait=10)",
+"Retry.delay": '''Retry().delay(1), Retry().delay(2)                        # seconds before the first and second retry, jittered
+# -> (0.41, 0.63)''',
+"Timeout": "Timeout(connect=5, read=30)",
+"CircuitBreaker": "CircuitBreaker(failures=3, cooldown=60)",
+"hub.auth": '''await hub.auth.login(username="alice", password="secret")
+await hub.auth.login_with_token("syft_pat_...")
+await hub.auth.login_with_google()''',
+"hub.auth.login": 'await hub.auth.login(username="alice", password="secret")',
+"hub.auth.login_with_token": 'await hub.auth.login_with_token("syft_pat_...")',
+"hub.auth.login_with_google": "await hub.auth.login_with_google()                      # opens the browser",
+"hub.auth.whoami": '''me = await hub.auth.whoami()
 me.username, me.hub_wallet_balance
-# -> ('alice', 1.0)''',
-"Hub.set_budget": '''# Hold any source that would push this session past 2 USD
-hub.set_budget(2.00)''',
-"Hub.browse": '''# Everything, with a pricing column
-hub.browse()
-
-# Only free data sources
-hub.browse(type="data_source", free=True)
-
-# Fuzzy, typo-tolerant match on name, description and tags
-hub.browse(matching="trial adverse events")''',
-"Hub.find": '''# Semantic search on the Hub itself, for a Hub too large to browse
-hub.find("adverse events in oncology trials")''',
-"Hub.get": '''ep = hub.get("dave/notes")
-ep.pricing.label()
+# -> ('alice', Money(1.5, 'USD'))''',
+"hub.auth.logout": "await hub.auth.logout()",
+"Identity": '''hub.me
+# -> Identity(alice, alice@example.com, password, hub wallet $1.50)''',
+"Budget": '''hub.set_budget(2.00)
+hub.budget
+# -> Budget($2.00 of $2.00 left)''',
+"Budget.remaining": "hub.budget.remaining",
+"Money": '''from syfthub import Money
+Money.of(0.02) * 5 + Money.of(0.05)
+# -> Money(0.15, 'USD')
+Money.of(300, "IDR") + Money.of(1)                        # raises ValidationError: currencies never mix''',
+"Money.of": 'Money.of("0.02"), Money.of(300, "IDR")',
+"Money.is_zero": "Money().is_zero\n# -> True",
+"Money.__add__": "Money.of(0.05) + Money.of(0.02)\n# -> Money(0.07, 'USD')",
+"hub.endpoints": '''eps = await hub.endpoints.list()
+await hub.endpoints.search("clinical notes")
+await hub.endpoints.get("dave/notes")''',
+"hub.endpoints.list": '''await hub.endpoints.list()                                 # everything, pages followed for you
+await hub.endpoints.list(type="data_source", free=True)
+await hub.endpoints.list(matching="trial adverse events")''',
+"hub.endpoints.pages": '''async for page in hub.endpoints.pages(page_size=50):
+    print(page.offset, len(page.items), page.total)''',
+"hub.endpoints.search": 'await hub.endpoints.search("adverse events in oncology trials")',
+"hub.endpoints.get": '''ep = await hub.endpoints.get("dave/notes")
+ep.pricing.label
 # -> '$0.02/document via xendit\'''',
-"Hub.wallets": '''# Every prepaid wallet behind what you can see, with balances
-hub.wallets()
-
-# Just the wallets behind a shortlist
-hub.wallets(picked)''',
-"Hub.wallet": '''hub.wallet("dave/notes").balance
-# -> 0.0''',
-"Hub.balance": '''hub.balance("dave/notes")
-# -> 0.0''',
-"Hub.search": '''search = hub.search(
-    "What adverse events were reported in phase 3 trials?",
-    sources=picked,
-    limit=5,
-)
-# Shows the pre-flight table. Nothing has been sent.
-search''',
-"Hub.chat": '''# Search these two sources before every message, then ask the model
-live = hub.chat("bob/llama-3", sources=["carol/papers", "erin/trials"])
-live.filter(published_gte="2024-01-01").top(4)
-live.send("How many deaths were reported?")''',
-"Hub._simulate_checkout_paid": '''topup = search.top_up("dave/notes", bundle="starter")
-# Stands in for: the user pays at topup.checkout_url and the webhook credits the wallet
-hub._simulate_checkout_paid(topup.invoice["id"])''',
-"Hub._simulate_space_up": 'hub._simulate_space_up("grace/archive")',
-"Identity": '''me = hub.whoami()
-me.auth
-# -> 'password\'''',
-"Budget": '''budget = hub.set_budget(2.00)
-budget.remaining
-# -> 2.0''',
-"Budget.remaining": '''hub.budget.remaining
-# -> 1.85''',
-"Selection": '''picked = hub.browse().matching("trial adverse events").filter(type="data_source")
-picked.paths
-# -> ['carol/papers', 'erin/trials', 'frank/registry']''',
-"Selection.filter": 'hub.browse().filter(type="data_source", free=True)',
-"Selection.matching": 'hub.browse().matching("trial adverse events")',
-"Selection.pick": 'hub.browse().pick("dave/notes", "olga/trials-assistant")',
-"Selection.__add__": '''picked = (
-    hub.browse().matching("trial adverse events").filter(type="data_source")
-    + hub.browse().pick("dave/notes", "olga/trials-assistant")
-)''',
-"Selection.paths": '''picked.paths
-# -> ['carol/papers', 'erin/trials', 'dave/notes', 'olga/trials-assistant']''',
-"Endpoint": '''ep = hub.get("dave/notes")
-ep.type, ep.pricing.label(), ep.filterable
-# -> ('data_source', '$0.02/document via xendit', ())''',
-"Endpoint.path": '''hub.get("dave/notes").path
-# -> 'dave/notes\'''',
-"Endpoint.url": '''hub.get("dave/notes").url
-# -> 'https://dave.spaces.example\'''',
-"Endpoint.pricing": '''hub.get("dave/notes").pricing.label()
-# -> '$0.02/document via xendit\'''',
-"Policy": '''for p in hub.get("dave/notes").policies:
-    print(p.type, p.enabled, p.config.get("price"))''',
-"Policy.is_payment": '[p for p in ep.policies if p.is_payment]',
-"Pricing": '''pricing = hub.get("dave/notes").pricing
-pricing.rail, pricing.price, pricing.unit, pricing.currency
-# -> (<Rail.XENDIT: 'xendit'>, 0.02, 'document', 'USD')''',
-"Pricing.paid": '''hub.get("heidi/shared-corpus").pricing.paid
-# -> False''',
-"Pricing.label": '''ep.pricing.label()
-# -> '$0.02/document via xendit\'''',
-"Pricing.from_policies": 'Pricing.from_policies(list(ep.policies))',
-"Connection": '''hub.get("dave/notes").connect[0].config["url"]
-# -> 'https://dave.spaces.example\'''',
-"Search": '''search = hub.search("What adverse events were reported?", sources=picked)
-search.total_estimate, [r.endpoint.path for r in search.held]
-# -> ({'USD': 0.15}, ['dave/notes'])''',
-"Search.filter": '''# Date filters go to the Spaces that support them; the author filter is applied here
-search.filter(published_gte="2024-06-01", author="R. Chitrakoot")
-
-# The pre-flight table now has a filters column: "at the Space" or "here, after limit"
-search''',
-"Search.filters_for": '''to_space, here = search.filters_for(search.rows[0])
-to_space, here
-# -> ({'published_gte': '2024-06-01'}, {'author': 'R. Chitrakoot'})''',
-"Search.pending": '''for topup in search.pending:
-    print(topup.wallet.key, topup.needed, topup.waiting)''',
-"Search.sending": '''[r.endpoint.path for r in search.sending]
-# -> ['carol/papers', 'erin/trials']''',
-"Search.held": '''[(r.endpoint.path, r.verdict) for r in search.held]
-# -> [('dave/notes', 'needs credits')]''',
-"Search.top_up": '''topup = search.top_up("dave/notes", bundle="starter")
-# Pay here; the Space's webhook credits the wallet
-topup.checkout_url''',
-"Search.refresh": '''# After paying, run pre-flight again
-search.refresh()''',
-"Search.execute": '''results = search.execute()
+"hub.endpoints.resolve": 'await hub.endpoints.resolve(["dave/notes", "collective/oncology", picked])',
+"EndpointList": '''eps = await hub.endpoints.list()
+picked = eps.matching("trial adverse events").filter(type="data_source") + eps.pick("dave/notes")
+picked.paths''',
+"EndpointList.paths": "picked.paths\n# -> ['carol/papers', 'erin/trials', 'dave/notes']",
+"EndpointList.filter": 'eps.filter(type="data_source", free=True)',
+"EndpointList.matching": 'eps.matching("trial adverse events")',
+"EndpointList.pick": 'eps.pick("dave/notes", "olga/trials-assistant")',
+"EndpointList.__add__": 'eps.matching("trials") + eps.pick("dave/notes")',
+"Endpoint": '''ep = await hub.endpoints.get("dave/notes")
+ep.type, ep.pricing.label, ep.filterable
+# -> (<EndpointType.DATA_SOURCE: 'data_source'>, '$0.02/document via xendit', ())''',
+"Endpoint.path": "ep.path\n# -> 'dave/notes'",
+"Endpoint.url": "ep.url\n# -> 'https://dave.spaces.example'",
+"Endpoint.pricing": "ep.pricing.rail, ep.pricing.price\n# -> (<Rail.XENDIT: 'xendit'>, Money(0.02, 'USD'))",
+"Endpoint.policy": 'ep.policy("rate_limit").config["limit"]\n# -> \'60/m\'',
+"Policy": "[p.type.value for p in ep.policies]\n# -> ['xendit', 'rate_limit']",
+"Policy.is_payment": "ep.policies[0].is_payment\n# -> True",
+"Pricing": "ep.pricing\n# -> Pricing(rail=xendit, price=Money(0.02, 'USD'), unit=document, …)",
+"Pricing.currency": "ep.pricing.currency\n# -> 'USD'",
+"Pricing.paid": "ep.pricing.paid\n# -> True",
+"Pricing.prepaid": "ep.pricing.prepaid\n# -> True",
+"Pricing.label": "ep.pricing.label\n# -> '$0.02/document via xendit'",
+"Pricing.estimate": "ep.pricing.estimate(limit=5)\n# -> Money(0.10, 'USD')",
+"Pricing.from_policies": "Pricing.from_policies(ep.policies)",
+"Bundle": "[(b.id, str(b.amount)) for b in ep.pricing.bundles]\n# -> [('starter', '$5.00'), ('pro', '$20.00')]",
+"Connection": "ep.connect[0].config['url']\n# -> 'https://dave.spaces.example'",
+"Page": '''async for page in hub.endpoints.pages():
+    page.items, page.offset, page.total''',
+"SearchPlan": '''plan = hub.search("adverse events in phase 3 trials", sources=picked)   # sync, free
+plan = plan.filter(published_gte="2024-01-01")
+await plan.preflight()
+results = await plan.execute()''',
+"SearchPlan.filter": 'plan.filter(published_gte="2024-01-01", author_contains="chitrakoot")',
+"SearchPlan.filters_for": '''split = plan.filters_for(plan.rows[0])
+split.remote, split.local''',
+"SearchPlan.ready": "plan.ready\n# -> False until await plan.preflight()",
+"SearchPlan.endpoints": "await plan.endpoints()",
+"SearchPlan.preflight": "await plan.preflight()                                    # shows the table in a notebook",
+"SearchPlan.refresh": "await plan.refresh()                                      # after paying",
+"SearchPlan.estimate": "plan.estimate\n# -> {'USD': Money(0.15, 'USD')}",
+"SearchPlan.sending": "[r.endpoint.path for r in plan.sending]",
+"SearchPlan.held": "[(r.endpoint.path, r.hold_reason) for r in plan.held]",
+"SearchPlan.pending": "plan.pending\n# -> [TopUp(w-dave-xendit-usd: needs $0.10, waiting ['dave/notes'])]",
+"SearchPlan.top_up": '''invoice = await plan.top_up("dave/notes", "starter")
+invoice.checkout_url''',
+"SearchPlan.execute": '''results = await plan.execute()
+results = await plan.execute(ignore_budget=True)         # send what pre-flight held as over budget''',
+"PlanRow": "plan.rows[0].verdict, plan.rows[0].estimate\n# -> (<Verdict.READY: 'ready'>, Money(0.05, 'USD'))",
+"FilterSplit": "plan.filters_for(row).remote\n# -> {'published_gte': '2024-01-01'}",
+"Results": '''results = await plan.execute()
 results.ok_count, results.cost
-# -> (4, {'USD': 0.13})''',
-"Search.total_estimate": '''search.total_estimate
-# -> {'USD': 0.15, 'IDR': 300.0}''',
-"SearchRow": '''row = search.rows[0]
-row.endpoint.path, row.estimate, row.verdict, row.send
-# -> ('carol/papers', 0.05, 'ready', True)''',
-"Results": '''results = search.execute()
-results                      # one row per source, with outcome and cost
-results["erin/trials"]       # one source in detail''',
-"Results.__getitem__": '''results["erin/trials"].documents
-results[0].cost''',
-"Results.filter": '''# A view: the raw responses are untouched
-recent = results.filter(published_gte="2024-01-01")''',
-"Results.only": 'recent.only("erin/trials", "olga/trials-assistant")',
+recent = results.filter(published_gte="2024-01-01").top(5)''',
+"Results.filter": 'results.filter(published_gte="2024-01-01")',
+"Results.only": 'results.only("erin/trials", "olga/trials-assistant")',
 "Results.drop": 'results.drop("frank/registry")',
-"Results.top": '''# The three best passages across every source
-results.top(3)''',
-"Results.__add__": '''more = hub.search("infection-related SAEs", sources=["heidi/shared-corpus"]).execute()
-# Add the new evidence to a running chat
-chat.use(chat.view + more)''',
-"Results.documents": '''for path, doc in results.documents:
-    print(path, round(doc.similarity_score, 2), doc.content[:60])''',
-"Results.paths": '''results.paths
-# -> ['carol/papers', 'erin/trials', 'dave/notes', 'olga/trials-assistant']''',
-"Results.ok_count": '''results.ok_count
-# -> 3''',
-"Results.skipped": '''[(r.endpoint.path, r.reason) for r in results.skipped]
-# -> [('dave/notes', <SkipReason.NO_CREDITS: 'no_credits'>)]''',
-"Results.pending": '''for action in results.pending:
-    print(type(action).__name__, action.endpoint.path)''',
-"Results.spent": '''results.spent
-# -> 0.13''',
-"Results.charges": '''results.charges
-# -> [{'policy': 'xendit', 'amount': 0.05, 'currency': 'USD', ...}, ...]''',
-"Results.cost": '''results.cost
-# -> {'USD': 0.13}''',
-"Results.answers": '''results.answers
-# -> {'olga/trials-assistant': 'Across the three trials ...'}''',
-"Results.returns": '''results.returns
-# -> 'both\'''',
-"Results.raw": '''results.raw["erin/trials"]["policy_metadata"]''',
-"Results.top_up": '''# After execute, for a row the Space rejected for credits
-results.top_up("dave/notes", bundle="starter")
-# ...pay at the checkout URL, then:
-results.retry()''',
-"Results.retry": '''# Re-send what was skipped for no credits, over budget, unreachable or rate limited
-results.retry()''',
-"Results.approve": '''# MPP only: pay the pending challenges from your Hub wallet and re-send
-results.approve()''',
-"Results.proceed": '''# Send the rows that were held as over budget
-results.proceed()''',
-"Results.skip": '''# Mark a row as skipped by you; retry() leaves it alone
-results.skip("kim/ledger")''',
-"Results.chat": '''chat = recent.chat("ivan/gpt-mini")
-
-# Or a room with two models answering side by side
-room = recent.chat(["ivan/gpt-mini", "bob/llama-3"])''',
-"Results.ask": '''# One question, one answer, no thread kept
-reply = recent.ask("bob/llama-3", "Summarise the serious adverse events.")
+"Results.top": "results.top(3)",
+"Results.__add__": '''more = await hub.search("infection-related SAEs", sources=["heidi/shared-corpus"]).execute()
+both = results + more''',
+"Results.__getitem__": 'results["erin/trials"].documents',
+"Results.paths": "results.paths",
+"Results.returned": "[r.endpoint.path for r in results.returned]",
+"Results.ok_count": "results.ok_count\n# -> 4",
+"Results.skipped": "[(r.endpoint.path, r.outcome, r.reason) for r in results.skipped]",
+"Results.documents": '''for path, doc in results.documents[:3]:
+    print(path, doc.similarity_score, doc.content[:60])''',
+"Results.answers": "results.answers\n# -> {'olga/trials-assistant': 'Across my curated corpus, …'}",
+"Results.kind": "results.kind\n# -> <ReturnKind.BOTH: 'both'>",
+"Results.raw": 'results.raw["erin/trials"]["policy_metadata"]',
+"Results.pending": "results.pending\n# -> [TopUp(…)] or [Charge(…)]",
+"Results.charges": "[(c.source, c.status, str(c.amount)) for c in results.charges]",
+"Results.cost": "results.cost\n# -> {'USD': Money(0.13, 'USD')}",
+"Results.to_dict": '''import json
+json.dumps(results.to_dict())''',
+"Results.from_dict": "syfthub.Results.from_dict(hub, json.loads(saved))",
+"Results.top_up": '''invoice = await results.top_up("dave/notes", "starter")
+# pay at invoice.checkout_url, then
+results = await results.retry()''',
+"Results.retry": '''results = await results.retry()                           # every retryable row
+results = await results.retry("frank/registry")
+results = await results.retry(ignore_budget=True)''',
+"Results.approve": 'results = await results.approve("kim/ledger")             # MPP, experimental',
+"Results.skip": 'results = results.skip("frank/registry")',
+"Results.chat": '''chat = results.chat("ivan/gpt-mini")
+chat = results.chat(["ivan/gpt-mini", "bob/llama-3"], include="references")''',
+"Results.ask": '''reply = await results.ask("bob/llama-3", "What stands out?")
 reply.text''',
-"Results.aggregate": '''# Via the Aggregator: rerank the passages, then generate one answer
-answer = results.aggregate("bob/llama-3")
+"Results.aggregate": '''answer = await results.aggregate("bob/llama-3")
 answer.text, answer.citations''',
-"SourceResult": '''r = results["erin/trials"]
-r.ok, len(r.documents), r.cost, r.currency
-# -> (True, 5, 0.05, 'USD')''',
-"SourceResult.ok": 'results["erin/trials"].ok',
-"SourceResult.all_documents": '''# Everything the Space returned, before filter() or top()
-len(results["erin/trials"].all_documents)''',
-"SourceResult.documents": '''for doc in recent["erin/trials"].documents:
-    print(doc.metadata["published"], doc.content[:60])''',
-"SourceResult.returns": '''results["olga/trials-assistant"].returns
-# -> 'summary\'''',
+"SourceResult": '''row = results["erin/trials"]
+row.outcome, row.cost, len(row.documents)''',
+"SourceResult.ok": "row.ok",
+"SourceResult.retryable": "row.retryable",
+"SourceResult.all_documents": "len(row.all_documents)                                   # before client-side filters",
+"SourceResult.documents": "row.documents",
+"SourceResult.kind": "row.kind\n# -> <ReturnKind.REFERENCES: 'references'>",
 "SourceResult.summary": 'results["olga/trials-assistant"].summary',
-"SourceResult.cost": '''results["erin/trials"].cost
-# -> 0.05''',
-"SourceResult.currency": '''results["erin/trials"].currency
-# -> 'USD\'''',
-"SourceResult.policy_metadata": '''results["erin/trials"].policy_metadata["entries"]''',
-"SourceResult.detail": '''results["dave/notes"].detail
-# -> 'Insufficient credits: balance 0.00, needs 0.10\'''',
-"SourceResult.skipped": '[r.endpoint.path for r in results if r.skipped]',
-"Document": '''path, doc = results.documents[0]
-doc.similarity_score, doc.metadata.get("published")
-# -> (0.91, '2024-03-02')''',
-"Answer": '''answer = results.aggregate("bob/llama-3")
-answer.text
-answer.citations
-# -> {1: 'erin/trials', 2: 'carol/papers'}''',
-"Chat": '''chat = recent.chat("ivan/gpt-mini")
-chat                          # price per message, your balance, the transcript
-chat.send("Summarise the serious adverse events.")
-chat.send("Were any of them fatal?")
-chat.spent
-# -> {'USD': 0.02}''',
-"Chat.send": '''replies = chat.send("Were any of them fatal?")
-
-# One model in the room: read the answer directly
-replies.text
-
-# Several models: pick the tab
-replies["bob/llama-3"].text''',
-"Chat.context": '''# Earlier turns per model, then the passages, each with a token count
-chat.context''',
-"Chat.use": '''# Narrow what the models see to three passages from two sources
-chat.use(recent.only("erin/trials", "olga/trials-assistant").top(3))
-
-# Add new evidence mid-conversation
-chat.use(chat.view + more)''',
-"Chat.add": '''# Joins from the next message on, briefed with the lead model's transcript
-chat.add("bob/llama-3")
-
-# Joins with only the passages, no briefing
-chat.add("lena/sahabat-ai", brief=False)''',
-"Chat.remove": '''# Its tab stays readable; it is not asked again
-chat.remove("ivan/gpt-mini")''',
-"Chat.top_up": '''# One model is short: no need to name it
-topup = chat.top_up(bundle="starter")
-
-# Several could be: say which
-topup = chat.top_up("ivan/gpt-mini", bundle="starter")''',
-"Chat.reset": '''# Drop every model's turns; the passages and pre-flights stay
-chat.reset()''',
-"Chat.filter": '''# On a chat that searches every message, the filter travels with each search
-live = hub.chat("bob/llama-3", sources=["carol/papers", "erin/trials"])
-live.filter(published_gte="2024-01-01")''',
+"SourceResult.usage": 'results["olga/trials-assistant"].usage["total_tokens"]',
+"SourceResult.cost": "row.cost\n# -> Money(0.05, 'USD')",
+"SourceResult.policy_metadata": 'row.policy_metadata["entries"][0]["status"]\n# -> \'charged\'',
+"SourceResult.charges": "row.charges[0].transaction_id",
+"SourceResult.detail": 'results["frank/registry"].detail',
+"Document": "doc.document_id, doc.similarity_score, doc.metadata.get('published')",
+"ChargeEntry": "c = results.charges[0]\nc.source, c.policy_type, c.status, c.amount",
+"ChargeEntry.signed": "sum((c.signed for c in results.charges if c.signed), Money())",
+"RateLimit": 'results["frank/registry"].rate_limit\n# -> RateLimit(limit=\'2/m\', remaining=0, reset_seconds=37)',
+"Answer": '''answer = await results.aggregate("bob/llama-3")
+answer.text, answer.citations, answer.reranked[:2]''',
+"Answer.ok": "answer.ok",
+"Answer.resume": '''invoice = await answer.pending[0].buy("starter")           # a TopUp the Aggregator forwarded
+# pay, then
+answer = await answer.resume()''',
+"Answer.approve": "answer = await answer.approve()                           # pays forwarded MPP charges, resumes",
+"Chat": '''chat = results.chat("ivan/gpt-mini")
+await chat.preflight()
+replies = await chat.send("Summarise the serious adverse events.")
+await chat.add("bob/llama-3")
+await chat.send("Do you agree?")''',
+"Chat.turn": "chat.turn",
+"Chat.add": 'await chat.add("bob/llama-3")                            # briefed with the transcript so far',
+"Chat.remove": 'await chat.remove("ivan/gpt-mini")',
+"Chat.fork": 'branch = chat.fork().only("erin/trials")                   # compare two views over one conversation',
+"Chat.lead": "chat.lead.path",
+"Chat.endpoint": 'chat.endpoint("bob/llama-3").pricing.label',
+"Chat.preflight": "await chat.preflight()",
+"Chat.rows": 'chat.rows["ivan/gpt-mini"].verdict',
+"Chat.pending": "chat.pending",
+"Chat.top_up": '''invoice = await chat.top_up(bundle="starter")             # one model short: no need to name it
+invoice = await chat.top_up("ivan/gpt-mini", bundle="starter")''',
+"Chat.view": "chat.view.paths",
+"Chat.history": 'await hub.search("follow-up", sources=picked, history=chat.history).execute()',
+"Chat.context": "chat.context                                              # earlier turns + passages, with token counts",
+"Chat.use": 'chat.use(results.only("erin/trials").top(3))\nchat.use(chat.view + more)',
+"Chat.filter": 'chat.filter(published_gte="2024-01-01")',
 "Chat.only": 'chat.only("erin/trials", "olga/trials-assistant")',
 "Chat.drop": 'chat.drop("frank/registry")',
-"Chat.top": 'chat.top(3)',
-"Chat.spent": '''chat.spent
-# -> {'USD': 0.04, 'IDR': 600.0}''',
-"Chat.spent_by": '''chat.spent_by("lena/sahabat-ai")
-# -> {'IDR': 600.0}''',
-"Chat.view": '''# The Results the passages come from
-chat.view''',
-"Chat.history": '''# Share the thread with the Spaces, explicitly
-hub.search("Were any fatal?", sources=picked, history=chat.history)''',
-"Chat.last": '''chat.last.text''',
-"Chat.turn": '''chat.turn
-# -> 4''',
-"Chat.model": '''chat.model.path
-# -> 'ivan/gpt-mini\'''',
-"Chat.endpoint": 'chat.endpoint("bob/llama-3").pricing.label()',
-"Chat.refresh": '''# After paying, check balances again
-chat.refresh()''',
-"Chat.rows": '''{path: row.verdict for path, row in chat.rows.items()}
-# -> {'ivan/gpt-mini': 'ready', 'bob/llama-3': 'ready'}''',
-"Chat.row": '''chat.row.verdict
-# -> 'ready\'''',
-"Chat.pending": '''[t.wallet.key for t in chat.pending]
-# -> ['w-ivan-stripe-usd']''',
-"Replies": '''replies = room.send("Do you agree, and what would you add?")
-replies.models
-# -> ['ivan/gpt-mini', 'bob/llama-3']
-replies["bob/llama-3"].text''',
-"Replies.__getitem__": '''replies["bob/llama-3"]
-replies[0]''',
-"Replies.models": '''replies.models
-# -> ['ivan/gpt-mini', 'bob/llama-3']''',
-"Replies.text": '''# One model in the room
-replies.text
-
-# Several models: this raises; index by model path instead
-replies["bob/llama-3"].text''',
-"Replies.citations": '''replies.citations
-# -> {1: 'erin/trials', 3: 'carol/papers'}''',
-"Replies.reason": '''replies.reason
-# -> <SkipReason.NO_CREDITS: 'no_credits'>''',
-"Replies.ok": '''replies.ok
-# -> True''',
-"Replies.context": '''replies.context.tokens
-# -> 1240''',
-"Replies.pending": '''[t.wallet.key for t in replies.pending]''',
-"Replies.charges": '''replies.charges
-# -> [{'policy': 'stripe', 'amount': 0.01, 'currency': 'USD', ...}]''',
-"Replies.cost": '''replies.cost
-# -> {'USD': 0.01}''',
-"Replies.top_up": '''topup = replies.top_up("ivan/gpt-mini", bundle="starter")
-topup.checkout_url''',
-"Reply": '''reply = replies["bob/llama-3"]
-reply.ok, reply.cost
-# -> (True, {'USD': 0.01})''',
-"Reply.outcome": '''reply.outcome
-# -> <Outcome.SUCCESS: 'success'>''',
-"Reply.reason": '''reply.reason
-# -> None''',
-"Reply.text": 'reply.text',
-"Reply.ok": '''if reply.ok:
-    print(reply.text)''',
-"Reply.pending": '''for topup in reply.pending:
-    print(topup.needed, topup.currency)''',
-"Reply.charges": 'reply.charges',
-"Reply.cost": '''reply.cost
-# -> {'USD': 0.01}''',
-"Reply.top_up": '''topup = reply.top_up(bundle="starter")
-topup.checkout_url''',
-"Context": '''ctx = chat.context
-ctx.turns, ctx.history_tokens, ctx.source_tokens
-# -> (2, 310, 930)''',
-"Context.source_tokens": '''chat.context.source_tokens
-# -> 930''',
-"Context.history_tokens": '''chat.context.history_tokens
-# -> 310''',
-"Context.tokens": '''chat.context.tokens
-# -> 1240''',
-"Context.turns": '''chat.context.turns
-# -> 2''',
-"Context.counts": '''chat.context.counts
-# -> {'references': 6, 'summaries': 1}''',
-"Wallets": '''wallets = hub.wallets()
-wallets["dave/notes"].balance        # by the endpoint it funds
-wallets["w-dave-xendit-usd"].balance # by wallet key''',
-"Wallets.__getitem__": '''hub.wallets()["dave/notes"]
-hub.wallets()["w-dave-xendit-usd"]''',
-"Wallet": '''w = hub.wallet("dave/notes")
-w.owner, w.type, w.currency, w.balance, w.endpoints
-# -> ('dave', <Rail.XENDIT: 'xendit'>, 'USD', 0.0, ('dave/notes', 'dave/imaging'))''',
-"Wallet.top_up": '''invoice = hub.wallet("dave/notes").top_up("starter")
-invoice["checkout_url"]''',
-"Wallet.refresh": 'hub.wallet("dave/notes").refresh().balance',
-"TopUp": '''topup = search.pending[0]
-topup.needed, topup.currency, [b["id"] for b in topup.bundles]
-# -> (0.10, 'USD', ['starter', 'plus'])''',
-"TopUp.balance": '''topup.balance
-# -> 0.0''',
-"TopUp.currency": '''topup.currency
-# -> 'USD\'''',
-"TopUp.bundles": '''[(b["id"], b["price"]) for b in topup.bundles]
-# -> [('starter', 5.0), ('plus', 20.0)]''',
-"TopUp.checkout_url": '''# None until a bundle is chosen
-topup = search.top_up("dave/notes", bundle="starter")
-topup.checkout_url
-# -> 'https://dave.spaces.example/pay/inv_...\'''',
-"Charge": '''for charge in results.pending:
-    print(charge.endpoint.path, charge.amount, charge.currency)''',
-"Outcome": '''r = results["dave/notes"]
-r.outcome is Outcome.SKIPPED and r.reason is SkipReason.NO_CREDITS
-# -> True''',
-"SkipReason": '''[(r.endpoint.path, r.reason.value) for r in results.skipped]
-# -> [('dave/notes', 'no_credits')]''',
-"SkipReason.retryable": '[r for r in results.skipped if r.reason.retryable]',
-"Rail": '''ep.pricing.rail
-# -> <Rail.XENDIT: 'xendit'>''',
-"Rail.prepaid": '''ep.pricing.rail.prepaid
-# -> True''',
+"Chat.top": "chat.top(4)",
+"Chat.reset": "chat.reset()                                              # drops the turns, keeps the passages",
+"Chat.send": '''replies = await chat.send("Were any of them fatal?")
+replies.text                                              # one model
+replies["bob/llama-3"].text                               # several''',
+"Chat.last": "chat.last.cost",
+"Chat.spent": "chat.spent\n# -> {'USD': Money(0.08, 'USD')}",
+"Chat.spent_by": 'chat.spent_by("ivan/gpt-mini")',
+"Chat.to_dict": "json.dumps(chat.to_dict())",
+"Replies": '''replies = await chat.send("Do you agree?")
+replies.models, replies["bob/llama-3"].text, replies.cost''',
+"Replies.__getitem__": 'replies["bob/llama-3"]',
+"Replies.models": "replies.models",
+"Replies.text": "replies.text                                              # when one model was asked",
+"Replies.citations": "replies.citations",
+"Replies.reason": "replies.reason",
+"Replies.ok": "replies.ok",
+"Replies.context": "replies.context.tokens",
+"Replies.pending": "replies.pending",
+"Replies.charges": "replies.charges",
+"Replies.cost": "replies.cost",
+"Replies.to_dict": 'replies.to_dict()["replies"][0]["text"]',
+"Reply": 'reply = replies["bob/llama-3"]\nreply.ok, reply.text, reply.cost',
+"Reply.outcome": "reply.outcome",
+"Reply.reason": "reply.reason",
+"Reply.text": "reply.text",
+"Reply.ok": "reply.ok",
+"Reply.pending": "reply.pending",
+"Reply.charges": "reply.charges",
+"Reply.cost": "reply.cost",
+"Context": "ctx = chat.context\nctx.turns, ctx.counts, ctx.tokens",
+"Context.source_tokens": "ctx.source_tokens",
+"Context.history_tokens": "ctx.history_tokens",
+"Context.tokens": "ctx.tokens",
+"Context.turns": "ctx.turns",
+"Context.counts": "ctx.counts\n# -> {'references': 10, 'summaries': 1}",
+"Message": "chat.history[0]\n# -> Message(role=<Role.USER: 'user'>, content='Summarise …')",
+"Message.wire": "chat.history[0].wire()\n# -> {'role': 'user', 'content': 'Summarise …'}",
+"hub.wallets": '''await hub.wallets.list()
+w = await hub.wallets.for_endpoint("dave/notes")
+invoice = await w.top_up("starter")''',
+"hub.wallets.list": "await hub.wallets.list()\nawait hub.wallets.list(picked)",
+"hub.wallets.get": 'await hub.wallets.get("w-dave-xendit-usd")',
+"hub.wallets.for_endpoint": 'await hub.wallets.for_endpoint("dave/notes")',
+"hub.wallets.balance": 'await hub.wallets.balance("dave/notes")\n# -> Money(0.0, \'USD\')',
+"WalletList": 'wallets = await hub.wallets.list()\nwallets["dave/notes"], wallets["w-dave-xendit-usd"]',
+"WalletList.__getitem__": 'wallets["dave/notes"].balance',
+"Wallet": "w.key, w.rail, w.balance, w.endpoints",
+"Wallet.bundle": 'w.bundle("starter").amount',
+"Wallet.top_up": 'invoice = await w.top_up("starter")',
+"Wallet.refresh": "w = await w.refresh()",
+"Invoice": '''invoice = await plan.top_up("dave/notes", "starter")
+invoice.checkout_url, invoice.status''',
+"Invoice.paid": "invoice.paid",
+"Invoice.wait_paid": "invoice = await invoice.wait_paid(timeout=600, poll=5)      # headless: polls the balance route",
+"TopUp": '''topup = plan.pending[0]
+topup.wallet.key, topup.needed, topup.waiting''',
+"TopUp.balance": "topup.balance",
+"TopUp.bundles": "[b.id for b in topup.bundles]",
+"TopUp.buy": 'invoice = await topup.buy("starter")',
+"Charge": 'charge = results.pending[0]\ncharge.amount\n# -> Money(0.05, \'USD\')',
+"EndpointType": 'ep.type is EndpointType.DATA_SOURCE\n(await hub.endpoints.list(type="model")).paths',
+"EndpointType.returns_references": "EndpointType.MODEL_DATA_SOURCE.returns_references\n# -> True",
+"EndpointType.returns_summary": "EndpointType.DATA_SOURCE.returns_summary\n# -> False",
+"Rail": "ep.pricing.rail\n# -> <Rail.XENDIT: 'xendit'>",
+"Rail.prepaid": "Rail.CLUSTER.prepaid, Rail.MPP.prepaid\n# -> (True, False)",
+"PolicyType": "[p.type for p in ep.policies]",
+"PolicyType.is_payment": "PolicyType.STRIPE.is_payment\n# -> True",
+"PriceUnit": "ep.pricing.unit\n# -> <PriceUnit.DOCUMENT: 'document'>",
+"Outcome": '''for row in results:
+    if row.outcome is Outcome.REJECTED:
+        print(row.endpoint.path, row.reason)''',
+"Reason": 'results["frank/registry"].reason\n# -> <Reason.RATE_LIMITED: \'rate_limited\'>',
+"Reason.retryable": "Reason.RATE_LIMITED.retryable, Reason.ACCESS_DENIED.retryable\n# -> (True, False)",
+"Verdict": "plan.rows[0].verdict\n# -> <Verdict.READY: 'ready'>",
+"Verdict.label": "Verdict.NEEDS_CREDITS.label\n# -> 'needs credits'",
+"ReturnKind": "results.kind\n# -> <ReturnKind.BOTH: 'both'>",
+"Include": 'results.chat("bob/llama-3", include=Include.REFERENCES)',
+"Via": 'hub.chat("bob/llama-3", via=Via.AGGREGATOR)',
+"AuthMethod": "hub.me.auth\n# -> <AuthMethod.TOKEN: 'token'>",
+"Health": "ep.health\n# -> <Health.HEALTHY: 'healthy'>",
+"InvoiceStatus": "invoice.status is InvoiceStatus.PAID",
 "SyftHubError": '''try:
-    hub.whoami()
+    await hub.endpoints.get("nobody/here")
 except syfthub.SyftHubError as e:
-    print(e)''',
+    print(type(e).__name__, e)''',
+"ConfigurationError": 'syfthub.AsyncHub("hub.example.com")                      # raises: url must include a scheme',
+"ValidationError": 'hub.search("q", sources=picked, limit=0)                  # raises: limit must be at least 1',
+"AuthError": '''try:
+    await hub.login(token="bad")
+except syfthub.AuthError as e:
+    print(e.who, e)''',
 "NotLoggedIn": '''try:
-    hub.whoami()
+    await hub.auth.whoami()
 except syfthub.NotLoggedIn:
-    hub.login(username="alice", password="secret")''',
+    await hub.login(token=os.environ["SYFTHUB_TOKEN"])''',
+"HubError": "except syfthub.HubError as e:\n    print(e.status, e.url, e.request_id)",
+"NotFound": 'await hub.endpoints.get("nobody/here")                    # raises NotFound',
+"HubUnavailable": "except syfthub.HubUnavailable:\n    schedule_retry()",
+"SpaceError": "except syfthub.SpaceError as e:\n    print(e.path, e.status, e.body)",
+"InvoiceError": 'await w.top_up("no-such-bundle")                         # raises InvoiceError',
+"AggregatorError": '''try:
+    await results.aggregate("bob/llama-3")
+except syfthub.AggregatorError as e:
+    print(e.status, e)''',
 "BudgetExceeded": '''try:
-    results.approve()
+    await results.approve()
 except syfthub.BudgetExceeded as e:
-    hub.set_budget(e.needed)
-    results.approve()''',
-"RunNotReady": '''try:
-    chat.top_up(bundle="starter")          # two models are short: which one?
-except syfthub.RunNotReady as e:
-    print(e)                               # "several models are short: name one, ..."''',
-"NothingToRun": '''try:
-    results.retry()
-except syfthub.NothingToRun:
-    print("every source is done")''',
+    print(e.needed, e.remaining)''',
+"InvalidState": 'await chat.remove("nobody/here")                          # raises InvalidState',
+"syfthub.testing.World": '''from syfthub.testing import World, MockTransport
+
+world = World()
+hub = syfthub.AsyncHub(options=syfthub.Options(http_client=MockTransport(world)))
+world.pay(invoice)                                        # the user paid and the webhook fired
+world.space_down("grace/archive")''',
 }
 
 # Verbs at a glance: (verb, lives on, what it does)
 VERBS = [
-    ("browse / find / get", "hub", "List endpoints, search the Hub for them, or open one."),
-    ("filter", "Selection, Search, Results, Chat", "Narrow by type, owner or tag, or by document metadata. On a Search, the filter is sent to Spaces that support it."),
-    ("matching / pick / +", "Selection", "Fuzzy-match, pick by name, combine two lists."),
-    ("search, then execute", "hub, Search", "Compose a search and review its pre-flight, then send what passes."),
-    ("top_up", "Search, Results, Chat, Wallet", "Buy a credit bundle for a wallet that is short. You get an invoice with a checkout URL."),
-    ("retry / approve / proceed / skip", "Results", "Act on skipped rows: re-send them, pay MPP charges, accept going over budget, or drop them."),
-    ("only / drop / top / +", "Results", "Views over what came back. The raw responses are never changed."),
-    ("chat / ask / aggregate", "Results", "Start a conversation about the results, ask once, or hand them to the Aggregator."),
+    ("endpoints.list / search / get", "hub", "List endpoints (pages followed), search the Hub's listings, or open one."),
+    ("wallets.list / for_endpoint / balance", "hub", "Your prepaid balances, one wallet per owner, rail and currency."),
+    ("login", "hub, hub.auth", "Sign in with a password or a token. The only top-level alias."),
+    ("search, then preflight, then execute", "hub, SearchPlan", "Compose for free, see the cost, send what passes."),
+    ("filter", "SearchPlan, Results, Chat", "Narrow by document metadata. On a plan, sent to Spaces that support it."),
+    ("matching / pick / +", "EndpointList", "Fuzzy-match, pick by name, combine two lists."),
+    ("top_up / buy", "SearchPlan, Results, Chat, Wallet, TopUp", "Buy a credit bundle. You get an Invoice with a checkout URL; wait_paid polls."),
+    ("retry / approve / skip", "Results", "Re-send what can change, pay MPP charges, or drop a source. Each returns a new Results."),
+    ("only / drop / top / +", "Results", "Views. The raw responses are never changed."),
+    ("chat / ask / aggregate", "Results", "Start a room about the results, ask once, or hand them to the Aggregator."),
     ("send", "Chat", "One message to every model in the room. Returns a reply per model."),
     ("use / view / context", "Chat", "See what the next message carries and change which passages it uses."),
-    ("add / remove", "Chat", "Change who answers from the next message on."),
-    ("reset", "Chat", "Start the thread over, keeping the passages."),
+    ("add / remove / fork / reset", "Chat", "Change who answers, branch the conversation, or start the thread over."),
 ]
 
 TOUR = '''import syfthub
 
-hub = syfthub.connect("https://hub.example.com")
-hub.login(username="alice", password="secret")
+async with syfthub.AsyncHub(token="syft_pat_...") as hub:
 
-# Shortlist some sources
-picked = (
-    hub.browse().matching("trial adverse events").filter(type="data_source")
-    + hub.browse().pick("dave/notes", "olga/trials-assistant")
-)
+    # Shortlist some sources
+    eps = await hub.endpoints.list()
+    picked = eps.matching("trial adverse events").filter(type="data_source") + eps.pick("dave/notes")
 
-# Compose a search. Nothing is sent yet: you see the cost per source and what is held
-search = hub.search("What adverse events were reported in phase 3 trials?",
-                    sources=picked)
-search
+    # Compose a search: free, nothing sent. Pre-flight shows the cost per source and what is held
+    plan = hub.search("What adverse events were reported in phase 3 trials?", sources=picked)
+    await plan.preflight()
 
-# One wallet is short: buy a bundle and pay at topup.checkout_url
-topup = search.top_up("dave/notes", bundle="starter")
+    # One wallet is short: buy a bundle, pay at the link (or wait for the payment in a script)
+    invoice = await plan.top_up("dave/notes", "starter")
+    invoice = await invoice.wait_paid()
 
-# Send it. Every source comes back returned, skipped with a reason, or payment required
-results = search.execute()
-recent = results.filter(published_gte="2024-01-01")
+    # Send it. Every source comes back returned, held, rejected, failed, or payment required
+    results = await plan.execute()
+    recent = results.filter(published_gte="2024-01-01")
 
-# Talk to a model about the results. Same pre-flight: price per message, your balance.
-chat = recent.chat("ivan/gpt-mini")
-chat.context                                   # what the next message will carry
-chat.send("Summarise the serious adverse events.")
+    # Talk to a model about the results. Same pre-flight: price per message, your balance
+    chat = recent.chat("ivan/gpt-mini")
+    chat.context                                   # what the next message will carry
+    await chat.send("Summarise the serious adverse events.")
 
-# A second opinion joins from here on, briefed with the transcript so far
-chat.add("bob/llama-3")
-chat.send("Do you agree, and what would you add?")["bob/llama-3"].text
-chat.remove("ivan/gpt-mini")
+    # A second opinion joins from here on, briefed with the transcript so far
+    await chat.add("bob/llama-3")
+    (await chat.send("Do you agree, and what would you add?"))["bob/llama-3"].text
+    await chat.remove("ivan/gpt-mini")
 
-# Add fresh evidence mid-conversation
-more = hub.search("infection-related SAEs", sources=["heidi/shared-corpus"]).execute()
-chat.use(chat.view + more)
+    # Add fresh evidence mid-conversation
+    more = await hub.search("infection-related SAEs", sources=["heidi/shared-corpus"]).execute()
+    chat.use(chat.view + more)
 
-chat.spent
-# -> {'USD': 0.10}'''
+    chat.spent
+    # -> {'USD': Money(0.08, 'USD')}'''
 
 
 # ----------------------------------------------------------------------------- docstring parsing
@@ -560,8 +497,8 @@ def rich(s: str) -> str:
 
 def docinfo(obj) -> dict:
     d = inspect.getdoc(obj) or ""
-    if isinstance(obj, type) and d.startswith(obj.__name__ + "("):
-        d = ""                         # a dataclass without its own docstring: skip the generated one
+    if isinstance(obj, type) and (d.startswith(obj.__name__ + "(") or d.startswith("Usage docs: https://docs.pydantic")):
+        d = ""                         # a dataclass or pydantic model without its own docstring: skip the generated one
     if isinstance(obj, type) and any(d == (inspect.getdoc(b) or "") for b in obj.__mro__[1:]):
         d = ""                         # inherited from list / str / Exception: not about this class
     return parse_doc(d)
@@ -582,8 +519,9 @@ def badges(obj, name: str = "") -> str:
 def anno(a) -> str:
     if a is inspect.Parameter.empty or a is inspect.Signature.empty:
         return ""
-    s = a if isinstance(a, str) else getattr(a, "__name__", None) or str(a)
-    return e(s.replace("typing.", "").strip("'\""))
+    s = a if isinstance(a, str) else (getattr(a, "__name__", None) if isinstance(a, type) else None) or str(a)
+    s = re.sub(r"\b(syfthub\.[a-z_.]+\.|typing\.|decimal\.)", "", s).replace("NoneType", "None")
+    return e(s.strip("'\""))
 
 
 def signature(fn) -> tuple[str, str, list[tuple[str, str, str | None]]]:
@@ -664,6 +602,9 @@ def member_block(label: str, name: str, obj, kind: str) -> str:
     else:
         head = f"<b>{e(name)}</b>{e(params)}"
     k = {"staticmethod": "static method", "classmethod": "class method", "function": "function"}.get(kind, "")
+    if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
+        k = (k + " async").strip()
+        head = "await " + head if not inspect.isasyncgenfunction(fn) else "async for … in " + head
     klabel = f'<span class="k">{k}</span>' if k else ""
     out = [f'<div class="member" id="{e(key)}"><div class="sig">{klabel}{head}'
            f'{(" <span class=t>→ " + ret + "</span>") if ret else ""} {badges(fn, name)}</div>']
@@ -696,8 +637,9 @@ def class_section(cls) -> str:
     anchor = label.replace(".", "-")
     info = docinfo(cls)
     head = f'<section class="cls" id="{anchor}"><h3>{e(label)}</h3>'
-    if inspect.isfunction(cls):                       # syfthub.connect
-        block = member_block("syfthub", "connect", cls, "function")
+    if inspect.isfunction(cls):                       # syfthub.Hub
+        block = member_block("syfthub", cls.__name__, cls, "function")
+        block = block.replace(f'id="syfthub.{cls.__name__}"', f'id="{anchor}"')
         return head + block.replace('<div class="member"', '<div class="member solo"', 1) + "</section>"
     intro = (f'<p class="summary">{rich(info["summary"])}</p>' if info["summary"] else "") + \
             "".join(f"<p>{rich(p)}</p>" for p in info["body"])
@@ -738,6 +680,20 @@ def class_section(cls) -> str:
         if trs:
             body.append('<h4>Fields</h4><table class="params"><thead><tr><th>Field</th><th>Type</th><th>What it holds</th></tr></thead>'
                         f'<tbody>{"".join(trs)}</tbody></table>')
+    elif isinstance(cls, type) and issubclass(cls, BaseModel):
+        trs = []
+        for fname, f in cls.model_fields.items():
+            if f.is_required():
+                dflt = ""
+            elif f.default_factory is not None:
+                dflt = '<span class="dflt">Default: empty</span>'
+            else:
+                dflt = f'<span class="dflt">Default <code>{e(repr(f.default))}</code></span>'
+            text = attrs.get(fname) or notes.get(fname, "")
+            trs.append(f"<tr><td><code>{e(fname)}</code></td><td class=t>{anno(f.annotation)}</td><td>{rich(text)} {dflt}</td></tr>")
+        if trs:
+            body.append('<h4>Fields</h4><table class="params"><thead><tr><th>Field</th><th>Type</th><th>What it holds</th></tr></thead>'
+                        f'<tbody>{"".join(trs)}</tbody></table>')
     elif attrs:
         trs = "".join(f"<tr><td><code>{e(n)}</code></td><td>{rich(d)}</td></tr>" for n, d in attrs.items())
         body.append(f'<h4>Attributes</h4><table class="params"><thead><tr><th>Attribute</th><th>What it holds</th></tr></thead><tbody>{trs}</tbody></table>')
@@ -754,6 +710,8 @@ def class_section(cls) -> str:
             continue
         elif isinstance(v, property):
             props.append((n, v))
+        elif n.startswith("model_"):
+            continue                                   # pydantic plumbing
         elif isinstance(v, (staticmethod, classmethod)):
             methods.append((n, v, type(v).__name__))
         elif inspect.isfunction(v):
@@ -855,16 +813,17 @@ if you are new; use the sidebar to jump to a class.</p>
 <div class="rules">
   <div class="rule"><b>Compose, then execute</b><p>A search or a chat first shows what it will cost and what is held back.
   Nothing is sent until you say so.</p></div>
-  <div class="rule"><b>Payment is a state, not an error</b><p>Each source comes back as returned, skipped with a reason,
-  or waiting on a payment, with the fix attached. Nothing raises.</p></div>
-  <div class="rule"><b>Views, not copies</b><p><code>filter</code>, <code>only</code>, <code>drop</code>, <code>top</code>
-  and <code>+</code> change what you look at. The raw responses stay as the Spaces returned them.</p></div>
+  <div class="rule"><b>Rows, not exceptions</b><p>Each source comes back returned, held, rejected, failed or waiting on a
+  payment, with the fix attached. The outcome says who stopped the call.</p></div>
+  <div class="rule"><b>Immutable results, one mutable room</b><p>Every method on <code>Results</code> returns a new one; the raw
+  responses are never changed. A <code>Chat</code> mutates in place and <code>fork()</code> branches it.</p></div>
 </div>
 <p class="m">This page is generated from the package by <code>build_docs.py</code>. The examples are the ones the
-<a href="../story.ipynb">story</a> and <a href="../advanced.ipynb">advanced</a> notebooks run.</p>
+<a href="../flows.ipynb">flows</a>, <a href="../story.ipynb">story</a> and <a href="../advanced.ipynb">advanced</a> notebooks run.
+Async methods are shown with <code>await</code>; the synchronous <code>syfthub.Hub</code> has the same methods without it.</p>
 
 <h2 id="tour">Quick tour</h2>
-<p class="lead">The whole flow in one screen: shortlist, search, pay, read, chat.</p>
+<p class="lead">The whole flow in one screen: shortlist, search, pay, read, chat. Compose is free and synchronous; the network is awaited.</p>
 <div class="tour"><pre><code>{e(TOUR)}</code></pre></div>
 
 <h2 id="verbs">Verbs at a glance</h2>
@@ -887,10 +846,10 @@ def check() -> list[str]:
         for cls in members:
             label = ALIAS.get(cls, cls.__name__)
             keys.add(label)
-            if inspect.isfunction(cls):
+            if inspect.isfunction(cls) or cls in RELAXED:
                 continue
             for n, v in vars(cls).items():
-                public = not n.startswith("_") or n in ("__add__", "__getitem__", "__call__") or n.startswith("_simulate")
+                public = (not n.startswith("_") and not n.startswith("model_")) or n in ("__add__", "__getitem__", "__call__")
                 if public and (isinstance(v, property) or inspect.isfunction(v) or isinstance(v, (staticmethod, classmethod))):
                     keys.add(f"{label}.{n}")
     problems = [f"no example: {k}" for k in sorted(keys - set(EX))]
