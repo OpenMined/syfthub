@@ -30,15 +30,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # deserialization): the attack requires write access to the cache directory. Restricting it
 # to the syfthub user only prevents other processes from injecting malicious payloads.
 RUN useradd -m -u 1000 syfthub && \
-    mkdir -p /app /app/.cache /sdk/python && \
-    chown -R syfthub:syfthub /app /sdk && \
+    mkdir -p /app /app/.cache && \
+    chown -R syfthub:syfthub /app && \
     chmod 700 /app/.cache
 
 # Set working directory
 WORKDIR /app
 
 # ==============================================================================
-# Development stage - SDK mounted as volume at runtime
+# Development stage
 # Build with: context: ../components/mcp (from deploy directory)
 FROM base AS development
 
@@ -66,11 +66,9 @@ ENV ENVIRONMENT=development \
     MCP_PORT=8002
 
 # Development entrypoint - hot reload enabled
-# SDK will be mounted at /sdk/python via docker-compose
 # Use pip directly (uv has path normalization restrictions that break mounted volumes)
 # --quiet suppresses per-package output; exec replaces shell so uvicorn receives SIGTERM directly
-CMD .venv/bin/pip install --quiet -e /sdk/python && \
-    .venv/bin/pip install --quiet -e . && \
+CMD .venv/bin/pip install --quiet -e . && \
     exec /app/.venv/bin/uvicorn server:create_app \
     --host 0.0.0.0 \
     --port 8002 \
@@ -78,12 +76,9 @@ CMD .venv/bin/pip install --quiet -e /sdk/python && \
     --factory
 
 # ==============================================================================
-# Production stage - SDK baked into image
+# Production stage
 # Build with: context: .. (repository root, from components/mcp directory)
 FROM base AS production
-
-# Copy SDK from repository root (build context must be repository root)
-COPY --chown=syfthub:syfthub sdk/python /sdk/python
 
 # Copy MCP dependency files (from components/mcp subdirectory)
 COPY --chown=syfthub:syfthub components/mcp/pyproject.toml ./
@@ -91,12 +86,9 @@ COPY --chown=syfthub:syfthub components/mcp/pyproject.toml ./
 # Switch to non-root user
 USER syfthub
 
-# Create virtual environment and install ALL dependencies including SDK
-# Remove the local SDK source override to avoid path resolution issues in Docker
-# Then install the package and SDK from the container paths
+# Create virtual environment and install all dependencies (syfthub-sdk comes from PyPI)
 RUN uv venv .venv && \
-    sed -i '/\[tool.uv.sources\]/,/^$/d' pyproject.toml && \
-    uv pip install -e . -e /sdk/python --python .venv/bin/python
+    uv pip install -e . --python .venv/bin/python
 
 # Fail the build on a bad dependency resolve. Deps here are resolved fresh from
 # PyPI (uv.lock is not used in this image), so an upstream release can silently
