@@ -1,0 +1,1 @@
+"""The SyftHubError hierarchy."""
