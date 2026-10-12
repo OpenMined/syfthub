@@ -24,16 +24,32 @@ class Budget(Frozen):
     spent: Money = Money()
 
     @property
+    def currency(self) -> str | None:
+        """The currency the cap is in; None without a cap."""
+        return self.limit.currency if self.limit is not None else None
+
+    def _spent_in(self, currency: str) -> Money:
+        if self.spent.positive or self.spent.currency == currency:
+            return self.spent
+        return Money.zero(currency)
+
+    @property
     def remaining(self) -> Money | None:
         if self.limit is None:
             return None
-        return self.limit - self.spent
+        return self.limit - self._spent_in(self.limit.currency)
+
+    def counts(self, amount: Money) -> bool:
+        """Whether ``amount`` is in the cap's currency. Money is never converted, so an amount in
+        another currency is not counted against the cap."""
+        return self.limit is not None and amount.currency == self.limit.currency
 
     def allows(self, extra: Money) -> bool:
-        """True when spending ``extra`` on top of ``spent`` stays within ``limit``."""
-        if self.limit is None:
+        """True when spending ``extra`` on top of ``spent`` stays within ``limit``. An amount in
+        another currency than the cap is allowed: the cap cannot judge it."""
+        if self.limit is None or not self.counts(extra):
             return True
-        return self.spent + extra <= self.limit
+        return self._spent_in(self.limit.currency) + extra <= self.limit
 
 
 class Timeout(Frozen):

@@ -56,7 +56,13 @@ class PaymentTimeout(PaymentError):
 
 
 class PaymentFailed(PaymentError):
-    """The Hub wallet pay call or the Space invoice route returned an error."""
+    """The Hub wallet pay call or the Space invoice route returned an error. ``code`` is the
+    Hub's machine-readable code when it sent one (``WALLET_NOT_CONFIGURED``,
+    ``INSUFFICIENT_BALANCE``, ``INVALID_CHALLENGE``, ``PAYMENT_FAILED``, ``BLOCKCHAIN_TIMEOUT``)."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class StaleSnapshot(SyftHubError):

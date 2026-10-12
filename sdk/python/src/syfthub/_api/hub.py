@@ -6,8 +6,15 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from .._transport import Transport, TransportError, detail_of
-from ..errors import AuthError, HubUnreachable, SourceNotFound, SyftHubError, ValidationError
+from .._transport import ErrorDetail, Transport, TransportError, detail_of
+from ..errors import (
+    AuthError,
+    HubUnreachable,
+    PaymentFailed,
+    SourceNotFound,
+    SyftHubError,
+    ValidationError,
+)
 
 if TYPE_CHECKING:
     from ..auth import Session
@@ -140,3 +147,27 @@ class HubApi:
         self._raise_for(response)
         body: dict[str, Any] = response.json()
         return body
+
+    # ── MPP: the Hub pays a Space's 402 challenge from the user's wallet ──
+
+    async def pay_mpp(self, www_authenticate: str, endpoint_slug: str) -> str:
+        """``POST /wallet/pay``: returns the ``X-Payment`` credential for one challenge.
+
+        Hub errors (no wallet, insufficient balance, bad challenge, chain timeout) come back as
+        ``PaymentFailed`` with the Hub's ``code`` and ``message``; the row stays unpaid.
+        """
+        response = await self._send(
+            "POST",
+            "/wallet/pay",
+            json={"www_authenticate": www_authenticate, "endpoint_slug": endpoint_slug},
+        )
+        if response.status_code == 401:
+            raise AuthError(detail_of(response) or "not authenticated")
+        if response.status_code >= 400:
+            detail = ErrorDetail.of(response)
+            raise PaymentFailed(f"MPP payment refused by the Hub: {detail}", code=detail.code)
+        body = response.json()
+        credential = body.get("x_payment") if isinstance(body, dict) else None
+        if not isinstance(credential, str) or not credential:
+            raise PaymentFailed("MPP payment: the Hub returned no credential")
+        return credential

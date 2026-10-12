@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from difflib import SequenceMatcher
 from fnmatch import fnmatchcase
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import Field
 
@@ -293,6 +294,15 @@ class Source(Frozen):
         if origin.endswith(path):
             return origin
         return origin + path
+
+    @property
+    def host(self) -> str | None:
+        """The Space host the query goes to; the circuit breaker's key."""
+        url = self.query_url
+        if url is None:
+            return None
+        parts = urlsplit(url)
+        return parts.netloc or url
 
     @property
     def tenant(self) -> str | None:

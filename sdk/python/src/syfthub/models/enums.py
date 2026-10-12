@@ -79,6 +79,7 @@ class Verdict(str, Enum):
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
     CIRCUIT_OPEN = "circuit_open"
+    UNREACHABLE = "unreachable"
     SKIPPED = "skipped"
 
     @property

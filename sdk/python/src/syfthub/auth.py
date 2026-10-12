@@ -107,6 +107,10 @@ class TokenCache:
             )
             return token
 
+    def forget(self, owner: str, url: str) -> None:
+        """Drop one token so the next ``get`` mints afresh (after a Space answered 401)."""
+        self._tokens.pop((owner, self.resource_of(url)), None)
+
     def clear(self) -> None:
         self._tokens.clear()
 

@@ -17,6 +17,7 @@ from .sources import Source
 from .wallets import Charge, ChargeEntry, RateLimit
 
 _RETRYABLE_REJECTIONS = frozenset({Reason.RATE_LIMITED, Reason.NO_CREDITS})
+_RETRYABLE_FAILURES = frozenset({Reason.UNREACHABLE, Reason.TIMEOUT, Reason.SERVER_ERROR})
 
 
 class Document(Frozen):
@@ -27,6 +28,23 @@ class Document(Frozen):
     score: float | None = Field(default=None, alias="similarity_score")
     metadata: dict[str, Any] = Field(default_factory=dict)
     source: str = ""
+
+    @classmethod
+    def from_space(cls, source: str, d: dict[str, Any]) -> Document:
+        """One ``references.documents[]`` item; tolerant of missing or null fields."""
+        metadata = d.get("metadata")
+        return cls(
+            document_id=str(d.get("document_id") or d.get("id") or ""),
+            content=str(d.get("content") or ""),
+            similarity_score=_float(d.get("similarity_score", d.get("score"))),
+            metadata=metadata if isinstance(metadata, dict) else {},
+            source=source,
+        )
+
+    @classmethod
+    def summary(cls, source: str, text: str) -> Document:
+        """A model source's answer as an unscored document."""
+        return cls(document_id="summary", content=text, similarity_score=None, source=source)
 
     @property
     def title(self) -> str | None:
@@ -73,7 +91,7 @@ class SourceResult(Frozen):
         if self.outcome is Outcome.REJECTED:
             return self.reason in _RETRYABLE_REJECTIONS
         if self.outcome is Outcome.FAILED:
-            return self.reason is not Reason.NOT_FOUND
+            return self.reason in _RETRYABLE_FAILURES
         return False
 
     @property
@@ -83,6 +101,13 @@ class SourceResult(Frozen):
     @property
     def summaries(self) -> tuple[Document, ...]:
         return tuple(d for d in self.documents if d.is_summary)
+
+
+def _float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _by_score(pairs: list[tuple[str, Document]]) -> list[tuple[str, Document]]:

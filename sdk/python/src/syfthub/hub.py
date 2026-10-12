@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+from collections.abc import Iterable
 from datetime import datetime
 from types import TracebackType
 from typing import Any
@@ -12,12 +14,17 @@ from ._transport import Breakers, Transport
 from .auth import AuthNamespace, Session, TokenCache
 from .errors import ConfigurationError
 from .models.money import Bundle, Money
+from .models.results import Results
+from .models.search import Preflight, SearchPlan
 from .models.session import Budget, Identity, Options
+from .models.sources import Source, SourceList
 from .models.wallets import Invoice, Wallet
+from .search import Searcher
 from .sources import SourcesNamespace
 from .wallets import WalletsNamespace
 
 DEFAULT_URL = "https://syfthub.openmined.org"
+log = logging.getLogger("syfthub")
 
 
 class AsyncHub:
@@ -50,6 +57,18 @@ class AsyncHub:
         self.sources = SourcesNamespace(self._hub_api, max_items=self.options.max_items)
         self.wallets = WalletsNamespace(self._space_api, self._tokens, self.sources, self)
         self._budget = Budget(limit=_money(budget))
+        self._searcher = Searcher(
+            hub_api=self._hub_api,
+            space=self._space_api,
+            tokens=self._tokens,
+            sources=self.sources,
+            wallets=self.wallets,
+            auth=self.auth,
+            session=self._session,
+            breakers=self.breakers,
+            options=self.options,
+            hub=self,
+        )
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -82,6 +101,30 @@ class AsyncHub:
     def authenticated(self) -> bool:
         return self._session.authenticated
 
+    # ── search ────────────────────────────────────────────────────────────
+
+    def search(
+        self,
+        query: str,
+        sources: Iterable[str | Source] | SourceList | None = None,
+        *,
+        limit: int = 5,
+        similarity_threshold: float = 0.5,
+        include_metadata: bool = True,
+        max_sources: int = 10,
+    ) -> SearchPlan:
+        """Compose a plan. Nothing is sent: ``await plan.preflight()`` prices it,
+        ``await plan.execute()`` runs it. Without ``sources`` the Hub picks free document
+        sources for the query, at most ``max_sources``."""
+        return self._searcher.compose(
+            query,
+            sources,
+            limit=limit,
+            similarity_threshold=similarity_threshold,
+            include_metadata=include_metadata,
+            max_sources=max_sources,
+        )
+
     # ── budget ────────────────────────────────────────────────────────────
 
     @property
@@ -98,10 +141,23 @@ class AsyncHub:
         return self._budget
 
     def _record_spend(self, amount: Money) -> None:
+        """Add a charge to ``spent``. ``spent`` is one currency: the first charge sets it, and a
+        later charge in another currency is logged and not counted."""
         spent = self._budget.spent
-        if spent.currency != amount.currency and not spent.positive:
+        if spent.currency != amount.currency:
+            if spent.positive:
+                log.warning("spent %s not counted: budget is in %s", amount, spent.currency)
+                return
             spent = Money.zero(amount.currency)
         self._budget = Budget(limit=self._budget.limit, spent=spent + amount)
+
+    # ── SearchPort: the plan and results models call back through the hub ──
+
+    async def preflight(self, plan: SearchPlan) -> Preflight:
+        return await self._searcher.preflight(plan)
+
+    async def execute(self, plan: SearchPlan, *, strict: bool = False) -> Results:
+        return await self._searcher.execute(plan, strict=strict)
 
     # ── WalletPort: delegated to hub.wallets so bound models can call the hub ──
 
