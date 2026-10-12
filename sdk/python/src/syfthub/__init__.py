@@ -1,9 +1,16 @@
 """SyftHub Python SDK.
 
-Public surface: ``AsyncHub`` and its sync twin ``Hub`` (step 4), the models, and the errors.
+Public surface: ``AsyncHub`` and its sync twin ``Hub``, the models, and the errors. Logging goes
+to ``logging.getLogger("syfthub")``: one INFO line per execute, DEBUG per request with secrets
+redacted; a ``NullHandler`` is installed so a quiet app sees nothing.
 """
 
+import logging as _logging
+
 from ._version import __version__
+
+_logging.getLogger("syfthub").addHandler(_logging.NullHandler())
+from ._sync import Hub  # noqa: E402
 from .errors import (  # noqa: E402
     ActionRequired,
     AuthError,
@@ -67,6 +74,7 @@ from .models import (  # noqa: E402
 __all__ = [
     "__version__",
     "AsyncHub",
+    "Hub",
     "Access",
     "AccessDenied",
     "Action",
