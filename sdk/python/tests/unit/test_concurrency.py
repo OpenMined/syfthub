@@ -107,7 +107,7 @@ async def test_concurrent_balance_reads_mint_one_satellite_token(
     balance = api.get(f"{SPACE}/api/credits").respond(200, json={"balance": 5, "currency": "USD"})
     (w,) = await within(hub.wallets.list())
     await within(asyncio.gather(*(w.refresh() for _ in range(10))))
-    assert mint.call_count == 1 and balance.call_count == 10
+    assert mint.call_count == 1 and balance.call_count == 11  # one read by list()
 
 
 async def test_nested_locks_token_mint_that_needs_a_renewal(api: respx.MockRouter) -> None:
@@ -143,6 +143,7 @@ async def test_wait_paid_yields_to_the_loop(api: respx.MockRouter, hub: AsyncHub
         200, json=[hub_body("erin", "trials", policies=[xendit_policy()])]
     )
     api.get(f"{HUB}/api/v1/token").respond(200, json={"target_token": "sat", "expires_in": 60})
+    api.get(f"{SPACE}/api/credits").respond(200, json={"balance": 0, "currency": "USD"})
     api.post(f"{SPACE}/api/payments").respond(
         201,
         json={

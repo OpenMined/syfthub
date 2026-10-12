@@ -63,14 +63,9 @@ class SourcesNamespace:
             listing = listing.filter(free=free, tag=tag)
         return listing
 
-    async def get(self, path: str | Source, *, fresh: bool = False) -> Source:
-        """One source by ``owner/slug``. Raises ``SourceNotFound``. Cached for a minute unless
-        ``fresh``."""
+    async def get(self, path: str | Source) -> Source:
+        """One source by ``owner/slug``, read from the Hub now. Raises ``SourceNotFound``."""
         key = as_path(path)
-        if not fresh:
-            hit = self._cache.get(key)
-            if hit and hit[0] > time.monotonic():
-                return hit[1]
         owner, slug = key.split("/", 1)
         body = await self._api.get_public(owner, slug)
         return self._remember(Source.from_hub(body))
@@ -82,20 +77,22 @@ class SourcesNamespace:
         sources = [self._remember(Source.from_hub(r)) for r in results if isinstance(r, dict)]
         return SourceList(items=tuple(sources), total=int(body.get("total") or len(sources)))
 
-    async def resolve(self, paths: tuple[str, ...], *, fresh: bool = False) -> dict[str, Source]:
-        """Sources for ``paths`` in one pass; missing ones raise ``SourceNotFound``."""
+    async def resolve(self, paths: tuple[str, ...]) -> dict[str, Source]:
+        """Sources for ``paths``, each read from the Hub now; missing ones raise
+        ``SourceNotFound``."""
         out: dict[str, Source] = {}
         for p in paths:
-            out[p] = await self.get(p, fresh=fresh)
+            out[p] = await self.get(p)
         return out
 
-    # ── cache ─────────────────────────────────────────────────────────────
+    # ── cache: a one-minute memory of what the Hub said, for sync lookups only ──
 
     def _remember(self, source: Source) -> Source:
         self._cache[source.path] = (time.monotonic() + _CACHE_TTL, source)
         return source
 
     def cached(self, path: str) -> Source | None:
+        """The source as last read this session, if read within the last minute; no request."""
         hit = self._cache.get(path)
         return hit[1] if hit and hit[0] > time.monotonic() else None
 

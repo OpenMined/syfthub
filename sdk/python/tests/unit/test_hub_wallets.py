@@ -20,6 +20,7 @@ def api() -> respx.MockRouter:
         router.get(f"{HUB}/api/v1/token").respond(
             200, json={"target_token": "sat-1", "expires_in": 60}
         )
+        router.get(f"{SPACE}/api/credits").respond(200, json={"balance": 1, "currency": "USD"})
         router.get(f"{HUB}/api/v1/endpoints/public").respond(
             200,
             json=[
@@ -49,7 +50,7 @@ async def test_list_groups_sources_by_wallet_id(hub: AsyncHub) -> None:
     assert len(wallets) == 1
     w = wallets[0]
     assert w.id == "w-erin" and w.key == "erin/xendit/USD" and w.rail is Rail.XENDIT
-    assert w.sources == ("erin/trials", "erin/notes") and w.balance is None
+    assert w.sources == ("erin/trials", "erin/notes") and w.balance == Money.of(1)  # read now
     assert [b.id for b in w.bundles] == ["starter", "pro"]
     assert hub.wallets.get("erin/xendit/USD") is w and hub.wallets.get("w-erin") is w
 

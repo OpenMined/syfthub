@@ -91,7 +91,7 @@ async def test_get_and_not_found(api: respx.MockRouter, hub: AsyncHub) -> None:
     assert e.value.path == "erin/nope"
 
 
-async def test_get_is_cached_for_a_minute_unless_fresh(
+async def test_get_always_reads_and_cached_is_a_sync_lookup(
     api: respx.MockRouter, hub: AsyncHub
 ) -> None:
     route = api.get("/api/v1/endpoints/public/erin/trials").respond(
@@ -99,9 +99,8 @@ async def test_get_is_cached_for_a_minute_unless_fresh(
     )
     a = await hub.sources.get("erin/trials")
     b = await hub.sources.get("erin/trials")
-    assert a == b and route.call_count == 1
-    await hub.sources.get("erin/trials", fresh=True)
-    assert route.call_count == 2
+    assert a == b and route.call_count == 2  # every get is a read
+    assert hub.sources.cached("erin/trials") == a  # what the last read said, no request
     hub.sources.forget("erin/trials")
     assert hub.sources.cached("erin/trials") is None
     resolved = await hub.sources.resolve(("erin/trials",))

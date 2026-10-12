@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from syfthub import Invoice, InvoiceStatus, Money, PaymentTimeout, Wallet
+from syfthub import Invoice, InvoiceStatus, Money, PaymentTimeout, Source, Wallet
+
+from .conftest import hub_body, xendit_policy
 
 
 class FakeWalletPort:
@@ -126,3 +128,43 @@ def test_rate_limit_from_entry_reads_both_spellings() -> None:
     assert RateLimit.from_entry({"retry_after_seconds": "7"}).reset_seconds == 7
     hdr = RateLimit.from_entry({}, {"Retry-After": "12", "X-RateLimit-Remaining": "3"})
     assert hdr.reset_seconds == 12 and hdr.remaining == 3 and hdr.limit is None
+
+
+def test_wallet_id_falls_back_to_the_uuid_in_the_credits_url() -> None:
+    from syfthub.models.sources import wallet_id_from_url
+    from syfthub.wallets import group_wallets
+
+    base = "https://syft.republika.co.id/api/v1/payments/gateway/wallets"
+    uid = "F95FE14C-6CF7-423C-AF95-79E7E4BE6DE6"
+    urls = {
+        "credits_url": f"{base}/{uid}/balance",
+        "payment_url": f"{base}/{uid}/invoices",
+        "invoices_url": f"{base}/{uid}/invoices/me",
+    }
+    archive = Source.from_hub(
+        hub_body("republika", "archive", policies=[xendit_policy(wallet_id=None, **urls)])
+    )
+    dataset = Source.from_hub(
+        hub_body("republika", "dataset", policies=[xendit_policy(wallet_id=None, **urls)])
+    )
+    assert archive.pricing is not None and archive.pricing.wallet_id == uid.lower()  # validator
+    (wallet,) = group_wallets([archive, dataset]).values()
+    assert wallet.id == uid.lower() and wallet.key == "republika/xendit/USD"
+    assert wallet.sources == ("republika/archive", "republika/dataset")
+    assert wallet.credits_url == urls["credits_url"]
+
+    # an explicit wallet_id wins; a URL without a UUID stays the id as a whole
+    explicit = Source.from_hub(hub_body("erin", "paid", policies=[xendit_policy(wallet_id="w-1")]))
+    assert explicit.pricing is not None and explicit.pricing.wallet_id == "w-1"
+    (w,) = group_wallets([explicit]).values()
+    assert w.id == "w-1"
+    plain = Source.from_hub(
+        hub_body(
+            "erin",
+            "plain",
+            policies=[xendit_policy(wallet_id=None, credits_url="https://erin.test/credits")],
+        )
+    )
+    (w,) = group_wallets([plain]).values()
+    assert w.id == "https://erin.test/credits"
+    assert wallet_id_from_url(None) is None and wallet_id_from_url("https://x/y?z=1") is None

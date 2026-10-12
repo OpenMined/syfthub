@@ -397,7 +397,7 @@ class Searcher:
                 or not pricing.applies_to(email)
             ):
                 continue
-            wallet = await self._wallets.for_source(s)
+            wallet = self._wallets.wallet_of(s)
             if wallet is not None:
                 wallets[s.path] = wallet
         errors: dict[str, str] = {}

@@ -121,8 +121,8 @@ source.access(email)   # Access(allowed, rule) from the access policy, predicted
 the chainable `filter(type=, owner=, free=, tag=)`, `matching(text)` and `pick(*paths)`. A
 `SourceList` can be passed straight to `hub.search`.
 
-Sources are cached for the session. Pass `fresh=True` to `get` or call `hub.sources.forget()` to
-drop the cache.
+Every `list`, `get` and `search` call reads the Hub now. `hub.sources.cached(path)` is the only
+lookup that does not: it returns what the last read said, for a minute, without a request.
 
 ## Composing a plan
 
@@ -278,6 +278,12 @@ await wallet.invoices()                                  # history
 
 A `TopUp` action wraps the same calls: `await action.top_up()` picks the suggested bundle. Nothing
 is charged until the user completes the checkout; then pre-flight passes.
+
+`wallet.id` is the publisher's wallet id and the key that groups sources on one wallet; `wallet.key`
+is the readable `owner/rail/currency` label. A policy that publishes only its URLs gets the UUID
+from them as its id. `list()` and `for_source()` read every balance they return, in parallel, and
+stamp `refreshed_at`; a Space that cannot be reached leaves `balance=None`. `hub.wallets.get(key)`
+is a lookup of a wallet already seen, with no request, so its balance is as of `refreshed_at`.
 
 ### Metered sources (MPP)
 

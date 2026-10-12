@@ -6,13 +6,14 @@ A Hub endpoint is a source in the SDK. Field names follow the Hub's ``EndpointPu
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from difflib import SequenceMatcher
 from fnmatch import fnmatchcase
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .base import Frozen
 from .enums import PAYMENT_POLICY_TYPES, Health, PolicyType, PriceUnit, Rail, SourceType
@@ -74,13 +75,36 @@ def matches_patterns(email: str, patterns: tuple[str, ...]) -> str | None:
     return None
 
 
+_UUID_SEGMENT = re.compile(r"/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?=/|$)")
+
+
+def wallet_id_from_url(url: str | None) -> str | None:
+    """The last UUID path segment of a wallet URL. Spaces build their wallet URLs as
+    ``.../wallets/<wallet id>/balance``, so a policy published before ``wallet_id`` was part of
+    the wire format still carries its id there."""
+    if not url:
+        return None
+    found = _UUID_SEGMENT.findall(url.split("?", 1)[0])
+    return found[-1].lower() if found else None
+
+
 class Pricing(Frozen):
     """Read off a source's payment policies; nothing added.
 
     An endpoint may carry a per-request and a per-document price on the same wallet, so
     ``prices`` holds every enabled payment policy and ``estimate`` sums them. ``price`` and
-    ``unit`` are the first one, for display.
+    ``unit`` are the first one, for display. ``wallet_id`` is the publisher's; when an older
+    publish left it out, it is the UUID in ``credits_url``.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _wallet_id_from_credits_url(cls, data: Any) -> Any:
+        if isinstance(data, dict) and not data.get("wallet_id"):
+            found = wallet_id_from_url(data.get("credits_url"))
+            if found:
+                data = {**data, "wallet_id": found}
+        return data
 
     rail: Rail = Rail.FREE
     prices: tuple[Price, ...] = ()

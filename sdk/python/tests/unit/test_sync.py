@@ -50,9 +50,10 @@ def test_same_names_no_await(fake: FakeHub, hub: Hub) -> None:
     assert invoice.refresh().paid
 
     wallet = hub.wallets.list()[0]
-    assert isinstance(wallet, Wallet) and wallet.balance == Money.zero()  # read at pre-flight
+    assert isinstance(wallet, Wallet) and wallet.balance == Money.of(1)  # list() reads balances
+    fake.space("erin").balance = 0.5
     wallet.refresh()
-    assert wallet.balance == Money.of(1)  # updated in place through the proxy
+    assert wallet.balance == Money.of("0.5")  # updated in place through the proxy
 
     results = plan.skip("alice/notes").execute()
     assert isinstance(results, Results)

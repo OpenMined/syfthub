@@ -7,10 +7,13 @@ This namespace is also the ``WalletPort`` the ``Wallet`` and ``Invoice`` models 
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from .errors import PaymentFailed, ValidationError
+from .errors import PaymentFailed, SyftHubError, ValidationError
 from .models.enums import InvoiceStatus
 from .models.money import Bundle, Money
 from .models.sources import Pricing, Source
@@ -20,6 +23,9 @@ if TYPE_CHECKING:
     from ._api.space import SpaceApi
     from .auth import TokenCache
     from .sources import SourcesNamespace
+
+
+log = logging.getLogger(__name__)
 
 
 def wallet_key(owner: str, rail: str, currency: str) -> str:
@@ -32,7 +38,7 @@ def wallet_from(source: Source, pricing: Pricing) -> Wallet | None:
         return None
     owner = pricing.wallet_owner or source.owner_username
     return Wallet(
-        id=pricing.wallet_id or pricing.credits_url,
+        id=pricing.wallet_id or pricing.credits_url,  # Pricing fills wallet_id from the URL
         key=wallet_key(owner, pricing.rail.value, pricing.currency),
         owner=owner,
         rail=pricing.rail,
@@ -76,14 +82,26 @@ class WalletsNamespace:
     # ── public ────────────────────────────────────────────────────────────
 
     async def list(self) -> tuple[Wallet, ...]:
-        """Every prepaid wallet the listing bills to, balances not yet read."""
+        """Every prepaid wallet the listing bills to, with its balance read now.
+
+        One ``GET credits_url`` per wallet, in parallel. A wallet whose Space cannot be reached
+        comes back with ``balance=None`` and a warning in the log; the rest are unaffected."""
         listing = await self._sources.list()
-        for wallet in group_wallets(listing.items).values():
-            self._adopt(wallet)
-        return tuple(self._known.values())
+        wallets = [self._adopt(w) for w in group_wallets(listing.items).values()]
+        await self._read_balances(wallets)
+        return tuple(wallets)
 
     async def for_source(self, path: str | Source) -> Wallet | None:
+        """The wallet a source bills, with its balance read now; None for free and MPP sources."""
         source = path if isinstance(path, Source) else await self._sources.get(path)
+        wallet = self.wallet_of(source)
+        if wallet is not None:
+            await self._read_balances([wallet])
+        return wallet
+
+    def wallet_of(self, source: Source) -> Wallet | None:
+        """The session's ``Wallet`` for a source, without reading its balance. Pre-flight uses
+        this and reads every balance itself, once per wallet."""
         pricing = source.pricing
         if pricing is None:
             return None
@@ -91,7 +109,8 @@ class WalletsNamespace:
         return self._adopt(wallet) if wallet is not None else None
 
     def get(self, key_or_id: str) -> Wallet:
-        """A wallet already seen this session, by key or id."""
+        """A wallet already seen this session, by key or id; no request. Its ``balance`` is as
+        of ``refreshed_at``; ``await wallet.refresh()`` reads it again."""
         for wallet in self._known.values():
             if wallet.id == key_or_id or wallet.key == key_or_id:
                 return wallet
@@ -148,6 +167,21 @@ class WalletsNamespace:
 
     # ── internals ─────────────────────────────────────────────────────────
 
+    async def _read_balances(self, wallets: Sequence[Wallet]) -> None:
+        """Refresh each wallet, at most ``Options.concurrency`` at a time; failures leave
+        ``balance=None`` rather than a stale number."""
+        gate = asyncio.Semaphore(self._hub.options.concurrency)
+
+        async def read(wallet: Wallet) -> None:
+            async with gate:
+                try:
+                    await wallet.refresh()
+                except SyftHubError as e:
+                    wallet.balance, wallet.refreshed_at = None, None
+                    log.warning("wallet %s: balance unavailable: %s", wallet.key, e)
+
+        await asyncio.gather(*(read(w) for w in {w.id: w for w in wallets}.values()))
+
     def _adopt(self, wallet: Wallet) -> Wallet:
         existing = self._known.get(wallet.id)
         if existing is None:
@@ -164,10 +198,13 @@ class WalletsNamespace:
         return invoice
 
     async def _wallet_by_key(self, key: str) -> Wallet:
+        """A handle lookup for invoices; adopts the listing without reading any balance."""
         try:
             return self.get(key)
         except ValidationError:
-            await self.list()
+            listing = await self._sources.list()
+            for wallet in group_wallets(listing.items).values():
+                self._adopt(wallet)
             return self.get(key)
 
     async def _token(self, wallet: Wallet) -> str:
