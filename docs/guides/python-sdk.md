@@ -24,7 +24,7 @@ uv add --prerelease allow syfthub-sdk
 ```python
 import syfthub
 
-async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN
+async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN; caps 1.00 USD
     plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
     pre = await plan.preflight()            # rows + actions; nothing sent, nothing spent
     for action in pre.actions:              # TopUp, OverBudget, AccessDenied, CircuitOpen
@@ -39,7 +39,7 @@ Four steps, always in this order:
 1. **Compose.** `hub.search(...)` returns a `SearchPlan`. Nothing is sent.
 2. **Pre-flight.** `plan.preflight()` reads the catalogue and wallet balances and returns one row
    per source with a verdict, plus the actions that would unblock the held rows.
-3. **Decide.** Skip sources, top up a wallet, raise the budget, or do nothing. The plan is a frozen
+3. **Decide.** Skip sources, top up a wallet, raise a cap, or do nothing. The plan is a frozen
    value; `skip` returns a new one.
 4. **Execute.** `plan.execute()` sends every row that pre-flight said it would send and returns
    `Results`, one row per source whether it succeeded or not.
@@ -55,7 +55,7 @@ import syfthub
 hub = syfthub.AsyncHub(
     "https://syfthub.org",      # or SYFTHUB_URL; defaults to the public Hub
     token="syft_pat_...",       # or SYFTHUB_TOKEN
-    budget=1.00,                # optional spending cap for this session, in USD
+    budget=1.00,                # optional; 1.00 USD here, or one cap per currency (see Budget)
     options=syfthub.Options(),  # timeouts, retries, circuit breaker, concurrency
 )
 ```
@@ -158,11 +158,11 @@ a `note`.
 
 | Verdict | Sends | Meaning |
 |---|---|---|
-| `READY` | yes | Free, or prepaid with enough credits, within budget. |
-| `WILL_ASK_TO_PAY` | yes | Metered (MPP). The Space will challenge and the SDK pays on the way, within budget. |
+| `READY` | yes | Free, or prepaid with enough credits, within the cap for its currency. |
+| `WILL_ASK_TO_PAY` | yes | Metered (MPP). The Space will challenge and the SDK pays on the way, within the cap for its currency. |
 | `UNHEALTHY` | yes | The Hub reports the Space unhealthy. Sent anyway; expect a failure. |
 | `NEEDS_CREDITS` | no | The prepaid wallet cannot cover the estimate. |
-| `OVER_BUDGET` | no | The session budget cannot cover the estimate. |
+| `OVER_BUDGET` | no | The cap for the estimate's currency cannot cover it. |
 | `ACCESS_DENIED` | no | Your email does not match the source's access policy. |
 | `CIRCUIT_OPEN` | no | The Space's host failed repeatedly and is cooling down. |
 | `UNREACHABLE` | no | The publisher has not connected a Space. |
@@ -170,8 +170,8 @@ a `note`.
 
 The checks run in that order. Credits are checked per wallet: if several sources share one wallet
 that is short, all of them are held and one `TopUp` carries the combined shortfall. Budget is
-checked in plan order: the first row that crosses the limit and every paid row after it is held.
-Spending in a currency other than the budget's is not counted against it.
+checked in plan order and per currency: the first row that would cross its currency's cap and every
+paid row in that currency after it are held. A currency with no cap is not budgeted.
 
 ## Decisions
 
@@ -179,7 +179,7 @@ There are three ways to change what happens next.
 
 ```python
 plan = plan.skip("carol/papers")                   # drop sources; returns a new plan
-hub.set_budget(5.00)                               # raise or clear (None) the session budget
+hub.set_budget({"USD": 5.00})                      # raise a cap, or clear them all with None
 results = await plan.execute(strict=True)          # raise ActionRequired instead of sending partially
 ```
 
@@ -188,7 +188,7 @@ results = await plan.execute(strict=True)          # raise ActionRequired instea
 | Action | Fields | What resolves it |
 |---|---|---|
 | `TopUp` | `wallet`, `shortfall`, `bundles`, `suggested` | `await action.top_up()` returns an `Invoice`; the user pays it. |
-| `OverBudget` | `estimate`, `budget` | `hub.set_budget(...)` or skip. |
+| `OverBudget` | `estimate`, `budget` | One per currency that crossed. `hub.set_budget({...})` or skip. |
 | `AccessDenied` | `rule` | Ask the publisher, or skip. |
 | `CircuitOpen` | `reopens_at` | Wait, or skip. |
 
@@ -240,15 +240,24 @@ and `top(k)` return views for presentation.
 
 ### Budget
 
+There is no budget until you set one. A budget is one cap per currency, because publishers bill in
+their own currencies and the SDK never converts money.
+
 ```python
-hub = syfthub.AsyncHub(budget=1.00)       # USD unless you pass Money.of(..., "EUR")
-hub.budget.limit, hub.budget.remaining
-hub.spent                                 # what this session has actually paid
-hub.set_budget(None)                      # no cap
+hub = syfthub.AsyncHub(budget=1.00)                       # 1.00 USD; nothing else is capped
+hub = syfthub.AsyncHub(budget={"USD": 1.00, "IDR": 50000})  # one cap per currency
+hub = syfthub.AsyncHub(budget=syfthub.Money.of(5, "EUR"))   # a cap in another currency
+
+hub.budget.limits        # {"USD": Money(1.00), ...}
+hub.budget.remaining     # per capped currency, after what this session spent
+hub.spent                # {"USD": Money(...), "IDR": Money(...)}: every charge, capped or not
+hub.set_budget({"USD": 2.00})   # replace the caps; spend is kept
+hub.set_budget(None)            # no caps
 ```
 
-The budget caps what the SDK will commit to on your behalf. Pre-flight holds rows whose estimate
-would cross it; execute records what each Space actually charged.
+Each currency is judged on its own. Pre-flight holds a row whose estimate would cross the cap in
+its currency; a row billed in a currency with no cap is sent and its note says so. Execute records
+what each Space actually charged, per currency, whether or not that currency is capped.
 
 ### Prepaid wallets
 
@@ -275,7 +284,7 @@ is charged until the user completes the checkout; then pre-flight passes.
 Sources on the `mpp` rail are charged per request through the Machine Payments Protocol. The Space
 answers with a 402 challenge; the SDK asks the Hub to sign a credential with the wallet you created
 on the Hub, retries with it, and records the charge in `results.cost` and `hub.spent`. Pre-flight
-shows these rows as `WILL_ASK_TO_PAY` and counts their price against the budget.
+shows these rows as `WILL_ASK_TO_PAY` and counts their price against the cap for their currency.
 
 The Hub wallet itself is created and funded on the Hub, not through the SDK. Without one, or when
 it cannot cover the charge, the row comes back `PAYMENT_REQUIRED` with the Hub's code in `error`

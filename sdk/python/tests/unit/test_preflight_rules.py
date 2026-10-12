@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from syfthub import (
     AccessDenied,
     Budget,
@@ -154,7 +156,7 @@ def test_budget_holds_the_first_row_that_crosses_and_every_paid_row_after(
     facts = Facts(
         sources=(paid_source, free_source, cheap),
         wallets={paid_source.path: wallet, cheap.path: wallet},
-        budget=Budget(limit=Money.of("0.05"), spent=Money.of("0.01")),
+        budget=Budget(limits={"USD": Money.of("0.05")}, spent={"USD": Money.of("0.01")}),
     )
     pre = plan_preflight(plan_for(paid_source, free_source, cheap), facts)
     assert [r.verdict for r in pre] == [Verdict.OVER_BUDGET, Verdict.READY, Verdict.OVER_BUDGET]
@@ -163,30 +165,91 @@ def test_budget_holds_the_first_row_that_crosses_and_every_paid_row_after(
     assert action.paths == ("erin/trials", "erin/cheap") and action.budget == facts.budget
     assert pre.estimate == {}
     facts = facts.model_copy(
-        update={"sources": (cheap, paid_source), "budget": Budget(limit=Money.of("0.05"))}
+        update={"sources": (cheap, paid_source), "budget": Budget(limits={"USD": Money.of("0.05")})}
     )
     pre = plan_preflight(plan_for(cheap, paid_source), facts)
     assert [r.verdict for r in pre] == [Verdict.READY, Verdict.OVER_BUDGET]
 
 
-def test_foreign_currency_estimates_are_not_counted_against_the_budget(wallet: Wallet) -> None:
+def test_a_currency_without_a_cap_has_no_budget(wallet: Wallet) -> None:
     idr = Source.from_hub(
         hub_body("erin", "idr", policies=[xendit_policy(price=1000, currency="IDR")])
     )
     idr_wallet = wallet.model_copy(update={"currency": "IDR", "balance": Money.of(5000, "IDR")})
     pre = plan_preflight(
         plan_for(idr),
-        Facts(sources=(idr,), wallets={idr.path: idr_wallet}, budget=Budget(limit=Money.of(1))),
+        Facts(
+            sources=(idr,),
+            wallets={idr.path: idr_wallet},
+            budget=Budget(limits={"USD": Money.of(1)}),
+        ),
     )
     row = pre[idr.path]
-    assert row.verdict is Verdict.READY and "not in the budget's currency" in (row.note or "")
-    assert pre.estimate == {"IDR": Money.of(1000, "IDR")}
+    assert row.verdict is Verdict.READY and "no budget set for IDR" in (row.note or "")
+    assert pre.estimate == {"IDR": Money.of(1000, "IDR")} and pre.actions == ()
+
+
+def test_each_currency_is_capped_on_its_own(paid_source: Source, wallet: Wallet) -> None:
+    cheap = Source.from_hub(hub_body("erin", "cheap", policies=[xendit_policy(price=0.01)]))
+    idr = Source.from_hub(
+        hub_body("budi", "idr", policies=[xendit_policy(price=1000, currency="IDR")])
+    )
+    idr2 = Source.from_hub(
+        hub_body("budi", "idr2", policies=[xendit_policy(price=1000, currency="IDR")])
+    )
+    wallet.balance = Money.of(10)
+    idr_wallet = wallet.model_copy(
+        update={
+            "id": "w-budi",
+            "key": "budi/xendit/IDR",
+            "owner": "budi",
+            "currency": "IDR",
+            "balance": Money.of(5000, "IDR"),
+        }
+    )
+    facts = Facts(
+        sources=(paid_source, idr, cheap, idr2),
+        wallets={
+            paid_source.path: wallet,
+            cheap.path: wallet,
+            idr.path: idr_wallet,
+            idr2.path: idr_wallet,
+        },
+        budget=Budget(
+            limits={"USD": Money.of("0.05"), "IDR": Money.of(1500, "IDR")},
+            spent={"IDR": Money.of(200, "IDR")},
+        ),
+    )
+    pre = plan_preflight(plan_for(paid_source, idr, cheap, idr2), facts)
+    assert [r.verdict for r in pre] == [
+        Verdict.READY,  # 0.05 USD fits the USD cap exactly
+        Verdict.READY,  # 200 + 1000 IDR fits
+        Verdict.OVER_BUDGET,  # 0.06 USD would cross; held on the USD cap alone
+        Verdict.OVER_BUDGET,  # 2200 IDR would cross; held on the IDR cap alone
+    ]
+    assert pre.estimate == {"USD": Money.of("0.05"), "IDR": Money.of(1000, "IDR")}
+    usd, idr_action = pre.actions
+    assert isinstance(usd, OverBudget) and isinstance(idr_action, OverBudget)
+    assert usd.estimate == Money.of("0.06") and usd.paths == ("erin/cheap",)
+    assert idr_action.estimate == Money.of(2000, "IDR") and idr_action.paths == ("budi/idr2",)
+    assert 'set_budget({"IDR": x})' in idr_action.steps[0]
+    assert pre.budget.remaining == {"USD": Money.of("0.05"), "IDR": Money.of(1300, "IDR")}
 
 
 def test_budget_math_across_currencies() -> None:
-    b = Budget(limit=Money.of(2, "IDR"))
-    assert b.remaining == Money.of(2, "IDR") and b.allows(Money.of(1, "IDR"))
-    assert b.allows(Money.of(1000)) and not b.counts(Money.of(1000)) and b.currency == "IDR"
+    b = Budget(
+        limits={"USD": Money.of(1), "IDR": Money.of(50000, "IDR")},
+        spent={"IDR": Money.of(20000, "IDR")},
+    )
+    assert b.remaining == {"USD": Money.of(1), "IDR": Money.of(30000, "IDR")}
+    assert b.allows(Money.of(1)) and not b.allows(Money.of("1.01"))
+    assert b.allows(Money.of(30000, "IDR")) and not b.allows(Money.of(30001, "IDR"))
+    assert b.allows(Money.of(1000, "EUR")) and not b.counts(Money.of(1000, "EUR"))
+    assert b.remaining_in("EUR") is None and b.currencies == ("USD", "IDR")
+    after = b.record(Money.of(5, "EUR")).record(Money.of("0.25"))
+    assert after.spent["EUR"] == Money.of(5, "EUR") and after.remaining["USD"] == Money.of("0.75")
+    with pytest.raises(ValueError, match="holds EUR"):
+        Budget(limits={"USD": Money.of(1, "EUR")})
 
 
 def test_pick_sources_for_an_implicit_plan(free_source: Source, paid_source: Source) -> None:

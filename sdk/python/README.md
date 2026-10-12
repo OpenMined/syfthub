@@ -22,7 +22,7 @@ pip install --pre syfthub-sdk      # 2.x is a pre-release until the first stable
 ```python
 import syfthub
 
-async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN
+async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN; caps 1.00 USD
     plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
     pre = await plan.preflight()            # rows + actions; nothing sent, nothing spent
     for action in pre.actions:              # TopUp, OverBudget, AccessDenied, CircuitOpen
@@ -31,6 +31,9 @@ async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_
     for path, doc in results.documents:     # best-scored chunks across sources
         print(path, doc.score, doc.content[:80])
 ```
+
+Budgets are optional and per currency: `budget=1.00` caps USD only, `budget={"USD": 1.00, "IDR": 50000}`
+caps both, and a currency with no cap is not budgeted. The SDK never converts money.
 
 The sync twin is the same API without `await`:
 

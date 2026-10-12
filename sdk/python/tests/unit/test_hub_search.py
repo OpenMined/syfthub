@@ -228,7 +228,7 @@ async def test_execute_fans_out_and_merges(api: respx.MockRouter, hub: AsyncHub)
         ("alice/free-docs", "b"),
     ]
     assert results.answers == {"kim/assistant": "an answer"} and results.kind.value == "both"
-    assert results.cost == {"USD": Money.of("0.05")} and hub.spent == Money.of("0.05")
+    assert results.cost == {"USD": Money.of("0.05")} and hub.spent == {"USD": Money.of("0.05")}
     assert (
         results["erin/trials"].paid_from == "erin/xendit/USD"
         and results["erin/trials"].rail.value == "xendit"
@@ -459,8 +459,8 @@ async def test_budget_holds_paid_rows_and_set_budget_releases_them(
     assert isinstance(action, OverBudget) and action.estimate == Money.of("0.05")
     hub.set_budget(0.08)
     results = await plan.execute()
-    assert paid.called and results.ok and hub.spent == Money.of("0.05")
-    assert hub.budget.remaining == Money.of("0.03")
+    assert paid.called and results.ok and hub.spent == {"USD": Money.of("0.05")}
+    assert hub.budget.remaining == {"USD": Money.of("0.03")}
     results = await plan.execute()
     assert results["erin/trials"].reason is Reason.OVER_BUDGET and paid.call_count == 1
 
@@ -480,7 +480,11 @@ async def test_mpp_challenge_is_paid_through_the_hub_within_budget(
     results = await hub.search("q", ["kim/metered"]).execute()
     row = results["kim/metered"]
     assert row.ok and row.charge is not None and row.charge.amount == Money.of("0.02")
-    assert row.cost == Money.of("0.02") and row.attempts == 2 and hub.spent == Money.of("0.02")
+    assert (
+        row.cost == Money.of("0.02")
+        and row.attempts == 2
+        and hub.spent == {"USD": Money.of("0.02")}
+    )
     assert json.loads(pay.calls.last.request.content) == {
         "www_authenticate": challenge,
         "endpoint_slug": "metered",
@@ -519,7 +523,7 @@ async def test_mpp_challenge_over_budget_or_refused_is_payment_required(
         and "INSUFFICIENT_BALANCE: empty" in row.error
         and results.actions == ()
     )
-    assert hub.spent == Money.zero() and route.call_count == 2
+    assert hub.spent == {} and route.call_count == 2
     with pytest.raises(PaymentFailed) as info:
         await hub._hub_api.pay_mpp("Payment realm=kim", "metered")
     assert info.value.code == "INSUFFICIENT_BALANCE"

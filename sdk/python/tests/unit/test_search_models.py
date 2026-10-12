@@ -117,15 +117,16 @@ async def test_topup_without_suggestion_requires_explicit_bundle(
 
 
 def test_budget_math() -> None:
-    b = Budget(limit=Money.of(2), spent=Money.of("0.5"))
-    assert (
-        b.remaining == Money.of("1.5") and b.allows(Money.of("1.5")) and not b.allows(Money.of(2))
-    )
-    assert Budget().remaining is None and Budget().allows(Money.of(1000))
+    b = Budget(limits={"USD": Money.of(2)}, spent={"USD": Money.of("0.5")})
+    assert b.remaining == {"USD": Money.of("1.5")} and b.remaining_in("USD") == Money.of("1.5")
+    assert b.allows(Money.of("1.5")) and not b.allows(Money.of(2))
+    assert Budget().remaining == {} and Budget().allows(Money.of(1000)) and not Budget().capped
 
 
 def test_action_kinds_serialise(paid_source: Source) -> None:
-    ob = OverBudget(estimate=Money.of(3), budget=Budget(limit=Money.of(2)), affects=(paid_source,))
+    ob = OverBudget(
+        estimate=Money.of(3), budget=Budget(limits={"USD": Money.of(2)}), affects=(paid_source,)
+    )
     assert ob.to_dict()["kind"] == "over_budget"
     ad = AccessDenied(affects=(paid_source,), rule="allow list")
     assert ad.to_dict()["rule"] == "allow list"

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from types import TracebackType
-from typing import Any
 
 from ._api import HubApi, SpaceApi
 from ._transport import Breakers, Transport
@@ -22,6 +21,8 @@ from .models.wallets import Invoice, Wallet
 from .search import Searcher
 from .sources import SourcesNamespace
 from .wallets import WalletsNamespace
+
+BudgetLike = Money | float | int | str | Mapping[str, Money | float | int | str] | None
 
 DEFAULT_URL = "https://syfthub.openmined.org"
 log = logging.getLogger("syfthub")
@@ -39,7 +40,7 @@ class AsyncHub:
         url: str | None = None,
         *,
         token: str | None = None,
-        budget: Money | float | int | str | None = None,
+        budget: BudgetLike = None,
         options: Options | None = None,
     ) -> None:
         self.url = (url or os.environ.get("SYFTHUB_URL") or DEFAULT_URL).rstrip("/")
@@ -56,7 +57,7 @@ class AsyncHub:
         self.auth = AuthNamespace(self._hub_api, self._session)
         self.sources = SourcesNamespace(self._hub_api, max_items=self.options.max_items)
         self.wallets = WalletsNamespace(self._space_api, self._tokens, self.sources, self)
-        self._budget = Budget(limit=_money(budget))
+        self._budget = Budget(limits=_limits(budget))
         self._searcher = Searcher(
             hub_api=self._hub_api,
             space=self._space_api,
@@ -132,24 +133,19 @@ class AsyncHub:
         return self._budget
 
     @property
-    def spent(self) -> Money:
+    def spent(self) -> dict[str, Money]:
+        """What this session has paid, per currency."""
         return self._budget.spent
 
-    def set_budget(self, limit: Money | float | int | str | None) -> Budget:
-        """Per session, across searches. The one override for ``over_budget`` rows."""
-        self._budget = Budget(limit=_money(limit), spent=self._budget.spent)
+    def set_budget(self, limit: BudgetLike) -> Budget:
+        """Replace the caps; spend is kept. The one override for ``over_budget`` rows. ``None``
+        clears every cap, a number caps USD, a mapping caps several currencies at once."""
+        self._budget = Budget(limits=_limits(limit), spent=self._budget.spent)
         return self._budget
 
     def _record_spend(self, amount: Money) -> None:
-        """Add a charge to ``spent``. ``spent`` is one currency: the first charge sets it, and a
-        later charge in another currency is logged and not counted."""
-        spent = self._budget.spent
-        if spent.currency != amount.currency:
-            if spent.positive:
-                log.warning("spent %s not counted: budget is in %s", amount, spent.currency)
-                return
-            spent = Money.zero(amount.currency)
-        self._budget = Budget(limit=self._budget.limit, spent=spent + amount)
+        """Add a charge to the spend in its currency."""
+        self._budget = self._budget.record(amount)
 
     # ── SearchPort: the plan and results models call back through the hub ──
 
@@ -178,9 +174,18 @@ class AsyncHub:
         return f"AsyncHub({self.url!r}, as={who})"
 
 
-def _money(value: Any) -> Money | None:
+def _limits(value: BudgetLike) -> dict[str, Money]:
+    """``None``: no caps. A number or string: that much USD. ``Money``: a cap in its currency.
+    A mapping: one cap per currency, ``{"USD": 1.00, "IDR": 50000}``."""
     if value is None:
-        return None
-    if isinstance(value, Money):
-        return value
-    return Money.of(value)
+        return {}
+    if isinstance(value, Mapping):
+        caps: dict[str, Money] = {}
+        for currency, amount in value.items():
+            money = amount if isinstance(amount, Money) else Money.of(amount, currency)
+            if money.currency != currency:
+                raise ConfigurationError(f"budget[{currency!r}] is in {money.currency}")
+            caps[currency] = money
+        return caps
+    money = value if isinstance(value, Money) else Money.of(value)
+    return {money.currency: money}

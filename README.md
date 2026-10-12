@@ -53,7 +53,7 @@ To stop everything: `make stop`.
 # Python (syfthub-sdk 2.x: pip install --pre syfthub-sdk)
 import syfthub
 
-with syfthub.Hub(token="syft_pat_...", budget=1.00) as hub:
+with syfthub.Hub(token="syft_pat_...", budget=1.00) as hub:   # optional cap, per currency
     for source in hub.sources.list():
         print(source.path, source.pricing)
 

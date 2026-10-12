@@ -141,11 +141,19 @@ async def test_unreachable_hub_after_retries(api: respx.MockRouter) -> None:
 
 async def test_budget_and_repr() -> None:
     hub = AsyncHub(HUB, budget=2)
-    assert hub.budget.limit == syfthub.Money.of(2) and hub.spent == syfthub.Money.zero()
+    assert hub.budget.limit("USD") == syfthub.Money.of(2) and hub.spent == {}
     hub.set_budget("0.50")
-    assert hub.budget.limit == syfthub.Money.of("0.5")
+    assert hub.budget.limits == {"USD": syfthub.Money.of("0.5")}
     hub._record_spend(syfthub.Money.of("0.2"))
-    assert hub.spent == syfthub.Money.of("0.2") and hub.budget.remaining == syfthub.Money.of("0.3")
-    assert hub.set_budget(None).limit is None and hub.spent == syfthub.Money.of("0.2")
+    assert hub.spent == {"USD": syfthub.Money.of("0.2")}
+    assert hub.budget.remaining == {"USD": syfthub.Money.of("0.3")}
+    assert hub.set_budget(None).limits == {} and hub.spent == {"USD": syfthub.Money.of("0.2")}
+    caps = hub.set_budget({"USD": 1, "IDR": syfthub.Money.of(50000, "IDR")})
+    assert caps.currencies == ("USD", "IDR") and caps.remaining["USD"] == syfthub.Money.of("0.8")
+    assert AsyncHub(HUB, budget=syfthub.Money.of(5, "EUR")).budget.limits == {
+        "EUR": syfthub.Money.of(5, "EUR")
+    }
+    with pytest.raises(syfthub.ConfigurationError):
+        hub.set_budget({"USD": syfthub.Money.of(1, "EUR")})
     assert "token" not in repr(hub) and "anonymous" in repr(hub)
     await hub.aclose()

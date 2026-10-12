@@ -56,7 +56,7 @@ async def test_full_search_flow_with_prepaid_topup_and_mpp(fake: FakeHub) -> Non
             "kim/metered"
         ].cost == Money.of("0.02")
         assert results.answers == {"kim/assistant": "an answer"}
-        assert hub.spent == Money.of("0.07") and fake.space("erin").balance == 0.95
+        assert hub.spent == {"USD": Money.of("0.07")} and fake.space("erin").balance == 0.95
         assert results.cost == {"USD": Money.of("0.07")}
 
     pay_calls = [c for c in fake.calls if c.path == "/api/v1/wallet/pay"]
@@ -93,3 +93,29 @@ async def test_login_is_checked_when_users_are_set(fake: FakeHub) -> None:
     async with fake.hub(token="not-issued") as stranger:
         with pytest.raises(AuthError):
             await stranger.sources.list()
+
+
+async def test_caps_are_per_currency_and_an_uncapped_currency_is_not_budgeted(
+    fake: FakeHub,
+) -> None:
+    budi = fake.space("budi")
+    budi.currency, budi.balance = "IDR", 20000.0
+    fake.add_source("budi", "idr", price=5000)
+    budi.reply("idr", documents=[{"content": "harga", "score": 0.5}], cost=5000)
+    async with fake.hub(budget={"USD": 1.0}) as hub:
+        plan = hub.search("q", ["alice/notes", "budi/idr"])
+        pre = await plan.preflight()
+        assert pre.ready and "no budget set for IDR" in (pre["budi/idr"].note or "")
+        results = await plan.execute()
+        assert results.cost == {"IDR": Money.of(5000, "IDR")} and hub.spent == results.cost
+        assert hub.budget.remaining == {"USD": Money.of(1)}
+
+        hub.set_budget({"USD": 1.0, "IDR": 6000})
+        pre = await plan.preflight()
+        assert (
+            pre["budi/idr"].verdict is Verdict.OVER_BUDGET
+            and pre["alice/notes"].verdict is Verdict.READY
+        )
+        (over,) = pre.actions
+        assert over.estimate == Money.of(5000, "IDR") and over.paths == ("budi/idr",)
+        assert hub.budget.remaining == {"USD": Money.of(1), "IDR": Money.of(1000, "IDR")}

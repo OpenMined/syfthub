@@ -29,7 +29,7 @@ SYSTEM = (
 
 
 def hub() -> syfthub.AsyncHub:
-    return syfthub.AsyncHub(token=os.environ["SYFTHUB_TOKEN"], budget=1.00)  # USD per process
+    return syfthub.AsyncHub(token=os.environ["SYFTHUB_TOKEN"], budget=1.00)  # caps USD only
 
 
 async def retrieve(plan: syfthub.SearchPlan) -> syfthub.Results | syfthub.TopUp:

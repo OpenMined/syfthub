@@ -142,39 +142,42 @@ def _hold_for_credits(rows: list[PlanRow]) -> tuple[list[PlanRow], dict[str, Mon
     return out, shortfalls
 
 
-def _hold_for_budget(rows: list[PlanRow], budget: Budget) -> tuple[list[PlanRow], Money | None]:
-    """Walk the sending rows in plan order; the first paid row that would cross the cap and
-    every paid row after it are held. Returns the total the paid rows would have cost."""
-    if budget.limit is None:
-        return rows, None
-    total = Money.zero(budget.limit.currency)
-    running = Money.zero(budget.limit.currency)
+def _hold_for_budget(rows: list[PlanRow], budget: Budget) -> tuple[list[PlanRow], dict[str, Money]]:
+    """Walk the sending rows in plan order, per currency: the first paid row that would cross its
+    currency's cap and every paid row in that currency after it are held. A currency with no cap
+    is not budgeted. Returns, for each currency that crossed, what its paid rows would have cost."""
+    if not budget.capped:
+        return rows, {}
+    running: dict[str, Money] = {}
+    total: dict[str, Money] = {}
+    crossed: set[str] = set()
     out: list[PlanRow] = []
-    crossed = False
     for row in rows:
         if row.send and row.estimate.positive and budget.counts(row.estimate):
-            total = total + row.estimate
-            if crossed or not budget.allows(running + row.estimate):
-                crossed = True
+            cur = row.estimate.currency
+            total[cur] = total[cur] + row.estimate if cur in total else row.estimate
+            so_far = running.get(cur) or Money.zero(cur)
+            if cur in crossed or not budget.allows(so_far + row.estimate):
+                crossed.add(cur)
                 row = row.model_copy(
                     update={
                         "verdict": Verdict.OVER_BUDGET,
                         "reason": Reason.OVER_BUDGET,
-                        "note": f"estimate {row.estimate} would exceed the session budget",
+                        "note": f"estimate {row.estimate} would exceed the {cur} budget",
                     }
                 )
             else:
-                running = running + row.estimate
+                running[cur] = so_far + row.estimate
         elif row.send and row.estimate.positive:
             row = row.model_copy(
-                update={"note": f"estimate {row.estimate} is not in the budget's currency"}
+                update={"note": f"no budget set for {row.estimate.currency}; not capped"}
             )
         out.append(row)
-    return out, total
+    return out, {cur: t for cur, t in total.items() if cur in crossed}  # plan order
 
 
 def _actions(
-    rows: list[PlanRow], shortfalls: dict[str, Money], over: Money | None, facts: Facts
+    rows: list[PlanRow], shortfalls: dict[str, Money], over: dict[str, Money], facts: Facts
 ) -> list[AnyAction]:
     actions: list[AnyAction] = []
     for wallet_id, shortfall in shortfalls.items():
@@ -192,16 +195,18 @@ def _actions(
                 steps=topup_steps(wallet, suggested),
             )
         )
-    over_rows = [r for r in rows if r.verdict is Verdict.OVER_BUDGET]
-    if over_rows and over is not None:
+    for cur, total in over.items():
+        over_rows = [
+            r for r in rows if r.verdict is Verdict.OVER_BUDGET and r.estimate.currency == cur
+        ]
         actions.append(
             OverBudget(
-                estimate=over,
+                estimate=total,
                 budget=facts.budget,
                 affects=tuple(r.source for r in over_rows),
                 steps=(
-                    f"hub.set_budget(x) with x covering {over} plus what is spent, "
-                    "then plan.execute() again",
+                    f'hub.set_budget({{"{cur}": x}}) with x covering {total} plus what is '
+                    f"spent in {cur}, then plan.execute() again",
                     "or plan.skip(*action.paths) to leave these sources out",
                 ),
             )
@@ -495,7 +500,7 @@ class Searcher:
                             source,
                             charge,
                             Reason.OVER_BUDGET,
-                            f"charge {charge.amount} would exceed the session budget",
+                            f"charge {charge.amount} would exceed the {charge.amount.currency} budget",
                             request,
                             attempts,
                             started,
@@ -614,26 +619,27 @@ class Searcher:
                     }
                 )
             )
-        over = [
-            r
-            for r in rows
-            if r.outcome is Outcome.PAYMENT_REQUIRED and r.reason is Reason.OVER_BUDGET and r.charge
-        ]
-        if over:
-            budget = self._hub.budget
-            total: Money | None = None
+        by_currency: dict[str, list[SourceResult]] = {}
+        for r in rows:
+            if (
+                r.outcome is Outcome.PAYMENT_REQUIRED
+                and r.reason is Reason.OVER_BUDGET
+                and r.charge
+            ):
+                by_currency.setdefault(r.charge.amount.currency, []).append(r)
+        for cur, over in by_currency.items():
+            total = Money.zero(cur)
             for r in over:
                 assert r.charge is not None
-                total = total + r.charge.amount if total else r.charge.amount
-            assert total is not None
+                total = total + r.charge.amount
             actions.append(
                 OverBudget(
                     estimate=total,
-                    budget=budget,
+                    budget=self._hub.budget,
                     affects=tuple(r.source for r in over),
                     steps=(
-                        f"hub.set_budget(x) with x covering {total} plus what is spent, "
-                        "then plan.execute() again",
+                        f'hub.set_budget({{"{cur}": x}}) with x covering {total} plus what is '
+                        f"spent in {cur}, then plan.execute() again",
                         "or plan.skip(*action.paths)",
                     ),
                 )

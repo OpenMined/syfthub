@@ -58,7 +58,7 @@ def test_same_names_no_await(fake: FakeHub, hub: Hub) -> None:
     assert isinstance(results, Results)
     assert results["alice/notes"].outcome is Outcome.HELD and results["erin/trials"].ok
     assert [p for p, _ in results.documents] == ["erin/trials"]
-    assert hub.spent == Money.of("0.05") and results.cost == {"USD": Money.of("0.05")}
+    assert hub.spent == {"USD": Money.of("0.05")} and results.cost == {"USD": Money.of("0.05")}
 
     restored = hub.load(SearchPlan, plan.to_dict())
     assert restored == plan and restored.execute().plan == plan

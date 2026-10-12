@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from .base import Frozen
 from .enums import AuthMethod
@@ -18,38 +18,63 @@ class Identity(Frozen):
 
 
 class Budget(Frozen):
-    """Per session, across searches. ``limit=None`` means no cap."""
+    """Per session, across searches: one cap per currency, and spend tracked per currency.
 
-    limit: Money | None = None
-    spent: Money = Money()
+    Money is never converted. A currency with no cap in ``limits`` has no budget: its rows are
+    sent and its charges are recorded in ``spent`` but never held. No caps at all means no budget.
+    """
+
+    limits: dict[str, Money] = Field(default_factory=dict)
+    spent: dict[str, Money] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _keys_match_currencies(self) -> Budget:
+        for name in ("limits", "spent"):
+            for currency, money in getattr(self, name).items():
+                if money.currency != currency:
+                    raise ValueError(f"{name}[{currency!r}] holds {money.currency}")
+        return self
 
     @property
-    def currency(self) -> str | None:
-        """The currency the cap is in; None without a cap."""
-        return self.limit.currency if self.limit is not None else None
-
-    def _spent_in(self, currency: str) -> Money:
-        if self.spent.positive or self.spent.currency == currency:
-            return self.spent
-        return Money.zero(currency)
+    def capped(self) -> bool:
+        return bool(self.limits)
 
     @property
-    def remaining(self) -> Money | None:
-        if self.limit is None:
-            return None
-        return self.limit - self._spent_in(self.limit.currency)
+    def currencies(self) -> tuple[str, ...]:
+        """The currencies with a cap."""
+        return tuple(self.limits)
+
+    def limit(self, currency: str) -> Money | None:
+        return self.limits.get(currency)
+
+    def spent_in(self, currency: str) -> Money:
+        return self.spent.get(currency) or Money.zero(currency)
+
+    @property
+    def remaining(self) -> dict[str, Money]:
+        """What is left under each cap, per capped currency."""
+        return {cur: limit - self.spent_in(cur) for cur, limit in self.limits.items()}
+
+    def remaining_in(self, currency: str) -> Money | None:
+        limit = self.limits.get(currency)
+        return None if limit is None else limit - self.spent_in(currency)
 
     def counts(self, amount: Money) -> bool:
-        """Whether ``amount`` is in the cap's currency. Money is never converted, so an amount in
-        another currency is not counted against the cap."""
-        return self.limit is not None and amount.currency == self.limit.currency
+        """Whether ``amount`` is in a capped currency."""
+        return amount.currency in self.limits
 
     def allows(self, extra: Money) -> bool:
-        """True when spending ``extra`` on top of ``spent`` stays within ``limit``. An amount in
-        another currency than the cap is allowed: the cap cannot judge it."""
-        if self.limit is None or not self.counts(extra):
+        """True when spending ``extra`` on top of what is spent in its currency stays within that
+        currency's cap. A currency without a cap always allows."""
+        limit = self.limits.get(extra.currency)
+        if limit is None:
             return True
-        return self._spent_in(self.limit.currency) + extra <= self.limit
+        return self.spent_in(extra.currency) + extra <= limit
+
+    def record(self, amount: Money) -> Budget:
+        """A copy with ``amount`` added to the spend in its currency."""
+        spent = {**self.spent, amount.currency: self.spent_in(amount.currency) + amount}
+        return self.model_copy(update={"spent": spent})
 
 
 class Timeout(Frozen):
