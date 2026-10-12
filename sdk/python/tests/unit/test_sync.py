@@ -66,6 +66,13 @@ def test_same_names_no_await(fake: FakeHub, hub: Hub) -> None:
     assert again is results or again == results
 
 
+def test_proxied_objects_keep_their_truthiness(hub: Hub) -> None:
+    source = hub.sources.get("erin/trials")
+    assert source.pricing and bool(source.pricing) is True  # a model with no __len__
+    assert not hub.search("q", ["erin/trials"]).preflight().ready
+    assert bool(hub.sources.list()) is True and not hub.sources.list().filter(owner="nobody")
+
+
 def test_sync_calls_work_inside_a_running_event_loop(hub: Hub) -> None:
     async def notebook_cell() -> int:
         return len(hub.sources.list())  # blocks this loop's thread, runs on the private one

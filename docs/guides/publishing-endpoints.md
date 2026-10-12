@@ -26,18 +26,16 @@ POST /api/v1/endpoints
 
 ### Via Python SDK
 
+The Python SDK 2.x is a consumer client: it searches published endpoints but does not create or
+manage them. Publish through the web UI, the API above, or the TypeScript SDK, then verify the
+listing from Python:
+
 ```python
-from syfthub import SyftHubClient
+import syfthub
 
-client = SyftHubClient(base_url="http://localhost:8080")
-client.login("username", "password")
-
-endpoint = client.my_endpoints.create({
-    "name": "My Model",
-    "type": "model",
-    "visibility": "public",
-    "description": "A text generation model",
-})
+with syfthub.Hub(token="syft_pat_...") as hub:
+    source = hub.sources.get("username/my-model")
+    print(source.type, source.health, source.reachable)
 ```
 
 ### Via TypeScript SDK

@@ -14,7 +14,7 @@ come in later cuts.
 ## Install
 
 ```bash
-pip install syfthub-sdk
+pip install --pre syfthub-sdk      # 2.x is a pre-release until the first stable tag
 ```
 
 ## Quick start

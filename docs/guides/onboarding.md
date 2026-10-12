@@ -62,7 +62,7 @@ components/
   mcp/           MCP + OAuth server
 
 sdk/
-  python/        syfthub-sdk (pip install syfthub-sdk)
+  python/        syfthub-sdk 2.x, import syfthub (pip install --pre syfthub-sdk)
   typescript/    @syfthub/sdk (npm install @syfthub/sdk)
   golang/        Go hub client + server SDK
 

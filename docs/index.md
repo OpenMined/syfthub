@@ -73,7 +73,7 @@ OpenAPI (dev): `http://localhost:8080/docs`
 
 | SDK | Package | Path | Install |
 |---|---|---|---|
-| Python | `syfthub-sdk` | `sdk/python/` | `pip install syfthub-sdk` |
+| Python | `syfthub-sdk` (import `syfthub`) | `sdk/python/` | `pip install --pre syfthub-sdk` (2.x pre-release; `syfthub-sdk<2` for the 0.x client) |
 | TypeScript | `@syfthub/sdk` | `sdk/typescript/` | `npm install @syfthub/sdk` |
 | Go (hub client) | — | `sdk/golang/syfthub/` | `go get` |
 | Go (endpoint SDK) | — | `sdk/golang/syfthubapi/` | `go get` |

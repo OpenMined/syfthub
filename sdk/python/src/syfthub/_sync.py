@@ -143,6 +143,9 @@ class Sync:
     def __hash__(self) -> int:
         return hash(object.__getattribute__(self, "_target"))
 
+    def __bool__(self) -> bool:  # without this, truthiness falls through to __len__
+        return bool(object.__getattribute__(self, "_target"))
+
     def __len__(self) -> int:
         return len(object.__getattribute__(self, "_target"))
 

@@ -2,6 +2,7 @@
 
 | File | What it shows |
 |---|---|
+| `quickstart.ipynb` | The SDK cell by cell, offline: browse, compose, pre-flight, top up, execute, rejections and retry, budget, snapshots, and which hosts the requests went to. Runs on `syfthub.testing.FakeHub`; swap the first cell for a real `syfthub.Hub(token=...)`. |
 | `openai_chat.py` | The reference app from the design doc: an OpenAI chat with SyftHub as retrieval. Pre-flight, skip what cannot be sent, hand a top-up back to the user with a saved plan, resume after payment, compose from the numbered context. |
 | `openai_chat_sync.py` | The same app on the sync twin, `syfthub.Hub`, with no `await`. |
 
