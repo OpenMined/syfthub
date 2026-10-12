@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import Field, PrivateAttr, field_validator
 
-from .. import __version__
+from .._version import __version__
 from ..errors import StaleSnapshot, ValidationError
 from .base import Bound, Frozen
 from .enums import ActionKind, Reason, Verdict

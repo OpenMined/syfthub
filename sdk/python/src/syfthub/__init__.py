@@ -1,10 +1,9 @@
 """SyftHub Python SDK.
 
-Public surface: ``AsyncHub`` and its sync twin ``Hub`` (step 2), the models, and the errors.
+Public surface: ``AsyncHub`` and its sync twin ``Hub`` (step 4), the models, and the errors.
 """
 
-__version__ = "2.0.0a1"
-
+from ._version import __version__
 from .errors import (  # noqa: E402
     ActionRequired,
     AuthError,
@@ -18,6 +17,7 @@ from .errors import (  # noqa: E402
     SyftHubError,
     ValidationError,
 )
+from .hub import AsyncHub  # noqa: E402
 from .models import (  # noqa: E402
     Access,
     AccessDenied,
@@ -66,6 +66,7 @@ from .models import (  # noqa: E402
 
 __all__ = [
     "__version__",
+    "AsyncHub",
     "Access",
     "AccessDenied",
     "Action",
