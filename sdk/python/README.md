@@ -15,6 +15,7 @@ come in later cuts.
 
 ```bash
 pip install --pre syfthub-sdk      # 2.x is a pre-release until the first stable tag
+pip install --pre 'syfthub-sdk[http2]'   # with HTTP/2, for Options(http2=True)
 ```
 
 ## Quick start

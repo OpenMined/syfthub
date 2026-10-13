@@ -19,6 +19,9 @@ pip install --pre syfthub-sdk      # 2.x is a pre-release until the first stable
 uv add --prerelease allow syfthub-sdk
 ```
 
+`pip install --pre 'syfthub-sdk[http2]'` adds HTTP/2 support, used when `Options(http2=True)`
+is set (see [Options](#options)).
+
 ## The shape of a search
 
 ```python
@@ -418,6 +421,20 @@ against the fake too: `syfthub.Hub(fake.url, token="t", options=fake.options())`
 
 The SDK logs to `logging.getLogger("syfthub")`: one INFO line per execute and one DEBUG line per
 request with secrets redacted. A `NullHandler` is installed, so a quiet app sees nothing.
+
+## Examples
+
+In `sdk/python/examples/`:
+
+- `quickstart.ipynb` walks the SDK cell by cell against a real Hub: browse, compose, pre-flight,
+  resolve what blocks, execute, retry, wallets, budget, snapshots and what the SDK sent. It reads
+  `SYFTHUB_TOKEN` and pays nothing unless you flip its `PAY` switch.
+- `openai_chat.py` and `openai_chat_sync.py` are the reference chat app: pre-flight, hand a top-up
+  back to the user with a saved plan, resume after payment, answer with OpenAI from the retrieved
+  context.
+- `profile_hub.py` reports where the time goes: every request split into connection setup, the
+  wait for the server and the body read, and every SDK operation split into time on the wire
+  versus time in this process, per operation, per route and per source.
 
 ## Migrating from 0.x
 

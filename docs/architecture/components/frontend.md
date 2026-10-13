@@ -384,6 +384,5 @@ Test locations:
 - [Backend Component](./backend.md)
 - [Aggregator Component](./aggregator.md)
 - [MCP Server Component](./mcp.md)
-- [Frontend Complexity Analysis](../frontend-complexity.md)
 - [Backend API Reference](../../api/backend.md)
 - [Aggregator API Reference](../../api/aggregator.md)

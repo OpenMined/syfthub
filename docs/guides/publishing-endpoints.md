@@ -35,7 +35,7 @@ import syfthub
 
 with syfthub.Hub(token="syft_pat_...") as hub:
     source = hub.sources.get("username/my-model")
-    print(source.type, source.health, source.reachable)
+    print(source.type, source.pricing, source.reachable)
 ```
 
 ### Via TypeScript SDK
