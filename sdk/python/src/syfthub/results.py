@@ -258,6 +258,16 @@ def classify(
             error=detail,
             **base,
         )
+    if (
+        status == 429
+    ):  # the Space's own throttle, outside its policy engine: no entry, no body shape
+        return SourceResult(
+            outcome=Outcome.REJECTED,
+            reason=Reason.RATE_LIMITED,
+            rate_limit=RateLimit.from_entry({}, dict(response.headers)),
+            error=detail,
+            **base,
+        )
     failed: Reason | None
     if status == 404:
         failed = Reason.NOT_FOUND

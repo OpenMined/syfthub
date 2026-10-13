@@ -67,3 +67,51 @@ def test_error_detail_parses_the_three_fastapi_shapes() -> None:
     assert (
         ErrorDetail.of(resp(text="<html>")).message == "<html>" and detail_of(resp(text="t")) == "t"
     )
+
+
+def test_http2_is_opt_in() -> None:
+    from syfthub import Options
+    from syfthub._transport import Transport
+
+    def pool(transport: Transport):  # type: ignore[no-untyped-def]  # httpcore's pool
+        return transport._client._transport._pool  # type: ignore[attr-defined]
+
+    assert pool(Transport())._http2 is False
+    assert pool(Transport(Options(http2=True)))._http2 is True  # negotiated by ALPN per host
+    assert (
+        pool(Transport())._keepalive_expiry == 60.0
+    )  # a Hub call after a slow fan-out reconnects less
+
+
+async def test_a_5xx_is_retried_once_and_network_errors_use_the_full_budget() -> None:
+    from syfthub import Options
+    from syfthub._transport import Transport
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/flaky-server":
+            return httpx.Response(503)
+        if request.url.path == "/flaky-network" and len(calls) < 3:
+            raise httpx.ConnectError("refused")
+        return httpx.Response(200)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    retry = Retry(attempts=3, server_errors=1, backoff=0, max_backoff=0)
+    transport = Transport(Options(http_client=client, retry=retry))
+
+    response = await transport.request("GET", "https://x.test/flaky-server")
+    assert response.status_code == 503 and calls.count("/flaky-server") == 2  # one retry, not two
+
+    calls.clear()
+    response = await transport.request("GET", "https://x.test/flaky-network")
+    assert response.status_code == 200 and calls.count("/flaky-network") == 3  # the full budget
+
+    calls.clear()
+    no_server_retries = Transport(
+        Options(http_client=client, retry=Retry(server_errors=0, backoff=0))
+    )
+    await no_server_retries.request("GET", "https://x.test/flaky-server")
+    assert calls == ["/flaky-server"]
+    await client.aclose()

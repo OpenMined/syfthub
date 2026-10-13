@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from syfthub import AsyncHub, InvoiceStatus, Money, Options, PaymentFailed, Rail, Retry
+from syfthub import AsyncHub, InvoiceStatus, Money, Options, PaymentFailed, Rail, Retry, Timeout
 
 from .conftest import hub_body, xendit_policy
 
@@ -201,6 +201,28 @@ async def test_wallet_invoices_lists_mine(api: respx.MockRouter, hub: AsyncHub) 
 
 
 @pytest.mark.usefixtures("api")
+async def test_listing_reads_use_the_lookup_timeout_and_refresh_keeps_read(
+    api: respx.MockRouter,
+) -> None:
+    seen: list[float] = []
+
+    def credits(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"]["read"])
+        return httpx.Response(200, json={"balance": 1, "currency": "USD"})
+
+    api.get(f"{SPACE}/api/credits").mock(side_effect=credits)
+    api.get(f"{HUB}/api/v1/auth/me").respond(200, json={"username": "me", "email": "me@x.test"})
+    api.get(f"{HUB}/api/v1/endpoints/public/erin/trials").respond(
+        200, json=hub_body("erin", "trials", policies=[xendit_policy()])
+    )
+    options = Options(timeout=Timeout(read=30.0, lookup=2.5))
+    async with AsyncHub(HUB, token="t", options=options) as hub:
+        (w,) = await hub.wallets.list()
+        await w.refresh()
+        await hub.search("q", ["erin/trials"]).preflight()
+    assert seen == [2.5, 30.0, 2.5]  # listing, explicit refresh, pre-flight
+
+
 async def test_listing_reads_balances_once_without_retries(api: respx.MockRouter) -> None:
     credits = api.get(f"{SPACE}/api/credits").respond(503)
     async with AsyncHub(
@@ -209,11 +231,11 @@ async def test_listing_reads_balances_once_without_retries(api: respx.MockRouter
         (w,) = await hub.wallets.list()
         assert w.balance is None and w.refreshed_at is None and credits.call_count == 1
         with pytest.raises(PaymentFailed):
-            await w.refresh()  # an explicit refresh keeps the retry policy
-        assert credits.call_count == 4
+            await w.refresh()  # an explicit refresh keeps the retry policy: one retry on a 5xx
+        assert credits.call_count == 3
         credits.respond(200, json={"balance": 3, "currency": "USD"})
         api.get(f"{HUB}/api/v1/endpoints/public/erin/trials").respond(
             200, json=hub_body("erin", "trials", policies=[xendit_policy()])
         )
         assert (await hub.wallets.for_source("erin/trials")) is w and w.balance == Money.of(3)
-        assert credits.call_count == 5
+        assert credits.call_count == 4

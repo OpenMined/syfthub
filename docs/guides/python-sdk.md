@@ -237,7 +237,9 @@ results["erin/trials"] # one SourceResult
 ```
 
 Requests fan out in parallel, bounded by `Options.concurrency`, one request per source. A 401 from
-a Space re-mints that Space's token once and retries. Timeouts and 5xx retry per `Options.retry`.
+a Space re-mints that Space's token once and retries. Timeouts and connection errors retry per
+`Options.retry`; a 5xx is retried once (`Retry.server_errors`), since a server that answered is
+unlikely to answer differently a moment later and a fan-out hides nothing by waiting.
 
 `SourceResult` has an `Outcome` and, when it did not return, a `Reason`:
 
@@ -299,7 +301,7 @@ is charged until the user completes the checkout; then pre-flight passes.
 is the readable `owner/rail/currency` label. A policy that publishes only its URLs gets the UUID
 from them as its id. `list()` and `for_source()` read every balance they return, in parallel, and
 stamp `refreshed_at`. Those reads go straight to each wallet's host and are not retried, so a
-dead Space costs one connect timeout and leaves `balance=None`; `wallet.refresh()` keeps the
+dead Space costs one connect timeout, a slow one at most `Timeout.lookup` seconds, and leaves `balance=None`; `wallet.refresh()` keeps the
 retry policy. `hub.wallets.get(key)`
 is a lookup of a wallet already seen, with no request, so its balance is as of `refreshed_at`.
 
@@ -335,8 +337,9 @@ A snapshot written by an incompatible SDK version raises `StaleSnapshot`. On the
 
 ```python
 syfthub.Options(
-    timeout=syfthub.Timeout(connect=5.0, read=30.0, total=60.0),
-    retry=syfthub.Retry(attempts=3, backoff=0.5, max_backoff=8.0),
+    timeout=syfthub.Timeout(connect=5.0, read=30.0, total=60.0, lookup=5.0),
+    retry=syfthub.Retry(attempts=3, server_errors=1, backoff=0.5, max_backoff=8.0),
+    http2=False,                # opt in with `pip install 'syfthub-sdk[http2]'`: see below
     circuit_breaker=syfthub.CircuitBreaker(failures=5, cooldown=30.0),
     concurrency=8,          # parallel requests across Spaces
     max_items=1000,         # catalogue pages are read up to this many sources
@@ -345,11 +348,24 @@ syfthub.Options(
 )
 ```
 
+`Timeout.lookup` is the read timeout for the balance reads behind `wallets.list` and pre-flight,
+which wait on many wallet hosts at once; one slow host then delays them by at most that, and shows
+as `balance=None`. Everything you ask of one host, `refresh`, a top-up, an invoice poll, the query,
+keeps `read`. Idle connections stay in the pool for a minute, so a Hub call that follows a slow
+fan-out does not pay a new handshake.
+
 The circuit breaker is per Space host. A connection failure, which is a timeout, a refused
 connection or a DNS error, opens it at once, since the host is down; a 5xx counts toward
 `failures`. An open host is held for `cooldown` seconds, and the next execute sends one probe first
 and holds the rest if it fails. Rows held this way are `retryable`, so `results.retry()` after the
 cooldown re-sends them.
+
+`http2=True` asks every host for HTTP/2, so concurrent requests to one host share a connection
+instead of each opening its own, which from far away costs two round trips of TCP and TLS. It
+needs `pip install 'syfthub-sdk[http2]'`, and it is decided per host: the Hub and the station
+negotiate it, a Space served by bare uvicorn or over plain HTTP stays on HTTP/1.1, and nothing
+breaks either way. It helps when the SDK fans out to one host, such as the Space tokens behind
+`wallets.list` or several sources on one Space; a single query gains nothing.
 
 ## Errors
 

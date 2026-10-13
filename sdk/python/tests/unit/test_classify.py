@@ -179,3 +179,14 @@ def test_mpp_challenge_parsing_and_payment_required(free_source: Source) -> None
     assert still.error == "invalid credential" and not still.retryable
     paid = classify(free_source, response(200, {"references": {"documents": []}}), charge=charge)
     assert paid.ok and paid.cost == Money.of("0.02") and paid.charge is charge
+
+
+def test_a_bare_429_is_a_retryable_rate_limit(free_source: Source) -> None:
+    """A Space's own throttle answers 429 with a plain detail and no policy entry."""
+    throttled = classify(
+        free_source,
+        response(429, {"detail": "Too many requests. Please slow down."}, {"Retry-After": "9"}),
+    )
+    assert throttled.outcome is Outcome.REJECTED and throttled.reason is Reason.RATE_LIMITED
+    assert throttled.retryable and throttled.rate_limit is not None
+    assert throttled.rate_limit.reset_seconds == 9 and "slow down" in (throttled.error or "")

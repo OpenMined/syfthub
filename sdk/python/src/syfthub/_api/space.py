@@ -47,10 +47,12 @@ class SpaceApi:
             "POST", url, json=body, headers=_headers(token, tenant, extra)
         )
 
-    async def balance(self, credits_url: str, token: str, *, retry: bool = True) -> dict[str, Any]:
+    async def balance(
+        self, credits_url: str, token: str, *, retry: bool = True, read_timeout: float | None = None
+    ) -> dict[str, Any]:
         try:
             response = await self.transport.request(
-                "GET", credits_url, headers=_headers(token), retry=retry
+                "GET", credits_url, headers=_headers(token), retry=retry, read_timeout=read_timeout
             )
         except TransportError as e:
             raise PaymentFailed(f"balance unavailable: {e}") from e

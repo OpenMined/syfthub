@@ -128,9 +128,14 @@ class WalletsNamespace:
 
     # ── WalletPort ────────────────────────────────────────────────────────
 
-    async def wallet_balance(self, wallet: Wallet, *, retry: bool = True) -> tuple[Money, datetime]:
+    async def wallet_balance(
+        self, wallet: Wallet, *, retry: bool = True, read_timeout: float | None = None
+    ) -> tuple[Money, datetime]:
         body = await self._space.balance(
-            self._require(wallet, "credits_url"), await self._token(wallet), retry=retry
+            self._require(wallet, "credits_url"),
+            await self._token(wallet),
+            retry=retry,
+            read_timeout=read_timeout,
         )
         currency = str(body.get("currency") or wallet.currency)
         return Money.of(body.get("balance", 0), currency), datetime.now(timezone.utc)
@@ -177,7 +182,7 @@ class WalletsNamespace:
             async with gate:
                 try:
                     wallet.balance, wallet.refreshed_at = await self.wallet_balance(
-                        wallet, retry=False
+                        wallet, retry=False, read_timeout=self._hub.options.timeout.lookup
                     )
                 except SyftHubError as e:
                     wallet.balance, wallet.refreshed_at = None, None

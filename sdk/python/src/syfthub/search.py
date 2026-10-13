@@ -410,7 +410,7 @@ class Searcher:
         async def read(wallet: Wallet) -> None:
             try:  # one attempt: a host that does not answer holds its rows, see _row
                 wallet.balance, wallet.refreshed_at = await self._wallets.wallet_balance(
-                    wallet, retry=False
+                    wallet, retry=False, read_timeout=self._options.timeout.lookup
                 )
             except SyftHubError as e:
                 wallet.balance, wallet.refreshed_at = None, None

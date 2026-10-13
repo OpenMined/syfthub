@@ -25,6 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+http2 = ["h2>=4"]
 testing = ["respx>=0.21"]
 dev = [
     "pytest>=8.0",
@@ -32,6 +33,7 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-xdist>=3.5.0",
     "respx>=0.21",
+    "h2>=4",
     "ruff>=0.8",
     "mypy>=1.13",
 ]

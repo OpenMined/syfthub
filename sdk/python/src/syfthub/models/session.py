@@ -78,15 +78,23 @@ class Budget(Frozen):
 
 
 class Timeout(Frozen):
+    """``lookup`` is the read timeout for the balance reads behind ``wallets.list`` and pre-flight,
+    which wait on many hosts at once; one slow host then costs at most this. Everything you ask of
+    one host (``refresh``, top-ups, the query) keeps ``read``."""
+
     connect: float = 5.0
     read: float = 30.0
     total: float = 60.0
+    lookup: float = 5.0
 
 
 class Retry(Frozen):
-    """Network errors and 5xx only; never a 403 rate limit."""
+    """Network errors and 5xx only; never a 403 rate limit. ``attempts`` bounds the whole
+    request; ``server_errors`` is the smaller number of retries a 5xx response may use of it,
+    since a server that answered is less likely to answer differently a moment later."""
 
     attempts: int = Field(default=3, ge=1)
+    server_errors: int = Field(default=1, ge=0)
     backoff: float = Field(default=0.5, ge=0)
     max_backoff: float = Field(default=8.0, ge=0)
 
@@ -108,5 +116,6 @@ class Options(Frozen):
     circuit_breaker: CircuitBreaker = CircuitBreaker()
     concurrency: int = Field(default=8, ge=1)
     max_items: int = Field(default=1000, ge=1)
+    http2: bool = False  # needs ``syfthub-sdk[http2]``; hosts without it still get HTTP/1.1
     user_agent: str | None = None
     http_client: Any = Field(default=None, exclude=True)
