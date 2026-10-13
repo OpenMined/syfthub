@@ -84,6 +84,17 @@ prefer `obj.kind` or `isinstance` when you need the class. Two guards: a sync ca
 private loop's own thread raises `RuntimeError` instead of deadlocking, and so does any call after
 `close()`. `hub.async_hub` exposes the underlying `AsyncHub` for mixed code.
 
+Type checkers and IDEs see the sync API with full types: `hub.search(...).preflight()` is a
+`Preflight`, not a coroutine, and completions work. To annotate your own sync code, take the
+names from `syfthub.sync`; at runtime they are the real classes, under a type checker they are
+the sync faces.
+
+```python
+from syfthub import sync
+
+def review(pre: sync.Preflight) -> sync.SearchPlan: ...
+```
+
 ## Authentication
 
 ```python

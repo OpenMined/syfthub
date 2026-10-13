@@ -7,6 +7,10 @@ is already running (Jupyter, an ASGI handler), as long as the caller is not the 
 Every object that comes out of a ``Hub`` is a ``Sync`` face over the async object: attribute reads
 pass through, coroutine methods run on the loop, and ``isinstance`` and ``match`` see the real
 type. ``Wallet.balance`` and friends still update in place.
+
+Type checkers cannot see through the proxy, so ``_sync.pyi`` declares the sync faces. It is
+generated from the async package by ``scripts/gen_sync_stub.py``; regenerate it after changing a
+public coroutine method or anything it returns.
 """
 
 from __future__ import annotations
@@ -17,8 +21,9 @@ import threading
 from collections.abc import Callable, Coroutine, Iterator
 from typing import Any, TypeVar
 
-from .hub import AsyncHub
+from .hub import AsyncHub, BudgetLike
 from .models.base import Bound
+from .models.session import Options
 
 T = TypeVar("T")
 
@@ -179,8 +184,8 @@ class Hub(Sync):
         url: str | None = None,
         *,
         token: str | None = None,
-        budget: Any = None,
-        options: Any = None,
+        budget: BudgetLike = None,
+        options: Options | None = None,
     ) -> None:
         loop = _Loop()
         object.__setattr__(self, "_loop", loop)

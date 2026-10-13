@@ -52,4 +52,8 @@ uv sync --all-extras
 uv run ruff check src/ tests/
 uv run mypy src/
 uv run pytest tests/unit
+uv run python scripts/gen_sync_stub.py   # after changing a public async method or what it returns
 ```
+
+`src/syfthub/_sync.pyi` and `src/syfthub/sync.py` are generated: they give the sync `Hub` the
+types of the async package. A unit test fails until they are regenerated.

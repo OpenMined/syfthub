@@ -10,6 +10,7 @@ import logging as _logging
 from ._version import __version__
 
 _logging.getLogger("syfthub").addHandler(_logging.NullHandler())
+from . import sync  # noqa: E402
 from ._sync import Hub  # noqa: E402
 from .errors import (  # noqa: E402
     ActionRequired,
@@ -74,6 +75,7 @@ __all__ = [
     "__version__",
     "AsyncHub",
     "Hub",
+    "sync",
     "Access",
     "AccessDenied",
     "Action",

@@ -35,6 +35,13 @@ class AsyncHub:
     call ``aclose()`` to release the HTTP client.
     """
 
+    url: str
+    options: Options
+    breakers: Breakers
+    auth: AuthNamespace
+    sources: SourcesNamespace
+    wallets: WalletsNamespace
+
     def __init__(
         self,
         url: str | None = None,
