@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -15,7 +16,6 @@ def hub_body(
     *,
     type: str = "data_source",
     policies: list[dict[str, Any]] | None = None,
-    health: str | None = "healthy",
     tags: list[str] | None = None,
     description: str = "",
 ) -> dict[str, Any]:
@@ -36,8 +36,9 @@ def hub_body(
         ],
         "created_at": "2026-10-01T00:00:00Z",
         "updated_at": "2026-10-02T00:00:00Z",
-        "health_status": health,
-        "health_checked_at": "2026-10-02T00:00:00Z",
+        "health_status": "healthy",
+        "health_checked_at": datetime.now(timezone.utc).isoformat(),
+        "health_ttl_seconds": 90,
         "archived": False,
         "some_future_field": {"kept": "in raw"},
     }
@@ -74,7 +75,7 @@ def paid_source() -> Source:
 
 @pytest.fixture
 def model_source() -> Source:
-    return Source.from_hub(hub_body("kim", "assistant", type="model", health=None))
+    return Source.from_hub(hub_body("kim", "assistant", type="model"))
 
 
 @pytest.fixture

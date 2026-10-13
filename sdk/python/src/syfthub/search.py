@@ -19,8 +19,8 @@ import pydantic
 from pydantic import BaseModel, ConfigDict, Field
 
 from ._transport import TransportError
-from .errors import ActionRequired, AuthError, PaymentFailed, ValidationError
-from .models.enums import Health, Outcome, Rail, Reason, Verdict
+from .errors import ActionRequired, AuthError, PaymentFailed, SyftHubError, ValidationError
+from .models.enums import Outcome, Rail, Reason, Verdict
 from .models.money import Money
 from .models.results import Results, SourceResult
 from .models.search import (
@@ -104,10 +104,15 @@ def _row(plan: SearchPlan, source: Source, facts: Facts) -> PlanRow:
             wallet = facts.wallets.get(source.path)
             if wallet is None:
                 note = "prepaid policy publishes no credits_url; the Space decides"
-            elif wallet.balance is None:
-                note = facts.balance_errors.get(wallet.id) or "balance unknown"
-    if verdict is Verdict.READY and source.health is Health.UNHEALTHY:
-        verdict, note = Verdict.UNHEALTHY, "last Hub health check failed"
+            elif wallet.balance is None:  # the wallet host did not answer: do not send
+                return PlanRow(
+                    source=source,
+                    verdict=Verdict.UNREACHABLE,
+                    reason=Reason.UNREACHABLE,
+                    estimate=estimate,
+                    wallet=wallet,
+                    note=facts.balance_errors.get(wallet.id) or "balance unknown",
+                )
     return PlanRow(source=source, verdict=verdict, estimate=estimate, wallet=wallet, note=note)
 
 
@@ -243,7 +248,7 @@ def _actions(
 
 
 def plan_preflight(plan: SearchPlan, facts: Facts) -> Preflight:
-    """The rules, in order: skips, reachability, access, circuit, credits, budget, health."""
+    """The rules, in order: skips, reachability, access, circuit, credits, budget."""
     rows = [_row(plan, s, facts) for s in facts.sources]
     rows, shortfalls = _hold_for_credits(rows)
     rows, over = _hold_for_budget(rows, facts.budget)
@@ -403,10 +408,12 @@ class Searcher:
         errors: dict[str, str] = {}
 
         async def read(wallet: Wallet) -> None:
-            try:
-                await wallet.refresh()
-            except (PaymentFailed, AuthError) as e:
-                wallet.balance = None
+            try:  # one attempt: a host that does not answer holds its rows, see _row
+                wallet.balance, wallet.refreshed_at = await self._wallets.wallet_balance(
+                    wallet, retry=False
+                )
+            except SyftHubError as e:
+                wallet.balance, wallet.refreshed_at = None, None
                 errors[wallet.id] = f"balance unavailable: {e}"
 
         await asyncio.gather(*(read(w) for w in {w.id: w for w in wallets.values()}.values()))
@@ -521,7 +528,7 @@ class Searcher:
                     if response.status_code < 300:
                         self._hub._record_spend(charge.amount)
             except TransportError as e:
-                self._breakers.failure(host)
+                self._breakers.failure(host, connection=True)
                 return self._failed(
                     source, e.reason, str(e), request, attempts + e.attempts - 1, started
                 )

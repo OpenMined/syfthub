@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -344,7 +345,6 @@ class FakeHub(BaseModel):
         rail: str = "xendit",
         mpp_price: float | None = None,
         policies: list[dict[str, Any]] | None = None,
-        health: str | None = "healthy",
         tags: list[str] | None = None,
         description: str = "",
         name: str | None = None,
@@ -379,8 +379,9 @@ class FakeHub(BaseModel):
             "connect": [{"type": "http", "enabled": True, "config": {"url": space.origin}}],
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
-            "health_status": health,
-            "health_checked_at": "2026-01-01T00:00:00Z",
+            "health_status": "healthy",
+            "health_checked_at": datetime.now(timezone.utc).isoformat(),
+            "health_ttl_seconds": 90,
             "archived": False,
         }
         self.sources[f"{owner}/{slug}"] = body

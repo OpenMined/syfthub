@@ -85,7 +85,7 @@ async def test_get_and_not_found(api: respx.MockRouter, hub: AsyncHub) -> None:
         404, json={"detail": "Endpoint not found"}
     )
     src = await hub.sources.get("erin/trials")
-    assert src.path == "erin/trials" and src.health.value == "healthy"
+    assert src.path == "erin/trials" and src.raw["health_status"] == "healthy"
     with pytest.raises(SourceNotFound) as e:
         await hub.sources.get("erin/nope")
     assert e.value.path == "erin/nope"

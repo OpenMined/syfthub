@@ -28,11 +28,13 @@ def plan_for(*sources: Source, **kw: object) -> SearchPlan:
     return SearchPlan(query="q", sources=tuple(s.path for s in sources), **kw)  # type: ignore[arg-type]
 
 
-def test_free_rows_are_ready_and_unhealthy_still_sends(free_source: Source) -> None:
-    sick = Source.from_hub(hub_body("bob", "flaky", health="unhealthy"))
-    pre = plan_preflight(plan_for(free_source, sick), Facts(sources=(free_source, sick)))
-    assert pre.ready and [r.verdict for r in pre] == [Verdict.READY, Verdict.UNHEALTHY]
-    assert pre.sending == pre.rows and pre.actions == () and pre.estimate == {}
+def test_free_rows_are_ready_whatever_the_hub_reports_as_health(free_source: Source) -> None:
+    flagged = Source.from_hub(hub_body("bob", "flaky"))
+    assert flagged.raw["health_status"] == "healthy" and not hasattr(flagged, "health")
+    pre = plan_preflight(plan_for(free_source, flagged), Facts(sources=(free_source, flagged)))
+    assert pre.ready and [r.verdict for r in pre] == [Verdict.READY, Verdict.READY]
+    assert pre.sending == tuple(pre) and pre.held == () and pre.actions == ()
+    assert pre.estimate == {}
 
 
 def test_skip_unreachable_and_access_denied_hold_without_sending(free_source: Source) -> None:
@@ -134,7 +136,8 @@ def test_unknown_balance_sends_and_notes_it(paid_source: Source, wallet: Wallet)
         ),
     )
     row = pre[paid_source.path]
-    assert row.verdict is Verdict.READY and row.note == "balance unavailable: 503"
+    assert row.verdict is Verdict.UNREACHABLE and row.note == "balance unavailable: 503"
+    assert row.reason is Reason.UNREACHABLE and not row.send
     assert row.estimate == Money.of("0.05") and pre.actions == ()
 
 

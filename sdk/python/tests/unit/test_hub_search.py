@@ -201,7 +201,7 @@ async def test_balance_failure_does_not_block_the_row(api: respx.MockRouter, hub
     api.get("https://erin.space.test/api/credits").respond(503)
     pre = await hub.search("q", ["erin/trials"]).preflight()
     row = pre["erin/trials"]
-    assert row.verdict is Verdict.READY and "balance unavailable" in (row.note or "")
+    assert row.verdict is Verdict.UNREACHABLE and "balance unavailable" in (row.note or "")
 
 
 # ── execute ───────────────────────────────────────────────────────────────
@@ -338,16 +338,24 @@ async def test_space_errors_become_rows_and_retry_resends_only_them(
     assert [r.path for r in results.retryable] == ["erin/trials", "alice/more"]
     assert gone.call_count == 2 and limited.call_count == 1 and missing.call_count == 1
 
+    # a connection failure opens the host's breaker at once: a retry inside the cooldown holds it
+    assert hub.breakers.is_open("alice.space.test")
     limited.respond(200, json=ok_body(("late", 0.5), cost=0.05))
     gone.mock(return_value=httpx.Response(200, json=ok_body(("back", 0.8))))
     merged = await results.retry()
+    assert [r.path for r in merged.ok] == ["alice/free-docs", "erin/trials"]
+    held = merged["alice/more"]
+    assert held.outcome is Outcome.HELD and held.reason is Reason.CIRCUIT_OPEN
+    assert isinstance(merged.actions[0], CircuitOpen) and gone.call_count == 2
+    hub.breakers.success("alice.space.test")  # the cooldown has passed
+    merged = await merged.retry()
     assert len(merged) == 4 and [r.path for r in merged.ok] == [
         "alice/free-docs",
         "erin/trials",
         "alice/more",
     ]
     assert merged["kim/assistant"].reason is Reason.NOT_FOUND and merged.plan is results.plan
-    assert api["source:alice/free-docs"].call_count == 1  # source cache
+    assert api["source:alice/free-docs"].call_count == 1  # a retry resolves only its own rows
 
 
 async def test_401_from_a_space_mints_a_fresh_token_once(

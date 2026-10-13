@@ -198,3 +198,22 @@ async def test_wallet_invoices_lists_mine(api: respx.MockRouter, hub: AsyncHub) 
     (w,) = await hub.wallets.list()
     (inv,) = await w.invoices()
     assert inv.status is InvoiceStatus.EXPIRED and inv._hub is hub
+
+
+@pytest.mark.usefixtures("api")
+async def test_listing_reads_balances_once_without_retries(api: respx.MockRouter) -> None:
+    credits = api.get(f"{SPACE}/api/credits").respond(503)
+    async with AsyncHub(
+        HUB, token="t", options=Options(retry=Retry(attempts=3, backoff=0, max_backoff=0))
+    ) as hub:
+        (w,) = await hub.wallets.list()
+        assert w.balance is None and w.refreshed_at is None and credits.call_count == 1
+        with pytest.raises(PaymentFailed):
+            await w.refresh()  # an explicit refresh keeps the retry policy
+        assert credits.call_count == 4
+        credits.respond(200, json={"balance": 3, "currency": "USD"})
+        api.get(f"{HUB}/api/v1/endpoints/public/erin/trials").respond(
+            200, json=hub_body("erin", "trials", policies=[xendit_policy()])
+        )
+        assert (await hub.wallets.for_source("erin/trials")) is w and w.balance == Money.of(3)
+        assert credits.call_count == 5

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, model_validator
 
 from .base import Frozen
-from .enums import PAYMENT_POLICY_TYPES, Health, PolicyType, PriceUnit, Rail, SourceType
+from .enums import PAYMENT_POLICY_TYPES, PolicyType, PriceUnit, Rail, SourceType
 from .money import Bundle, Money
 
 _DEFAULT_CURRENCY: dict[str, str] = {Rail.XENDIT.value: "IDR"}
@@ -259,19 +259,14 @@ class Source(Frozen):
     policies: tuple[Policy, ...] = ()
     connect: tuple[Connection, ...] = ()
     readme: str = ""
-    health: Health = Health.UNKNOWN
     raw: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_hub(cls, body: dict[str, Any]) -> Source:
-        """Build from an ``EndpointPublicResponse`` body, keeping it verbatim in ``raw``."""
-        status = body.get("health_status")
-        health = (
-            Health(status)
-            if status in (Health.HEALTHY.value, Health.UNHEALTHY.value)
-            else Health.UNKNOWN
-        )
-        return cls.model_validate({**body, "health": health, "raw": body})
+        """Build from an ``EndpointPublicResponse`` body, keeping it verbatim in ``raw``. The
+        Hub's ``health_*`` fields stay there untouched: they are the Space's own backend
+        self-check, which the Hub already uses to delist dead sources, not a signal to act on."""
+        return cls.model_validate({**body, "raw": body})
 
     @property
     def path(self) -> str:

@@ -57,12 +57,6 @@ class PriceUnit(str, Enum):
     DOCUMENT = "document"
 
 
-class Health(str, Enum):
-    HEALTHY = "healthy"
-    UNHEALTHY = "unhealthy"
-    UNKNOWN = "unknown"
-
-
 class AuthMethod(str, Enum):
     PASSWORD = "password"
     TOKEN = "token"
@@ -70,11 +64,10 @@ class AuthMethod(str, Enum):
 
 
 class Verdict(str, Enum):
-    """Pre-flight, per row. The first three are sent; the rest are held."""
+    """Pre-flight, per row. The first two are sent; the rest are held."""
 
     READY = "ready"
     WILL_ASK_TO_PAY = "will_ask_to_pay"
-    UNHEALTHY = "unhealthy"
     NEEDS_CREDITS = "needs_credits"
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
@@ -84,7 +77,7 @@ class Verdict(str, Enum):
 
     @property
     def sends(self) -> bool:
-        return self in (Verdict.READY, Verdict.WILL_ASK_TO_PAY, Verdict.UNHEALTHY)
+        return self in (Verdict.READY, Verdict.WILL_ASK_TO_PAY)
 
 
 class ActionKind(str, Enum):

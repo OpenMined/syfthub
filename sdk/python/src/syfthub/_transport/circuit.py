@@ -58,8 +58,10 @@ class Breakers(BaseModel):
     def success(self, host: str) -> None:
         self._states[host] = _State()
 
-    def failure(self, host: str) -> None:
+    def failure(self, host: str, *, connection: bool = False) -> None:
+        """Count a failure. A ``connection`` failure (timeout, refused, DNS) means the host is
+        down, so it opens the circuit at once; a 5xx counts toward ``settings.failures``."""
         st = self._state(host)
         st.failures += 1
-        if st.opened_at is not None or st.failures >= self.settings.failures:
+        if connection or st.opened_at is not None or st.failures >= self.settings.failures:
             st.opened_at = time.monotonic()

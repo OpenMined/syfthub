@@ -88,10 +88,14 @@ class SourceResult(Frozen):
 
     @property
     def retryable(self) -> bool:
+        """Worth sending again later: a transient failure, a rate limit, or a host whose circuit
+        was open at the time. Held for credits, budget, access or by the user is not."""
         if self.outcome is Outcome.REJECTED:
             return self.reason in _RETRYABLE_REJECTIONS
         if self.outcome is Outcome.FAILED:
             return self.reason in _RETRYABLE_FAILURES
+        if self.outcome is Outcome.HELD:
+            return self.reason is Reason.CIRCUIT_OPEN
         return False
 
     @property

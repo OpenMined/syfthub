@@ -112,7 +112,6 @@ source = await hub.sources.get("erin/trials")           # SourceNotFound if it d
 source.type            # SourceType.DOCUMENTS | MODEL | BOTH
 source.pricing         # Pricing | None: rail, price, unit, currency, bundles
 source.free            # True when there is no payment policy
-source.health          # Health.HEALTHY | UNHEALTHY | UNKNOWN
 source.reachable       # False when the publisher has not connected a Space
 source.access(email)   # Access(allowed, rule) from the access policy, predicted client-side
 ```
@@ -123,6 +122,12 @@ the chainable `filter(type=, owner=, free=, tag=)`, `matching(text)` and `pick(*
 
 Every `list`, `get` and `search` call reads the Hub now. `hub.sources.cached(path)` is the only
 lookup that does not: it returns what the last read said, for a minute, without a request.
+
+`list` and `search` return what the Hub lists. The Hub delists a source whose Space has stopped
+reporting, so a listed source has a live publisher. The SDK exposes no health flag: the Hub's
+`health_status` is the Space's own check of the backend behind an endpoint, which the Hub already
+acts on, and it says nothing about whether a query will succeed. It stays in `source.raw` if you
+want to read it.
 
 ## Composing a plan
 
@@ -160,15 +165,15 @@ a `note`.
 |---|---|---|
 | `READY` | yes | Free, or prepaid with enough credits, within the cap for its currency. |
 | `WILL_ASK_TO_PAY` | yes | Metered (MPP). The Space will challenge and the SDK pays on the way, within the cap for its currency. |
-| `UNHEALTHY` | yes | The Hub reports the Space unhealthy. Sent anyway; expect a failure. |
 | `NEEDS_CREDITS` | no | The prepaid wallet cannot cover the estimate. |
 | `OVER_BUDGET` | no | The cap for the estimate's currency cannot cover it. |
 | `ACCESS_DENIED` | no | Your email does not match the source's access policy. |
-| `CIRCUIT_OPEN` | no | The Space's host failed repeatedly and is cooling down. |
-| `UNREACHABLE` | no | The publisher has not connected a Space. |
+| `CIRCUIT_OPEN` | no | The Space's host is down or failing and is cooling down. |
+| `UNREACHABLE` | no | The publisher has not connected a Space, or its wallet host did not answer the balance read. |
 | `SKIPPED` | no | You skipped it. |
 
-The checks run in that order. Credits are checked per wallet: if several sources share one wallet
+The checks run in the order skip, reachability, access, circuit, pricing, credits, budget,
+and a source held by an earlier check is never contacted by a later one. Credits are checked per wallet: if several sources share one wallet
 that is short, all of them are held and one `TopUp` carries the combined shortfall. Budget is
 checked in plan order and per currency: the first row that would cross its currency's cap and every
 paid row in that currency after it are held. A currency with no cap is not budgeted.
@@ -214,7 +219,7 @@ results.kind           # ReturnKind.REFERENCES | SUMMARIES | BOTH | NOTHING
 results.ok             # rows that returned
 results.failed         # rows that did not
 results.held           # rows pre-flight held
-results.retryable      # failed rows worth re-sending (timeouts, 5xx, rate limits)
+results.retryable      # rows worth re-sending: timeouts, 5xx, rate limits, a host that was cooling down
 results.cost           # {"USD": Money(...)} actually charged
 results.actions        # TopUp actions raised by a 402 at execute time
 results["erin/trials"] # one SourceResult
@@ -282,7 +287,9 @@ is charged until the user completes the checkout; then pre-flight passes.
 `wallet.id` is the publisher's wallet id and the key that groups sources on one wallet; `wallet.key`
 is the readable `owner/rail/currency` label. A policy that publishes only its URLs gets the UUID
 from them as its id. `list()` and `for_source()` read every balance they return, in parallel, and
-stamp `refreshed_at`; a Space that cannot be reached leaves `balance=None`. `hub.wallets.get(key)`
+stamp `refreshed_at`. Those reads go straight to each wallet's host and are not retried, so a
+dead Space costs one connect timeout and leaves `balance=None`; `wallet.refresh()` keeps the
+retry policy. `hub.wallets.get(key)`
 is a lookup of a wallet already seen, with no request, so its balance is as of `refreshed_at`.
 
 ### Metered sources (MPP)
@@ -327,8 +334,11 @@ syfthub.Options(
 )
 ```
 
-The circuit breaker is per Space host. After `failures` consecutive failures the host is held for
-`cooldown` seconds; the next execute sends one probe first and holds the rest if it fails.
+The circuit breaker is per Space host. A connection failure, which is a timeout, a refused
+connection or a DNS error, opens it at once, since the host is down; a 5xx counts toward
+`failures`. An open host is held for `cooldown` seconds, and the next execute sends one probe first
+and holds the rest if it fails. Rows held this way are `retryable`, so `results.retry()` after the
+cooldown re-sends them.
 
 ## Errors
 

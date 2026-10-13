@@ -2,23 +2,22 @@ from __future__ import annotations
 
 import pytest
 
-from syfthub import Health, Policy, PriceUnit, Rail, Source, SourceList, SourceType
+from syfthub import Policy, PriceUnit, Rail, Source, SourceList, SourceType
 from syfthub.models import pricing_from_policies
 
 from .conftest import hub_body, xendit_policy
 
 
-def test_from_hub_keeps_raw_and_maps_health(free_source: Source) -> None:
+def test_from_hub_keeps_raw(free_source: Source) -> None:
     assert free_source.path == "alice/free-docs"
-    assert free_source.health is Health.HEALTHY
+    assert free_source.raw["health_status"] == "healthy"  # the Hub's health fields stay in raw only
     assert free_source.raw["some_future_field"] == {"kept": "in raw"}
     assert free_source.space_url == "https://alice.space.test"
     assert free_source.free and free_source.pricing is None
     assert free_source.type.returns_documents
 
 
-def test_unknown_health_and_model_type(model_source: Source) -> None:
-    assert model_source.health is Health.UNKNOWN
+def test_model_type(model_source: Source) -> None:
     assert model_source.type is SourceType.MODEL and model_source.type.returns_summary
 
 

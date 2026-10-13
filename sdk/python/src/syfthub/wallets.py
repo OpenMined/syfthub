@@ -128,9 +128,9 @@ class WalletsNamespace:
 
     # ── WalletPort ────────────────────────────────────────────────────────
 
-    async def wallet_balance(self, wallet: Wallet) -> tuple[Money, datetime]:
+    async def wallet_balance(self, wallet: Wallet, *, retry: bool = True) -> tuple[Money, datetime]:
         body = await self._space.balance(
-            self._require(wallet, "credits_url"), await self._token(wallet)
+            self._require(wallet, "credits_url"), await self._token(wallet), retry=retry
         )
         currency = str(body.get("currency") or wallet.currency)
         return Money.of(body.get("balance", 0), currency), datetime.now(timezone.utc)
@@ -168,14 +168,17 @@ class WalletsNamespace:
     # ── internals ─────────────────────────────────────────────────────────
 
     async def _read_balances(self, wallets: Sequence[Wallet]) -> None:
-        """Refresh each wallet, at most ``Options.concurrency`` at a time; failures leave
-        ``balance=None`` rather than a stale number."""
+        """Read each balance once, at most ``Options.concurrency`` at a time. A listing is
+        informational, so there are no retries: a dead Space costs one connect timeout, and its
+        wallet is left at ``balance=None`` rather than a stale number."""
         gate = asyncio.Semaphore(self._hub.options.concurrency)
 
         async def read(wallet: Wallet) -> None:
             async with gate:
                 try:
-                    await wallet.refresh()
+                    wallet.balance, wallet.refreshed_at = await self.wallet_balance(
+                        wallet, retry=False
+                    )
                 except SyftHubError as e:
                     wallet.balance, wallet.refreshed_at = None, None
                     log.warning("wallet %s: balance unavailable: %s", wallet.key, e)
