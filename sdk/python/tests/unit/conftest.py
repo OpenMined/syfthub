@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -37,7 +37,7 @@ def hub_body(
         "created_at": "2026-10-01T00:00:00Z",
         "updated_at": "2026-10-02T00:00:00Z",
         "health_status": "healthy",
-        "health_checked_at": datetime.now(timezone.utc).isoformat(),
+        "health_checked_at": datetime.now(UTC).isoformat(),
         "health_ttl_seconds": 90,
         "archived": False,
         "some_future_field": {"kept": "in raw"},

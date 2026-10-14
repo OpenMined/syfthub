@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -18,7 +18,7 @@ class FakeWalletPort:
 
     async def wallet_balance(self, wallet: Wallet) -> tuple[Money, datetime]:
         self.calls.append("balance")
-        return Money.of("3.5", wallet.currency), datetime.now(timezone.utc)
+        return Money.of("3.5", wallet.currency), datetime.now(UTC)
 
     async def wallet_top_up(self, wallet: Wallet, bundle):  # type: ignore[no-untyped-def]
         self.calls.append(f"top_up:{bundle.id}")

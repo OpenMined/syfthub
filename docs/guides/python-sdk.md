@@ -5,7 +5,7 @@ see what each one will cost and need before anything is sent, then run the searc
 straight from your process to the publisher's Space; the Hub is only consulted for the catalogue,
 the per-Space access tokens and, for metered sources, the payment credential.
 
-**Version:** 2.0.0a1 | **Requires:** Python >= 3.10 | **Status:** first cut, headless and
+**Version:** 2.0.0a1 | **Requires:** Python >= 3.11 | **Status:** first cut, headless and
 search-only. Chat, metadata filters and the Aggregator come in later cuts.
 
 This is **v2**. It replaces the 0.x `syfthub_sdk` package under the same distribution name. Pins on

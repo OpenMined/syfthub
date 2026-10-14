@@ -12,7 +12,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pydantic
@@ -662,7 +662,7 @@ class Searcher:
             ):
                 by_host.setdefault(r.source.host, []).append(r)
         for host, held in by_host.items():
-            reopens = self._breakers.reopens_at(host) or datetime.now(timezone.utc)
+            reopens = self._breakers.reopens_at(host) or datetime.now(UTC)
             actions.append(
                 CircuitOpen(
                     reopens_at=reopens,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -68,7 +68,7 @@ def test_skip_unreachable_and_access_denied_hold_without_sending(free_source: So
 
 def test_circuit_open_rows_group_into_one_action_per_host(free_source: Source) -> None:
     other = Source.from_hub(hub_body("alice", "more-docs"))
-    reopens = datetime.now(timezone.utc) + timedelta(seconds=20)
+    reopens = datetime.now(UTC) + timedelta(seconds=20)
     pre = plan_preflight(
         plan_for(free_source, other),
         Facts(sources=(free_source, other), circuits={"alice.space.test": reopens}),

@@ -101,12 +101,13 @@ def is_wrapped(t: Any) -> bool:
 
 def classes_in(t: Any) -> set[type]:
     """Wrapped SDK classes mentioned anywhere in a type expression."""
-    if isinstance(t, type):
-        return {t} if is_wrapped(t) else set()
-    found: set[type] = set()
-    for arg in get_args(t):
-        found |= classes_in(arg)
-    return found
+    args = get_args(t)
+    if args:  # a parameterised alias names no class of its own; look inside it
+        found: set[type] = set()
+        for arg in args:
+            found |= classes_in(arg)
+        return found
+    return {t} if is_wrapped(t) else set()
 
 
 def defining_class(cls: type, name: str) -> type | None:

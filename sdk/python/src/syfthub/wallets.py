@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from .errors import PaymentFailed, SyftHubError, ValidationError
@@ -138,7 +138,7 @@ class WalletsNamespace:
             read_timeout=read_timeout,
         )
         currency = str(body.get("currency") or wallet.currency)
-        return Money.of(body.get("balance", 0), currency), datetime.now(timezone.utc)
+        return Money.of(body.get("balance", 0), currency), datetime.now(UTC)
 
     async def wallet_top_up(self, wallet: Wallet, bundle: Bundle) -> Invoice:
         slug = wallet.sources[0].split("/", 1)[1] if wallet.sources else None

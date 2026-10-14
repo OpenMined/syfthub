@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class SourceType(str, Enum):
+class SourceType(StrEnum):
     """What a source answers with. Values are the Hub's endpoint types."""
 
     DOCUMENTS = "data_source"
@@ -21,7 +21,7 @@ class SourceType(str, Enum):
         return self in (SourceType.MODEL, SourceType.BOTH)
 
 
-class Rail(str, Enum):
+class Rail(StrEnum):
     """How a source is paid; read off its payment policy."""
 
     FREE = "free"
@@ -35,7 +35,7 @@ class Rail(str, Enum):
         return self in (Rail.STRIPE, Rail.XENDIT, Rail.CLUSTER)
 
 
-class PolicyType(str, Enum):
+class PolicyType(StrEnum):
     """Policy types the SDK knows. ``Policy.type`` stays a string so unknown types still parse."""
 
     STRIPE = "stripe"
@@ -52,18 +52,18 @@ PAYMENT_POLICY_TYPES: frozenset[str] = frozenset(
 )
 
 
-class PriceUnit(str, Enum):
+class PriceUnit(StrEnum):
     REQUEST = "request"
     DOCUMENT = "document"
 
 
-class AuthMethod(str, Enum):
+class AuthMethod(StrEnum):
     PASSWORD = "password"
     TOKEN = "token"
     GOOGLE = "google"
 
 
-class Verdict(str, Enum):
+class Verdict(StrEnum):
     """Pre-flight, per row. The first two are sent; the rest are held."""
 
     READY = "ready"
@@ -80,14 +80,14 @@ class Verdict(str, Enum):
         return self in (Verdict.READY, Verdict.WILL_ASK_TO_PAY)
 
 
-class ActionKind(str, Enum):
+class ActionKind(StrEnum):
     TOP_UP = "top_up"
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
     CIRCUIT_OPEN = "circuit_open"
 
 
-class Outcome(str, Enum):
+class Outcome(StrEnum):
     """Execute, per row."""
 
     RETURNED = "returned"
@@ -97,7 +97,7 @@ class Outcome(str, Enum):
     PAYMENT_REQUIRED = "payment_required"
 
 
-class Reason(str, Enum):
+class Reason(StrEnum):
     NO_CREDITS = "no_credits"
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
@@ -114,14 +114,14 @@ class Reason(str, Enum):
     AUTH = "auth"
 
 
-class ReturnKind(str, Enum):
+class ReturnKind(StrEnum):
     REFERENCES = "references"
     SUMMARIES = "summaries"
     BOTH = "both"
     NOTHING = "nothing"
 
 
-class InvoiceStatus(str, Enum):
+class InvoiceStatus(StrEnum):
     """The Space's invoice lifecycle: pending -> (processing ->) paid, or expired / cancelled."""
 
     PENDING = "pending"

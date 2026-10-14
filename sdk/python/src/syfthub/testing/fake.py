@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -380,7 +380,7 @@ class FakeHub(BaseModel):
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
             "health_status": "healthy",
-            "health_checked_at": datetime.now(timezone.utc).isoformat(),
+            "health_checked_at": datetime.now(UTC).isoformat(),
             "health_ttl_seconds": 90,
             "archived": False,
         }

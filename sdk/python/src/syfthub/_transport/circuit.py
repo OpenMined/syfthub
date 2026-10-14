@@ -9,7 +9,7 @@ the probe comes back without a failure. Reading the state never changes it.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, PrivateAttr
@@ -45,7 +45,7 @@ class Breakers(BaseModel):
         remaining = self._remaining(host)
         if remaining is None or remaining <= 0:
             return None
-        return datetime.now(timezone.utc) + timedelta(seconds=remaining)
+        return datetime.now(UTC) + timedelta(seconds=remaining)
 
     def is_open(self, host: str) -> bool:
         return self.reopens_at(host) is not None

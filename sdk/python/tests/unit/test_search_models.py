@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pydantic
 import pytest
@@ -130,4 +130,4 @@ def test_action_kinds_serialise(paid_source: Source) -> None:
     assert ob.to_dict()["kind"] == "over_budget"
     ad = AccessDenied(affects=(paid_source,), rule="allow list")
     assert ad.to_dict()["rule"] == "allow list"
-    assert datetime.now(timezone.utc).tzinfo is timezone.utc
+    assert datetime.now(UTC).tzinfo is UTC
