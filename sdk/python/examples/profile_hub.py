@@ -29,9 +29,9 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel, Field
 
-import syfthub
-from syfthub import AsyncHub, Options
+from syfthub import AsyncHub, Options, Results, SourceResult
 from syfthub._transport.client import KEEPALIVE_SECONDS
+from syfthub.hub import DEFAULT_URL
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _HEX = re.compile(r"^[0-9a-f]{16,}$", re.I)
@@ -214,7 +214,7 @@ def fmt(ms: float) -> str:
     return f"{ms:,.1f}" if ms < 10 else f"{ms:,.0f}"
 
 
-def report(rec: Recorder, hub_url: str, results: list[syfthub.Results]) -> str:
+def report(rec: Recorder, hub_url: str, results: list[Results]) -> str:
     out: list[str] = [
         f"# SDK latency profile\n\nHub: `{hub_url}`  \nRequests: {len(rec.samples)}  \n"
     ]
@@ -290,7 +290,7 @@ def report(rec: Recorder, hub_url: str, results: list[syfthub.Results]) -> str:
     out.append("## Per source: the query as the SDK saw it\n")
     out.append("| source | runs | outcome | elapsed p50 | elapsed max | documents | cost |")
     out.append("|---|---:|---|---:|---:|---:|---|")
-    rows: dict[str, list[syfthub.SourceResult]] = {}
+    rows: dict[str, list[SourceResult]] = {}
     for res in results:
         for r in res:
             rows.setdefault(r.path, []).append(r)
@@ -338,12 +338,12 @@ def report(rec: Recorder, hub_url: str, results: list[syfthub.Results]) -> str:
 
 
 async def run(args: argparse.Namespace) -> str:
-    url = (os.environ.get("SYFTHUB_URL") or syfthub.hub.DEFAULT_URL).rstrip("/")
+    url = (os.environ.get("SYFTHUB_URL") or DEFAULT_URL).rstrip("/")
     token = os.environ.get("SYFTHUB_TOKEN")
     if not token:
         sys.exit("set SYFTHUB_TOKEN")
     rec = Recorder(hub_host=urlsplit(url).hostname or url, http2=args.http2)
-    results: list[syfthub.Results] = []
+    results: list[Results] = []
     async with AsyncHub(url, token=token, options=Options(http_client=rec.client())) as hub:
         async with rec.op("auth.whoami"):
             me = await hub.auth.whoami()
