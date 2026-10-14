@@ -46,8 +46,10 @@ def test_sync_names_are_the_real_classes_at_runtime() -> None:
 PROBE = """
 import syfthub
 from syfthub import TopUp, sync
+from syfthub.models.ports import HubPorts
 
 hub = syfthub.Hub(token="t")
+ports: HubPorts = hub.async_hub
 reveal_type(hub.sources.list())
 plan = hub.search("q")
 reveal_type(plan.preflight())

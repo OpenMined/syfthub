@@ -144,7 +144,7 @@ async def test_budget_and_repr() -> None:
     assert hub.budget.limit("USD") == Money.of(2) and hub.spent == {}
     hub.set_budget("0.50")
     assert hub.budget.limits == {"USD": Money.of("0.5")}
-    hub._record_spend(Money.of("0.2"))
+    hub._ledger.record(Money.of("0.2"))
     assert hub.spent == {"USD": Money.of("0.2")}
     assert hub.budget.remaining == {"USD": Money.of("0.3")}
     assert hub.set_budget(None).limits == {} and hub.spent == {"USD": Money.of("0.2")}

@@ -13,6 +13,7 @@ from ..errors import PaymentTimeout, ValidationError
 from .base import Base, Bound, Frozen
 from .enums import InvoiceStatus, Rail
 from .money import Bundle, Money
+from .ports import HubPorts
 
 
 class Wallet(Base):
@@ -37,18 +38,18 @@ class Wallet(Base):
     credits_url: str | None = None
     invoices_url: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
-    _hub: Any = PrivateAttr(default=None)
+    _hub: HubPorts | None = PrivateAttr(default=None)
 
     @classmethod
-    def from_dict(cls, hub: Any, d: dict[str, Any]) -> Wallet:
+    def from_dict(cls, hub: HubPorts, d: dict[str, Any]) -> Wallet:
         obj = cls.model_validate(d)
         obj._bind(hub)
         return obj
 
-    def _bind(self, hub: Any) -> None:
+    def _bind(self, hub: HubPorts) -> None:
         self._hub = hub
 
-    def _require_hub(self) -> Any:
+    def _require_hub(self) -> HubPorts:
         if self._hub is None:
             raise ValidationError("Wallet is not bound to a hub; use Wallet.from_dict(hub, d)")
         return self._hub
@@ -79,13 +80,11 @@ class Wallet(Base):
 
     async def top_up(self, bundle: str | Bundle) -> Invoice:
         """``POST payment_url`` with the bundle; returns a ``PENDING`` invoice."""
-        invoice: Invoice = await self._require_hub().wallet_top_up(self, self.bundle(bundle))
-        return invoice
+        return await self._require_hub().wallet_top_up(self, self.bundle(bundle))
 
     async def invoices(self) -> tuple[Invoice, ...]:
         """``GET invoices_url``: my invoices on this wallet."""
-        invoices: tuple[Invoice, ...] = await self._require_hub().wallet_invoices(self)
-        return invoices
+        return await self._require_hub().wallet_invoices(self)
 
 
 class Invoice(Bound):
@@ -137,7 +136,7 @@ class Invoice(Bound):
 
     async def refresh(self) -> Invoice:
         """A new ``Invoice`` read back from ``invoices_url`` (balance as the fallback)."""
-        fresh: Invoice = await self._require_hub().invoice_refresh(self)
+        fresh = await self._require_hub().invoice_refresh(self)
         return fresh
 
     async def wait_paid(self, *, timeout: float = 600, poll: float = 5) -> Invoice:

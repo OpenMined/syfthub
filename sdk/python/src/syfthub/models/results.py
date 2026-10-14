@@ -12,6 +12,7 @@ from ..errors import ValidationError
 from .base import Bound, Frozen
 from .enums import Outcome, Rail, Reason, ReturnKind
 from .money import Money
+from .ports import HubPorts
 from .search import AnyAction, SearchPlan, TopUp, _now, check_snapshot_version
 from .sources import Source
 from .wallets import Charge, ChargeEntry, RateLimit
@@ -127,12 +128,12 @@ class Results(Bound):
     executed_at: datetime = Field(default_factory=_now)
 
     @classmethod
-    def from_dict(cls, hub: Any, d: dict[str, Any]) -> Results:
+    def from_dict(cls, hub: HubPorts, d: dict[str, Any]) -> Results:
         plan = d.get("plan")
         check_snapshot_version(plan.get("version") if isinstance(plan, dict) else None)
         return super().from_dict(hub, d)
 
-    def _bind(self, hub: Any) -> None:
+    def _bind(self, hub: HubPorts) -> None:
         super()._bind(hub)
         self.plan._bind(hub)
         for action in self.actions:
@@ -219,9 +220,7 @@ class Results(Bound):
         return {r.path: r.raw for r in self.rows}
 
     def _view(self, rows: list[SourceResult]) -> Results:
-        view = self.model_copy(update={"rows": tuple(rows)})
-        view._bind(self._hub)
-        return view
+        return self._derive(rows=tuple(rows))
 
     def only(self, *paths: str) -> Results:
         want = set(paths)
@@ -252,11 +251,7 @@ class Results(Bound):
         """Rows from ``other`` replace rows for the same path; the plan is this one's."""
         merged = {r.path: r for r in self.rows}
         merged.update({r.path: r for r in other.rows})
-        view = self.model_copy(
-            update={"rows": tuple(merged.values()), "actions": self.actions + other.actions}
-        )
-        view._bind(self._hub)
-        return view
+        return self._derive(rows=tuple(merged.values()), actions=self.actions + other.actions)
 
     async def retry(self) -> Results:
         """Re-send the retryable rows; the same as ``self.plan.execute()`` for just those."""

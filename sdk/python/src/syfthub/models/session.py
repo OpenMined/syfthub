@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .base import Frozen
 from .enums import AuthMethod
@@ -75,6 +75,22 @@ class Budget(Frozen):
         """A copy with ``amount`` added to the spend in its currency."""
         spent = {**self.spent, amount.currency: self.spent_in(amount.currency) + amount}
         return self.model_copy(update={"spent": spent})
+
+
+class Ledger(BaseModel):
+    """The session's ``Budget`` as it changes: caps replaced by ``hub.set_budget``, spend added
+    by the search runner. ``AsyncHub`` owns one and shows ``budget``; ``Searcher`` writes to it."""
+
+    budget: Budget = Budget()
+
+    def set_limits(self, limits: dict[str, Money]) -> Budget:
+        """Replace the caps; what was spent stays."""
+        self.budget = Budget(limits=limits, spent=self.budget.spent)
+        return self.budget
+
+    def record(self, amount: Money) -> None:
+        """Add a charge to the spend in its currency."""
+        self.budget = self.budget.record(amount)
 
 
 class Timeout(Frozen):

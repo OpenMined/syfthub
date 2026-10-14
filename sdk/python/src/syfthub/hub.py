@@ -15,7 +15,7 @@ from .errors import ConfigurationError
 from .models.money import Bundle, Money
 from .models.results import Results
 from .models.search import Preflight, SearchPlan
-from .models.session import Budget, Identity, Options
+from .models.session import Budget, Identity, Ledger, Options
 from .models.sources import Source, SourceList
 from .models.wallets import Invoice, Wallet
 from .search import Searcher
@@ -63,8 +63,10 @@ class AsyncHub:
         self.breakers = Breakers(settings=self.options.circuit_breaker)
         self.auth = AuthNamespace(self._hub_api, self._session)
         self.sources = SourcesNamespace(self._hub_api, max_items=self.options.max_items)
-        self.wallets = WalletsNamespace(self._space_api, self._tokens, self.sources, self)
-        self._budget = Budget(limits=_limits(budget))
+        self.wallets = WalletsNamespace(
+            self._space_api, self._tokens, self.sources, hub=self, options=self.options
+        )
+        self._ledger = Ledger(budget=Budget(limits=_limits(budget)))
         self._searcher = Searcher(
             hub_api=self._hub_api,
             space=self._space_api,
@@ -75,6 +77,7 @@ class AsyncHub:
             session=self._session,
             breakers=self.breakers,
             options=self.options,
+            ledger=self._ledger,
             hub=self,
         )
 
@@ -137,22 +140,18 @@ class AsyncHub:
 
     @property
     def budget(self) -> Budget:
-        return self._budget
+        """Caps and spend per currency, as of now."""
+        return self._ledger.budget
 
     @property
     def spent(self) -> dict[str, Money]:
         """What this session has paid, per currency."""
-        return self._budget.spent
+        return self._ledger.budget.spent
 
     def set_budget(self, limit: BudgetLike) -> Budget:
         """Replace the caps; spend is kept. The one override for ``over_budget`` rows. ``None``
         clears every cap, a number caps USD, a mapping caps several currencies at once."""
-        self._budget = Budget(limits=_limits(limit), spent=self._budget.spent)
-        return self._budget
-
-    def _record_spend(self, amount: Money) -> None:
-        """Add a charge to the spend in its currency."""
-        self._budget = self._budget.record(amount)
+        return self._ledger.set_limits(_limits(limit))
 
     # ── SearchPort: the plan and results models call back through the hub ──
 

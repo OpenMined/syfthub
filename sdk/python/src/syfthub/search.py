@@ -22,6 +22,7 @@ from ._transport import TransportError
 from .errors import ActionRequired, AuthError, PaymentFailed, SyftHubError, ValidationError
 from .models.enums import Outcome, Rail, Reason, Verdict
 from .models.money import Money
+from .models.ports import HubPorts
 from .models.results import Results, SourceResult
 from .models.search import (
     AccessDenied,
@@ -34,7 +35,7 @@ from .models.search import (
     TopUp,
     as_path,
 )
-from .models.session import Budget
+from .models.session import Budget, Ledger
 from .models.sources import Source, SourceList
 from .models.wallets import Wallet
 from .results import body_of, classify, entries_of, mpp_charge, query_body, topup_steps
@@ -311,7 +312,8 @@ class Searcher:
         session: Session,
         breakers: Breakers,
         options: Options,
-        hub: Any,
+        ledger: Ledger,
+        hub: HubPorts,
     ) -> None:
         self._hub_api = hub_api
         self._space = space
@@ -322,7 +324,8 @@ class Searcher:
         self._session = session
         self._breakers = breakers
         self._options = options
-        self._hub = hub
+        self._ledger = ledger
+        self._hub = hub  # what plans and results are bound to
 
     # ── compose ───────────────────────────────────────────────────────────
 
@@ -430,7 +433,7 @@ class Searcher:
             wallets=wallets,
             balance_errors=errors,
             circuits=circuits,
-            budget=self._hub.budget,
+            budget=self._ledger.budget,
         )
 
     async def _email(self) -> str | None:
@@ -502,7 +505,7 @@ class Searcher:
                     response = await self._space.query(url, token, body, tenant=source.tenant)
                 if response.status_code == 402 and response.headers.get("www-authenticate"):
                     charge = mpp_charge(source, response, row.estimate)
-                    if not self._hub.budget.allows(charge.amount):
+                    if not self._ledger.budget.allows(charge.amount):
                         return self._payment_required(
                             source,
                             charge,
@@ -526,7 +529,7 @@ class Searcher:
                         url, token, body, tenant=source.tenant, x_payment=credential
                     )
                     if response.status_code < 300:
-                        self._hub._record_spend(charge.amount)
+                        self._ledger.record(charge.amount)
             except TransportError as e:
                 self._breakers.failure(host, connection=True)
                 return self._failed(
@@ -547,7 +550,7 @@ class Searcher:
             elapsed_ms=_elapsed(started),
         )
         if result.ok and charge is None and result.cost is not None and result.cost.positive:
-            self._hub._record_spend(result.cost)
+            self._ledger.record(result.cost)
         return result
 
     @staticmethod
@@ -642,7 +645,7 @@ class Searcher:
             actions.append(
                 OverBudget(
                     estimate=total,
-                    budget=self._hub.budget,
+                    budget=self._ledger.budget,
                     affects=tuple(r.source for r in over),
                     steps=(
                         f'hub.set_budget({{"{cur}": x}}) with x covering {total} plus what is '

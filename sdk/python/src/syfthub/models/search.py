@@ -14,6 +14,7 @@ from ..errors import StaleSnapshot, ValidationError
 from .base import Bound, Frozen
 from .enums import ActionKind, Reason, Verdict
 from .money import Bundle, Money
+from .ports import HubPorts
 from .session import Budget
 from .sources import Source
 from .wallets import Invoice, Wallet
@@ -88,7 +89,7 @@ class SearchPlan(Bound):
         return tuple(as_path(p) for p in v)
 
     @classmethod
-    def from_dict(cls, hub: Any, d: dict[str, Any]) -> SearchPlan:
+    def from_dict(cls, hub: HubPorts, d: dict[str, Any]) -> SearchPlan:
         check_snapshot_version(d.get("version"))
         return super().from_dict(hub, d)
 
@@ -116,18 +117,15 @@ class SearchPlan(Bound):
             if unknown:
                 raise ValidationError(f"not in this plan's sources: {', '.join(unknown)}")
         merged = self.skips + tuple(p for p in new if p not in self.skips)
-        plan = self.model_copy(update={"skips": merged})
-        plan._bind(self._hub)
-        return plan
+        return self._derive(skips=merged)
 
     async def preflight(self) -> Preflight:
-        pre: Preflight = await self._require_hub().preflight(self)
+        pre = await self._require_hub().preflight(self)
         self._pre = pre
         return pre
 
     async def execute(self, *, strict: bool = False) -> Results:
-        results: Results = await self._require_hub().execute(self, strict=strict)
-        return results
+        return await self._require_hub().execute(self, strict=strict)
 
 
 class PlanRow(Frozen):

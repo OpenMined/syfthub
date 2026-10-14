@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 from pydantic import ValidationError as _PydanticValidationError
 
 from ..errors import ValidationError
+from .ports import HubPorts
 
 T = TypeVar("T", bound="Base")
 B = TypeVar("B", bound="Bound")
@@ -56,18 +57,26 @@ class Bound(Base):
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True, frozen=True)
 
-    _hub: Any = PrivateAttr(default=None)
+    _hub: HubPorts | None = PrivateAttr(default=None)
 
     @classmethod
-    def from_dict(cls: type[B], hub: Any, d: dict[str, Any]) -> B:
+    def from_dict(cls: type[B], hub: HubPorts, d: dict[str, Any]) -> B:
         obj = _validate(cls, d)
         obj._bind(hub)
         return obj
 
-    def _bind(self, hub: Any) -> None:
+    def _bind(self, hub: HubPorts) -> None:
         self._hub = hub
 
-    def _require_hub(self) -> Any:
+    def _derive(self: B, **update: Any) -> B:
+        """``model_copy(update=...)`` that keeps the binding: a view of a bound object is bound,
+        a view of a stored one stays unbound."""
+        new = self.model_copy(update=update)
+        if self._hub is not None:
+            new._bind(self._hub)
+        return new
+
+    def _require_hub(self) -> HubPorts:
         if self._hub is None:
             raise ValidationError(
                 f"{type(self).__name__} is not bound to a hub; "

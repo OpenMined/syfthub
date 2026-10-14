@@ -11,17 +11,19 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .errors import PaymentFailed, SyftHubError, ValidationError
 from .models.enums import InvoiceStatus
 from .models.money import Bundle, Money
+from .models.ports import HubPorts
 from .models.sources import Pricing, Source
 from .models.wallets import Invoice, Wallet
 
 if TYPE_CHECKING:
     from ._api.space import SpaceApi
     from .auth import TokenCache
+    from .models.session import Options
     from .sources import SourcesNamespace
 
 
@@ -71,12 +73,19 @@ def group_wallets(sources: list[Source] | tuple[Source, ...]) -> dict[str, Walle
 
 class WalletsNamespace:
     def __init__(
-        self, space: SpaceApi, tokens: TokenCache, sources: SourcesNamespace, hub: Any
+        self,
+        space: SpaceApi,
+        tokens: TokenCache,
+        sources: SourcesNamespace,
+        *,
+        hub: HubPorts,
+        options: Options,
     ) -> None:
         self._space = space
         self._tokens = tokens
         self._sources = sources
-        self._hub = hub
+        self._hub = hub  # what wallets and invoices are bound to
+        self._options = options
         self._known: dict[str, Wallet] = {}  # by wallet id
 
     # ── public ────────────────────────────────────────────────────────────
@@ -176,13 +185,13 @@ class WalletsNamespace:
         """Read each balance once, at most ``Options.concurrency`` at a time. A listing is
         informational, so there are no retries: a dead Space costs one connect timeout, and its
         wallet is left at ``balance=None`` rather than a stale number."""
-        gate = asyncio.Semaphore(self._hub.options.concurrency)
+        gate = asyncio.Semaphore(self._options.concurrency)
 
         async def read(wallet: Wallet) -> None:
             async with gate:
                 try:
                     wallet.balance, wallet.refreshed_at = await self.wallet_balance(
-                        wallet, retry=False, read_timeout=self._hub.options.timeout.lookup
+                        wallet, retry=False, read_timeout=self._options.timeout.lookup
                     )
                 except SyftHubError as e:
                     wallet.balance, wallet.refreshed_at = None, None

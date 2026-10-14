@@ -95,8 +95,9 @@ def is_sdk(t: Any) -> bool:
 
 
 def is_wrapped(t: Any) -> bool:
-    """A class the proxy puts a ``Sync`` face on."""
-    return is_sdk(t) and t.__module__ not in PASSTHROUGH
+    """A class the proxy puts a ``Sync`` face on. Protocols are contracts, not objects a Hub
+    hands out, so they keep their async signatures."""
+    return is_sdk(t) and t.__module__ not in PASSTHROUGH and not getattr(t, "_is_protocol", False)
 
 
 def classes_in(t: Any) -> set[type]:
