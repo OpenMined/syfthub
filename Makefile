@@ -142,7 +142,7 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo 'Python SDK checks (ruff, format, mypy)...'
 	@cd sdk/python && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd sdk/python && uv run ruff format --check src/ tests/
-	@cd sdk/python && uv run mypy src/syfthub_sdk/
+	@cd sdk/python && uv run mypy src/syfthub/
 	@echo ''
 	@echo 'Frontend checks (eslint, prettier, typecheck)...'
 	@cd components/frontend && npm install --silent && npm run lint

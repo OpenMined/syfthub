@@ -322,6 +322,5 @@ Tests are in `components/aggregator/tests/`:
 - [Backend Component](./backend.md)
 - [Frontend Component](./frontend.md)
 - [MCP Server Component](./mcp.md)
-- [Aggregator Complexity Analysis](../aggregator-complexity.md)
 - [Aggregator API Reference](../../api/aggregator.md)
-- [RAG Pipeline Explanation](../../explanation/rag-pipeline.md)
+- [RAG Architecture](../../explanation/rag-architecture.md)

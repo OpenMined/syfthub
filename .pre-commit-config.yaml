@@ -76,12 +76,11 @@ repos:
         name: mypy (sdk/python)
         args: [--config-file=sdk/python/pyproject.toml]
         pass_filenames: false
-        entry: sh -c 'cd sdk/python && mypy src/syfthub_sdk'
+        entry: sh -c 'cd sdk/python && mypy src/syfthub'
         files: ^sdk/python/.*\.py$
         additional_dependencies: [
           httpx,
           pydantic,
-          websocket-client,
         ]
       # Aggregator mypy
       - id: mypy

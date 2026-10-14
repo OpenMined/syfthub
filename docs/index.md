@@ -53,8 +53,9 @@ OpenAPI (dev): `http://localhost:8080/docs`
 | Doc | Audience |
 |---|---|
 | [Publishing Endpoints](guides/publishing-endpoints.md) | ML engineers, data scientists |
-| [Python SDK](guides/python-sdk.md) | Python developers |
-| [TypeScript SDK](guides/typescript-sdk.md) | JavaScript/TypeScript developers |
+| [Python SDK 2.x](python/guides/sdk.md) | Python developers: search, pre-flight, wallets |
+| [Python SDK 0.x](python/guides/sdk-0.x.md) | Python developers on the 0.3 release: endpoint management, chat |
+| [TypeScript SDK](typescript/guides/sdk.md) | JavaScript/TypeScript developers: endpoint management, chat |
 | [CLI Reference](guides/cli.md) | Terminal users |
 
 ---
@@ -73,7 +74,7 @@ OpenAPI (dev): `http://localhost:8080/docs`
 
 | SDK | Package | Path | Install |
 |---|---|---|---|
-| Python | `syfthub-sdk` | `sdk/python/` | `pip install syfthub-sdk` |
+| Python | `syfthub-sdk` (import `syfthub`) | `sdk/python/` | `pip install --pre syfthub-sdk` (2.x pre-release; `syfthub-sdk<2` for the 0.x client) |
 | TypeScript | `@syfthub/sdk` | `sdk/typescript/` | `npm install @syfthub/sdk` |
 | Go (hub client) | — | `sdk/golang/syfthub/` | `go get` |
 | Go (endpoint SDK) | — | `sdk/golang/syfthubapi/` | `go get` |

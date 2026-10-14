@@ -62,7 +62,7 @@ components/
   mcp/           MCP + OAuth server
 
 sdk/
-  python/        syfthub-sdk (pip install syfthub-sdk)
+  python/        syfthub-sdk 2.x, import syfthub (pip install --pre syfthub-sdk)
   typescript/    @syfthub/sdk (npm install @syfthub/sdk)
   golang/        Go hub client + server SDK
 
@@ -107,7 +107,8 @@ All documentation lives in the `docs/` directory:
 
 - `docs/architecture/` -- system design and component deep-dives
 - `docs/api/` -- API reference for backend and aggregator
-- `docs/guides/` -- setup, publishing, SDK, and CLI guides
+- `docs/guides/` -- setup, publishing and CLI guides (language-neutral)
+- `docs/python/`, `docs/typescript/` -- per-SDK guides; the two SDKs do not cover the same ground
 - `docs/explanation/` -- conceptual docs (auth, RAG, invocation)
 - `docs/runbooks/` -- deployment and operations procedures
 

@@ -24,37 +24,14 @@ POST /api/v1/endpoints
 }
 ```
 
-### Via Python SDK
+### Via an SDK
 
-```python
-from syfthub import SyftHubClient
-
-client = SyftHubClient(base_url="http://localhost:8080")
-client.login("username", "password")
-
-endpoint = client.my_endpoints.create({
-    "name": "My Model",
-    "type": "model",
-    "visibility": "public",
-    "description": "A text generation model",
-})
-```
-
-### Via TypeScript SDK
-
-```typescript
-import { SyftHubClient } from "@syfthub/sdk";
-
-const client = new SyftHubClient({ baseUrl: "http://localhost:8080" });
-await client.auth.login({ email: "user@example.com", password: "password" });
-
-const endpoint = await client.myEndpoints.create({
-  name: "My Model",
-  type: "model",
-  visibility: "public",
-  description: "A text generation model",
-});
-```
+| SDK | Creates endpoints? | Where |
+|---|---|---|
+| TypeScript `@syfthub/sdk` | Yes, `client.myEndpoints.create(...)` | [TypeScript SDK guide](../typescript/guides/sdk.md#endpoints) |
+| Go `sdk/golang` | Yes, `MyEndpoints.Create(...)` | `sdk/golang/syfthub/endpoints.go` |
+| Python `syfthub-sdk` 2.x | No. It is a consumer client: it searches published endpoints and pays for them. | [Python SDK guide](../python/guides/sdk.md) |
+| Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [Python SDK 0.x guide](../python/guides/sdk-0.x.md#endpoints) |
 
 ### Via CLI
 

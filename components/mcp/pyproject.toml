@@ -13,14 +13,11 @@ dependencies = [
     "cryptography>=48.0.1",
     "pyjwt>=2.13.0",  # CVE-2026-32597: accepts unknown crit header extensions
     "python-dotenv>=1.2.2",  # CVE-2025-67006: symlink following allows arbitrary file overwrite
-    "syfthub-sdk",
+    "syfthub-sdk==0.3.1",  # from PyPI; sdk/python is now v2 (import syfthub), which has no chat yet
 ]
 
 [tool.setuptools]
 py-modules = ["server", "syfthub_client"]
-
-[tool.uv.sources]
-syfthub-sdk = { path = "../../sdk/python", editable = true }
 
 [tool.uv]
 # Floors for packages we do NOT declare above. A constraint intersects with what

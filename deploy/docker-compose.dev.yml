@@ -302,8 +302,6 @@ services:
       - ../components/mcp/syfthub_client.py:/app/syfthub_client.py:cached
       - ../components/mcp/fastmcp.json:/app/fastmcp.json:cached
       - ../components/mcp/pyproject.toml:/app/pyproject.toml:cached
-      # Mount Python SDK for development (path matches pyproject.toml: ../../sdk/python -> /sdk/python)
-      - ../sdk/python:/sdk/python:cached
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=debug

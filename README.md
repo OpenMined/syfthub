@@ -50,14 +50,18 @@ To stop everything: `make stop`.
 ## Using the SDKs
 
 ```python
-# Python
-from syfthub_sdk import SyftHubClient
+# Python (syfthub-sdk 2.x: pip install --pre syfthub-sdk)
+import syfthub
 
-client = SyftHubClient(base_url="https://hub.syft.com")
-client.auth.login(email="alice@example.com", password="...")
+with syfthub.Hub(token="syft_pat_...", budget=1.00) as hub:   # optional cap, per currency
+    for source in hub.sources.list():
+        print(source.path, source.pricing)
 
-for endpoint in client.hub.browse():
-    print(endpoint.name)
+    plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
+    pre = plan.preflight()                 # what each source costs and needs; nothing sent
+    results = plan.skip(*(row.path for row in pre.held)).execute()
+    for path, doc in results.documents:
+        print(path, doc.score, doc.content[:80])
 ```
 
 ```typescript
@@ -72,7 +76,7 @@ for await (const endpoint of client.hub.browse()) {
 }
 ```
 
-See the [SDK guides](docs/guides/python-sdk.md) for the full reference.
+See the [Python SDK guide](docs/python/guides/sdk.md) and the [TypeScript SDK guide](docs/typescript/guides/sdk.md) for the full reference.
 
 ## Documentation
 

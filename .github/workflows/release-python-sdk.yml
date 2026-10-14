@@ -65,7 +65,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Run type checker
-        run: uv run mypy src/syfthub_sdk
+        run: uv run mypy src/syfthub
 
       - name: Run tests
         run: uv run pytest tests/unit
