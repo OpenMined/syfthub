@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from .sources import SourcesNamespace
 
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("syfthub")
 
 
 def wallet_key(owner: str, rail: str, currency: str) -> str:
@@ -71,6 +71,10 @@ def group_wallets(sources: list[Source] | tuple[Source, ...]) -> dict[str, Walle
 
 
 class WalletsNamespace:
+    """``hub.wallets``: the prepaid wallets the listing bills to, their balances, top-ups and
+    invoices. One ``Wallet`` object per wallet id for the session, so a balance read anywhere
+    shows everywhere."""
+
     def __init__(
         self,
         space: SpaceApi,
@@ -96,7 +100,7 @@ class WalletsNamespace:
         comes back with ``balance=None`` and a warning in the log; the rest are unaffected."""
         listing = await self._sources.list()
         wallets = [self._adopt(w) for w in group_wallets(listing.items).values()]
-        await self._read_balances(wallets)
+        await self.read_balances(wallets)
         return tuple(wallets)
 
     async def for_source(self, path: str | Source) -> Wallet | None:
@@ -104,7 +108,7 @@ class WalletsNamespace:
         source = path if isinstance(path, Source) else await self._sources.get(path)
         wallet = self.wallet_of(source)
         if wallet is not None:
-            await self._read_balances([wallet])
+            await self.read_balances([wallet])
         return wallet
 
     def wallet_of(self, source: Source) -> Wallet | None:
@@ -176,13 +180,15 @@ class WalletsNamespace:
                 return self._bind(Invoice.from_space(wallet.key, body))
         return self._bind(invoice)
 
-    # ── internals ─────────────────────────────────────────────────────────
+    async def read_balances(self, wallets: Sequence[Wallet]) -> dict[str, str]:
+        """Read each balance once, in place, at most ``Options.concurrency`` at a time; the one
+        balance-read policy, shared by the listing and pre-flight.
 
-    async def _read_balances(self, wallets: Sequence[Wallet]) -> None:
-        """Read each balance once, at most ``Options.concurrency`` at a time. A listing is
-        informational, so there are no retries: a dead Space costs one connect timeout, and its
-        wallet is left at ``balance=None`` rather than a stale number."""
+        One attempt, no retries, ``Timeout.lookup`` on the read: a dead Space costs one timeout,
+        and its wallet is left at ``balance=None`` rather than a stale number. Returns why, per
+        wallet id, for the wallets that did not answer."""
         gate = asyncio.Semaphore(self._options.concurrency)
+        errors: dict[str, str] = {}
 
         async def read(wallet: Wallet) -> None:
             async with gate:
@@ -192,9 +198,13 @@ class WalletsNamespace:
                     )
                 except SyftHubError as e:
                     wallet.balance, wallet.refreshed_at = None, None
+                    errors[wallet.id] = f"balance unavailable: {e}"
                     log.warning("wallet %s: balance unavailable: %s", wallet.key, e)
 
         await asyncio.gather(*(read(w) for w in {w.id: w for w in wallets}.values()))
+        return errors
+
+    # ── internals ─────────────────────────────────────────────────────────
 
     def _adopt(self, wallet: Wallet) -> Wallet:
         existing = self._known.get(wallet.id)

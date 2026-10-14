@@ -20,6 +20,13 @@ def test_arithmetic_and_comparison() -> None:
     assert Money.zero().positive is False and a.positive
 
 
+def test_equal_amounts_hash_alike() -> None:
+    a, b = Money.of("1.0"), Money.of("1.00")
+    assert a == b and hash(a) == hash(b) and b in {a}
+    assert Bundle(id="x", amount=a) == Bundle(id="x", amount=b)
+    assert hash(Bundle(id="x", amount=a)) == hash(Bundle(id="x", amount=b))
+
+
 def test_currency_mismatch_raises_sdk_validation_error() -> None:
     with pytest.raises(ValidationError):
         Money.of(1, "USD") + Money.of(1, "IDR")

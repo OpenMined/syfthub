@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import Iterable, Mapping
 from datetime import datetime
@@ -25,7 +24,6 @@ from .wallets import WalletsNamespace
 BudgetLike = Money | float | int | str | Mapping[str, Money | float | int | str] | None
 
 DEFAULT_URL = "https://syfthub.openmined.org"
-log = logging.getLogger("syfthub")
 
 
 class AsyncHub:
@@ -62,7 +60,9 @@ class AsyncHub:
         self._tokens = TokenCache(self._hub_api)
         self.breakers = Breakers(settings=self.options.circuit_breaker)
         self.auth = AuthNamespace(self._hub_api, self._session)
-        self.sources = SourcesNamespace(self._hub_api, max_items=self.options.max_items)
+        self.sources = SourcesNamespace(
+            self._hub_api, max_items=self.options.max_items, concurrency=self.options.concurrency
+        )
         self.wallets = WalletsNamespace(
             self._space_api, self._tokens, self.sources, hub=self, options=self.options
         )

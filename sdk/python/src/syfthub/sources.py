@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -17,9 +18,16 @@ _CACHE_TTL = 60.0
 
 
 class SourcesNamespace:
-    def __init__(self, api: HubApi, *, max_items: int = 1000) -> None:
+    """``hub.sources``: the Hub's public endpoints as ``Source`` objects.
+
+    ``list`` and ``search`` are catalogue reads; ``get`` and ``resolve`` read one source each,
+    fresh. ``cached`` is the only lookup that answers without a request.
+    """
+
+    def __init__(self, api: HubApi, *, max_items: int = 1000, concurrency: int = 8) -> None:
         self._api = api
         self._max_items = max_items
+        self._concurrency = concurrency
         self._cache: dict[str, tuple[float, Source]] = {}
 
     # ── remote ────────────────────────────────────────────────────────────
@@ -80,10 +88,14 @@ class SourcesNamespace:
     async def resolve(self, paths: tuple[str, ...]) -> dict[str, Source]:
         """Sources for ``paths``, each read from the Hub now; missing ones raise
         ``SourceNotFound``."""
-        out: dict[str, Source] = {}
-        for p in paths:
-            out[p] = await self.get(p)
-        return out
+        gate = asyncio.Semaphore(self._concurrency)
+
+        async def one(path: str) -> Source:
+            async with gate:
+                return await self.get(path)
+
+        sources = await asyncio.gather(*(one(p) for p in paths))
+        return dict(zip(paths, sources, strict=True))
 
     # ── cache: a one-minute memory of what the Hub said, for sync lookups only ──
 

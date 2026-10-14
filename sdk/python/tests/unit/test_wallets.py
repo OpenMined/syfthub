@@ -60,6 +60,20 @@ async def test_top_up_by_id_returns_pending_invoice(wallet: Wallet) -> None:
     assert Invoice.from_dict(port, d) == inv
 
 
+async def test_wallet_hash_follows_the_id_not_the_balance(wallet: Wallet) -> None:
+    wallet._bind(FakeWalletPort())
+    before = hash(wallet)
+    await wallet.refresh()
+    assert wallet.balance == Money.of("3.5") and hash(wallet) == before and wallet in {wallet}
+
+
+def test_wallet_from_dict_raises_the_sdk_validation_error() -> None:
+    from syfthub import ValidationError
+
+    with pytest.raises(ValidationError):
+        Wallet.from_dict(FakeWalletPort(), {"id": "w"})  # key, owner, rail, currency missing
+
+
 async def test_wait_paid_polls_until_paid(wallet: Wallet) -> None:
     port = FakeWalletPort([InvoiceStatus.PENDING, InvoiceStatus.PAID])
     wallet._bind(port)

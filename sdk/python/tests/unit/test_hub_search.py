@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import httpx
@@ -379,6 +380,19 @@ async def test_401_from_a_space_mints_a_fresh_token_once(
         again["alice/free-docs"].outcome is Outcome.FAILED
         and again["alice/free-docs"].reason is Reason.AUTH
     )
+
+
+async def test_explicit_sources_resolve_in_parallel(api: respx.MockRouter, hub: AsyncHub) -> None:
+    async def slow(request: httpx.Request) -> httpx.Response:  # noqa: ARG001
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, json=SOURCES["alice/free-docs"])
+
+    for path in ("alice/free-docs", "erin/trials", "kim/assistant"):
+        api[f"source:{path}"].side_effect = slow
+    started = time.monotonic()
+    resolved = await hub.sources.resolve(("alice/free-docs", "erin/trials", "kim/assistant"))
+    assert list(resolved) == ["alice/free-docs", "erin/trials", "kim/assistant"]
+    assert time.monotonic() - started < 0.12  # three reads of 50 ms, side by side
 
 
 async def test_a_failed_token_remint_is_a_failed_row_not_an_exception(

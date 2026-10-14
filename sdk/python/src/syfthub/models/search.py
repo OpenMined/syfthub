@@ -11,7 +11,7 @@ from pydantic import Field, PrivateAttr, field_validator
 
 from .._version import __version__
 from ..errors import StaleSnapshot, ValidationError
-from .base import Bound, Frozen
+from .base import FROZEN, Bound, Frozen
 from .enums import ActionKind, Reason, Verdict
 from .money import Bundle, Money
 from .ports import HubPorts
@@ -50,6 +50,8 @@ def as_path(value: str | Source) -> str:
 class SearchPlan(Bound):
     """A pure function of query, sources, options and skips. Everything else is read fresh at
     pre-flight, so a plan can be stored and rebuilt from another process."""
+
+    model_config = FROZEN
 
     query: str
     sources: tuple[str, ...] = ()

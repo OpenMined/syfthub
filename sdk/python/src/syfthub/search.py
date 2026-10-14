@@ -19,7 +19,7 @@ import pydantic
 from pydantic import BaseModel, ConfigDict, Field
 
 from ._transport import TransportError
-from .errors import ActionRequired, AuthError, PaymentFailed, SyftHubError, ValidationError
+from .errors import ActionRequired, AuthError, PaymentFailed, ValidationError
 from .models.enums import Outcome, Rail, Reason, Verdict
 from .models.money import Money
 from .models.ports import HubPorts
@@ -339,6 +339,7 @@ class Searcher:
         include_metadata: bool = True,
         max_sources: int = 10,
     ) -> SearchPlan:
+        """A validated, bound ``SearchPlan``. No network: the plan is a value until pre-flight."""
         try:
             plan = SearchPlan(
                 query=query,
@@ -408,18 +409,8 @@ class Searcher:
             wallet = self._wallets.wallet_of(s)
             if wallet is not None:
                 wallets[s.path] = wallet
-        errors: dict[str, str] = {}
-
-        async def read(wallet: Wallet) -> None:
-            try:  # one attempt: a host that does not answer holds its rows, see _row
-                wallet.balance, wallet.refreshed_at = await self._wallets.wallet_balance(
-                    wallet, retry=False, read_timeout=self._options.timeout.lookup
-                )
-            except SyftHubError as e:
-                wallet.balance, wallet.refreshed_at = None, None
-                errors[wallet.id] = f"balance unavailable: {e}"
-
-        await asyncio.gather(*(read(w) for w in {w.id: w for w in wallets.values()}.values()))
+        # a host that does not answer holds its rows, see _row
+        errors = await self._wallets.read_balances(list(wallets.values()))
         circuits: dict[str, datetime] = {}
         for s in sources:
             host = s.host
@@ -437,9 +428,12 @@ class Searcher:
         )
 
     async def _email(self) -> str | None:
+        """The caller's email, read once per session; None when anonymous or unset."""
         if self._auth.me is None and self._session.authenticated:
             await self._auth.whoami()
-        return self._auth.me.email or None if self._auth.me else None
+        if self._auth.me is None:
+            return None
+        return self._auth.me.email or None
 
     async def _candidates(self, plan: SearchPlan, email: str | None) -> tuple[Source, ...]:
         if plan.explicit:

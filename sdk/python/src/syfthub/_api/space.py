@@ -25,6 +25,9 @@ def _headers(
 
 
 class SpaceApi:
+    """The four Space routes, each at a URL the Hub published. Wallet routes raise
+    ``PaymentFailed`` for any failure and ``AuthError`` for a rejected satellite token."""
+
     def __init__(self, transport: Transport) -> None:
         self.transport = transport
 
@@ -50,6 +53,7 @@ class SpaceApi:
     async def balance(
         self, credits_url: str, token: str, *, retry: bool = True, read_timeout: float | None = None
     ) -> dict[str, Any]:
+        """``GET credits_url``: the wallet's balance body."""
         try:
             response = await self.transport.request(
                 "GET", credits_url, headers=_headers(token), retry=retry, read_timeout=read_timeout
@@ -63,6 +67,8 @@ class SpaceApi:
     async def create_invoice(
         self, payment_url: str, token: str, *, bundle_name: str, endpoint_slug: str | None = None
     ) -> dict[str, Any]:
+        """``POST payment_url``: a pending invoice for one bundle. Never retried: a retry could
+        issue two invoices."""
         body: dict[str, Any] = {"bundle_name": bundle_name}
         if endpoint_slug:
             body["endpoint_slug"] = endpoint_slug
@@ -79,6 +85,7 @@ class SpaceApi:
     async def invoices(
         self, invoices_url: str, token: str, *, status: str | None = None
     ) -> list[dict[str, Any]]:
+        """``GET invoices_url``: the caller's invoices on this wallet."""
         params = {"status": status} if status else None
         try:
             response = await self.transport.request(

@@ -21,6 +21,13 @@ if TYPE_CHECKING:
 
 
 class HubApi:
+    """The SyftHub routes the SDK calls, one method per route, bodies returned as dicts.
+
+    Every authenticated call carries the session's bearer token and renews it once on a 401.
+    Hub errors become ``AuthError``, ``ValidationError``, ``SourceNotFound`` or ``SyftHubError``;
+    a Hub that does not answer is ``HubUnreachable``.
+    """
+
     def __init__(self, transport: Transport, base_url: str, session: Session) -> None:
         self.transport = transport
         self.base_url = base_url.rstrip("/")
@@ -72,6 +79,7 @@ class HubApi:
     # ── auth ──────────────────────────────────────────────────────────────
 
     async def login(self, username: str, password: str) -> dict[str, Any]:
+        """``POST /auth/login``: the token pair for a password."""
         response = await self._send(
             "POST", "/auth/login", json={"username": username, "password": password}, auth=False
         )
@@ -82,6 +90,8 @@ class HubApi:
         return body
 
     async def refresh(self, refresh_token: str) -> dict[str, Any] | None:
+        """``POST /auth/refresh``: a new token pair, or None when the refresh token is dead.
+        Goes to the transport directly so a renewal never re-enters the 401 handler."""
         try:
             response = await self.transport.request(
                 "POST", self.url("/auth/refresh"), json={"refresh_token": refresh_token}
@@ -94,12 +104,15 @@ class HubApi:
         return body
 
     async def me(self) -> dict[str, Any]:
+        """``GET /auth/me``: who the session's token belongs to."""
         response = await self._send("GET", "/auth/me")
         self._raise_for(response)
         body: dict[str, Any] = response.json()
         return body
 
     async def satellite_token(self, owner_username: str, resource: str) -> tuple[str, float]:
+        """``GET /token``: a short-lived token for one owner's Space at ``resource`` and its
+        lifetime in seconds. A 400 (no access) is ``ValidationError``."""
         response = await self._send(
             "GET", "/token", params={"owner_username": owner_username, "resource": resource}
         )
@@ -116,6 +129,7 @@ class HubApi:
     async def list_public(
         self, *, skip: int, limit: int, endpoint_type: str | None = None, search: str | None = None
     ) -> list[dict[str, Any]]:
+        """``GET /endpoints/public``: one page of the public catalogue."""
         params: dict[str, Any] = {"skip": skip, "limit": limit}
         if endpoint_type:
             params["endpoint_type"] = endpoint_type
@@ -127,6 +141,7 @@ class HubApi:
         return items
 
     async def list_by_owner(self, owner: str, *, skip: int, limit: int) -> list[dict[str, Any]]:
+        """``GET /endpoints/public/by-owner/{owner}``: one page of one owner's endpoints."""
         response = await self._send(
             "GET", f"/endpoints/public/by-owner/{owner}", params={"skip": skip, "limit": limit}
         )
@@ -135,12 +150,14 @@ class HubApi:
         return items
 
     async def get_public(self, owner: str, slug: str) -> dict[str, Any]:
+        """``GET /endpoints/public/{owner}/{slug}``: one endpoint; a 404 is ``SourceNotFound``."""
         response = await self._send("GET", f"/endpoints/public/{owner}/{slug}")
         self._raise_for(response, not_found=SourceNotFound(f"{owner}/{slug}"))
         body: dict[str, Any] = response.json()
         return body
 
     async def search(self, query: str, *, top_k: int) -> dict[str, Any]:
+        """``POST /endpoints/search``: the Hub's semantic match of endpoints to a query."""
         response = await self._send(
             "POST", "/endpoints/search", json={"query": query, "top_k": top_k}
         )

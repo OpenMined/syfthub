@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import Field
 
 from ..errors import ValidationError
-from .base import Bound, Frozen
+from .base import FROZEN, Bound, Frozen
 from .enums import Outcome, Rail, Reason, ReturnKind
 from .money import Money
 from .ports import HubPorts
@@ -121,6 +121,8 @@ def _by_score(pairs: list[tuple[str, Document]]) -> list[tuple[str, Document]]:
 
 class Results(Bound):
     """Immutable. Views (``only``, ``drop``, ``top``, ``+``) return a new ``Results``."""
+
+    model_config = FROZEN
 
     rows: tuple[SourceResult, ...] = ()
     plan: SearchPlan

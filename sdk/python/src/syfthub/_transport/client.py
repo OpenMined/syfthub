@@ -34,6 +34,9 @@ class TransportError(Exception):
 
 
 class Transport:
+    """The one HTTP client of a session. Owns the pool unless ``Options.http_client`` was given;
+    ``request`` is the only way out to the network."""
+
     def __init__(self, options: Options | None = None) -> None:
         self.options = options or Options()
         self.user_agent = self.options.user_agent or f"syfthub-sdk/{__version__}"

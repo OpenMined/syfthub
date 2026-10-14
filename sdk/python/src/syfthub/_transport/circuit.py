@@ -18,6 +18,7 @@ from ..models.session import CircuitBreaker
 
 
 def host_of(url: str) -> str:
+    """The breaker key for a URL: its ``host[:port]``."""
     parts = urlsplit(url)
     return parts.netloc or url
 
@@ -28,6 +29,8 @@ class _State(BaseModel):
 
 
 class Breakers(BaseModel):
+    """One breaker per host, keyed by ``host_of(url)``. ``hub.breakers`` is the session's."""
+
     settings: CircuitBreaker = CircuitBreaker()
     _states: dict[str, _State] = PrivateAttr(default_factory=dict)
 
@@ -48,6 +51,7 @@ class Breakers(BaseModel):
         return datetime.now(UTC) + timedelta(seconds=remaining)
 
     def is_open(self, host: str) -> bool:
+        """True while the cooldown runs: pre-flight holds the host's rows."""
         return self.reopens_at(host) is not None
 
     def half_open(self, host: str) -> bool:
@@ -56,6 +60,7 @@ class Breakers(BaseModel):
         return remaining is not None and remaining <= 0
 
     def success(self, host: str) -> None:
+        """A response that was not a failure closes the circuit and clears the count."""
         self._states[host] = _State()
 
     def failure(self, host: str, *, connection: bool = False) -> None:

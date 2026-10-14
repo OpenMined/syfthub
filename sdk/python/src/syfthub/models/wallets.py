@@ -7,23 +7,20 @@ import time
 from datetime import datetime
 from typing import Any
 
-from pydantic import ConfigDict, Field, PrivateAttr
+from pydantic import Field
 
 from ..errors import PaymentTimeout, ValidationError
-from .base import Base, Bound, Frozen
+from .base import FROZEN, Bound, Frozen
 from .enums import InvoiceStatus, Rail
 from .money import Bundle, Money
-from .ports import HubPorts
 
 
-class Wallet(Base):
+class Wallet(Bound):
     """A prepaid wallet with a publisher. Not frozen: ``refresh()`` updates the balance in place.
 
     ``id`` is the policy's ``wallet_id`` (the grouping key); ``key`` is the readable label
     ``owner/rail/currency``. The three URLs are followed exactly as the policy publishes them.
     """
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     id: str
     key: str
@@ -38,21 +35,10 @@ class Wallet(Base):
     credits_url: str | None = None
     invoices_url: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
-    _hub: HubPorts | None = PrivateAttr(default=None)
 
-    @classmethod
-    def from_dict(cls, hub: HubPorts, d: dict[str, Any]) -> Wallet:
-        obj = cls.model_validate(d)
-        obj._bind(hub)
-        return obj
-
-    def _bind(self, hub: HubPorts) -> None:
-        self._hub = hub
-
-    def _require_hub(self) -> HubPorts:
-        if self._hub is None:
-            raise ValidationError("Wallet is not bound to a hub; use Wallet.from_dict(hub, d)")
-        return self._hub
+    def __hash__(self) -> int:
+        # The balance changes under ``refresh()``; the id does not, and equal wallets share it.
+        return hash(("Wallet", self.id))
 
     def bundle(self, bundle: str | Bundle) -> Bundle:
         """Resolve a bundle id against what this wallet sells."""
@@ -89,6 +75,8 @@ class Wallet(Base):
 
 class Invoice(Bound):
     """A top-up invoice from the Space's payment route."""
+
+    model_config = FROZEN
 
     id: str
     wallet_key: str
