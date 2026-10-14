@@ -8,10 +8,9 @@ import logging
 from typing import Any
 
 import httpx
-from pydantic import BaseModel
 
 from .._version import __version__
-from ..errors import ConfigurationError
+from ..errors import ConfigurationError, TransportError
 from ..models.enums import Reason
 from ..models.session import Options
 from .retry import delays, retryable_status
@@ -22,15 +21,6 @@ _REDACTED_HEADERS = frozenset({"authorization", "x-payment", "www-authenticate"}
 # Idle pooled connections live this long. httpx's default of 5 s meant every Hub call after a slow
 # fan-out paid a new TCP+TLS handshake; nginx and most proxies keep an idle connection for 75 s.
 KEEPALIVE_SECONDS = 60.0
-
-
-class TransportError(Exception):
-    """The request never produced a response, after retries. ``reason`` is TIMEOUT or UNREACHABLE."""
-
-    def __init__(self, reason: Reason, message: str, attempts: int) -> None:
-        super().__init__(message)
-        self.reason = reason
-        self.attempts = attempts
 
 
 class Transport:
@@ -131,40 +121,3 @@ class Transport:
 
 def redact(headers: dict[str, str]) -> dict[str, str]:
     return {k: ("<redacted>" if k.lower() in _REDACTED_HEADERS else v) for k, v in headers.items()}
-
-
-class ErrorDetail(BaseModel):
-    """A FastAPI error body, parsed once. The Hub sends ``detail`` as a string, or as
-    ``{"code", "message"}`` on the wallet routes; a 422 sends a list. ``code`` is the
-    machine-readable part when there is one; ``message`` is always set."""
-
-    code: str | None = None
-    message: str = ""
-
-    @classmethod
-    def of(cls, response: httpx.Response) -> ErrorDetail:
-        try:
-            body = response.json()
-        except ValueError:
-            return cls(message=response.text[:200])
-        detail = body.get("detail") if isinstance(body, dict) else None
-        if isinstance(detail, str):
-            return cls(message=detail)
-        if isinstance(detail, dict):
-            code = detail.get("code")
-            message = detail.get("message")
-            return cls(
-                code=str(code) if code else None,
-                message=str(message) if message else str(detail)[:200],
-            )
-        if detail is not None:
-            return cls(message=str(detail)[:200])
-        return cls(message=response.text[:200])
-
-    def __str__(self) -> str:
-        return f"{self.code}: {self.message}" if self.code else self.message
-
-
-def detail_of(response: httpx.Response) -> str:
-    """The error as one line: ``CODE: message`` when the body carries a code."""
-    return str(ErrorDetail.of(response))

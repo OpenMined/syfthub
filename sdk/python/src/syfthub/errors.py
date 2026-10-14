@@ -30,6 +30,17 @@ class AuthError(SyftHubError):
     """Login failed, or the token expired and could not be re-minted."""
 
 
+class TransportError(SyftHubError):
+    """A request produced no response after retries. Never reaches the caller as such: the Hub
+    side becomes ``HubUnreachable``, a wallet route ``PaymentFailed``, a query a FAILED row.
+    ``reason`` is ``TIMEOUT`` or ``UNREACHABLE``."""
+
+    def __init__(self, reason: Any, message: str, attempts: int) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.attempts = attempts
+
+
 class HubUnreachable(SyftHubError):
     """The Hub itself could not be reached after retries."""
 

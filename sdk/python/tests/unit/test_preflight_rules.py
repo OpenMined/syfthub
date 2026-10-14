@@ -19,7 +19,7 @@ from syfthub import (
     Verdict,
     Wallet,
 )
-from syfthub.search import Facts, paths_of, pick_sources, plan_preflight
+from syfthub.preflight import Facts, paths_of, pick_sources, plan_preflight
 
 from .conftest import hub_body, xendit_policy
 

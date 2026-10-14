@@ -1,14 +1,12 @@
 """Private HTTP layer: httpx client, retry, circuit breaker, logging, user agent."""
 
 from .circuit import Breakers, host_of
-from .client import ErrorDetail, Transport, TransportError, detail_of, redact
+from .client import KEEPALIVE_SECONDS, Transport, redact
 
 __all__ = [
+    "KEEPALIVE_SECONDS",
     "Breakers",
-    "ErrorDetail",
     "Transport",
-    "TransportError",
-    "detail_of",
     "host_of",
     "redact",
 ]

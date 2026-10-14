@@ -9,8 +9,9 @@ from typing import Any
 
 import httpx
 
-from .._transport import Transport, TransportError, detail_of
-from ..errors import AuthError, PaymentFailed
+from .._transport import Transport
+from ..errors import AuthError, PaymentFailed, TransportError
+from .detail import detail_of
 
 
 def _headers(

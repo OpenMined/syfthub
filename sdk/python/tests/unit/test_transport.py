@@ -7,7 +7,8 @@ import time
 import httpx
 
 from syfthub import CircuitBreaker, Retry
-from syfthub._transport import Breakers, ErrorDetail, detail_of, host_of, redact
+from syfthub._api import ErrorDetail, detail_of
+from syfthub._transport import Breakers, host_of, redact
 from syfthub._transport.retry import delays, retryable_status
 
 

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from syfthub import Money, Outcome, Rail, Reason, SearchPlan, Source, Wallet
-from syfthub.results import classify, mpp_charge, parse_challenge, query_body
+from syfthub.classify import classify, mpp_charge, parse_challenge, query_body
 
 
 def response(

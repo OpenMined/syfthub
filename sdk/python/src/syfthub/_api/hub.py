@@ -6,15 +6,17 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from .._transport import ErrorDetail, Transport, TransportError, detail_of
+from .._transport import Transport
 from ..errors import (
     AuthError,
     HubUnreachable,
     PaymentFailed,
     SourceNotFound,
     SyftHubError,
+    TransportError,
     ValidationError,
 )
+from .detail import ErrorDetail, detail_of
 
 if TYPE_CHECKING:
     from ..auth import Session

@@ -1,5 +1,7 @@
 """Turn one Space response into one ``SourceResult``. Pure: no network, no clock.
 
+The data objects live in ``models.results``; this module only builds them from the wire.
+
 The Space's status code and ``policy_metadata`` are authoritative; this module only names what
 they say in the SDK's enums and keeps the body verbatim in ``raw``.
 """
@@ -7,11 +9,15 @@ they say in the SDK's enums and keeps the body verbatim in ``raw``.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, ConfigDict
 
-from .models.enums import Outcome, Rail, Reason
+from ._api.detail import detail_of
+from .actions import topup_steps
+from .models.enums import Outcome, Reason
 from .models.money import Money
 from .models.results import Document, SourceResult
 from .models.search import SearchPlan, TopUp
@@ -50,16 +56,6 @@ def body_of(response: httpx.Response) -> dict[str, Any]:
     except ValueError:
         return {}
     return body if isinstance(body, dict) else {}
-
-
-def detail_of(response: httpx.Response) -> str:
-    """The ``detail`` of a FastAPI error body, else a short slice of the text."""
-    detail = body_of(response).get("detail")
-    if isinstance(detail, str):
-        return detail
-    if detail is not None:
-        return str(detail)[:200]
-    return response.text[:200]
 
 
 def entries_of(source: Source, body: dict[str, Any]) -> tuple[ChargeEntry, ...]:
@@ -162,17 +158,111 @@ def topup_for(
     )
 
 
-def topup_steps(wallet: Wallet, suggested: Any) -> tuple[str, ...]:
-    buy = (
-        f"await action.top_up() buys the {suggested.id} bundle ({suggested.amount})"
-        if suggested is not None
-        else "await action.top_up(bundle) with a bundle from action.bundles"
+class _Reply(BaseModel):
+    """One response, parsed once: what every handler reads."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    source: Source
+    status: int
+    headers: dict[str, str]
+    body: dict[str, Any]
+    entries: tuple[ChargeEntry, ...]
+    detail: str
+    wallet: Wallet | None
+    estimate: Money
+    charge: Charge | None
+    base: dict[str, Any]  # the fields every row carries, whatever its outcome
+
+    @property
+    def rejected(self) -> ChargeEntry | None:
+        return _rejected_entry(self.entries)
+
+    def row(self, **fields: Any) -> SourceResult:
+        return SourceResult(**self.base, **fields)
+
+
+def _returned(r: _Reply) -> SourceResult:
+    documents, summary = _documents(r.source, r.body)
+    charged = [e for e in r.entries if e.charged]
+    pricing = r.source.pricing
+    currency = pricing.currency if pricing else r.estimate.currency
+    if charged and charged[0].rail is not None:
+        r.base["rail"] = charged[0].rail
+    return r.row(
+        outcome=Outcome.RETURNED,
+        documents=documents,
+        summary=summary,
+        cost=_cost(r.body, currency) or (r.charge.amount if r.charge else None),
+        paid_from=r.wallet.key if r.wallet is not None and charged else None,
+        charge=r.charge,
     )
-    return (
-        f"{buy} on wallet {wallet.key}",
-        "pay at invoice.checkout_url, then await invoice.wait_paid()",
-        "plan.execute() again: pre-flight reads the new balance",
+
+
+def _payment(r: _Reply) -> SourceResult:
+    """402. After an MPP payment it is the Space refusing the credential; before any payment it
+    is a prepaid wallet short of credits, so the row carries the ``TopUp``."""
+    if r.charge is not None:
+        return r.row(
+            outcome=Outcome.PAYMENT_REQUIRED,
+            charge=r.charge,
+            error=r.detail or "the Space did not accept the payment",
+        )
+    rejected = r.rejected
+    required = (
+        rejected.amount if rejected is not None and rejected.amount is not None else r.estimate
     )
+    return r.row(
+        outcome=Outcome.REJECTED,
+        reason=Reason.NO_CREDITS,
+        topup=topup_for(r.source, r.wallet, required, rejected),
+        error=r.detail,
+    )
+
+
+def _forbidden(r: _Reply) -> SourceResult:
+    """403: the policy engine said no; its outcome, reason code or text names why."""
+    rejected = r.rejected
+    reason = _FORBIDDEN.get(outcome_of(r.body) or "")
+    if reason is None and rejected is not None:
+        reason = _REASON_CODES.get(rejected.reason_code or "")
+    if reason is None and "not published" in r.detail.lower():
+        reason = Reason.NOT_PUBLISHED
+    reason = reason or Reason.BLOCKED
+    details = rejected.details if rejected is not None else {}
+    return r.row(
+        outcome=Outcome.REJECTED,
+        reason=reason,
+        rate_limit=(
+            RateLimit.from_entry(details, r.headers) if reason is Reason.RATE_LIMITED else None
+        ),
+        error=r.detail,
+    )
+
+
+def _throttled(r: _Reply) -> SourceResult:
+    """429: the Space's own throttle, outside its policy engine: no entry, no body shape."""
+    return r.row(
+        outcome=Outcome.REJECTED,
+        reason=Reason.RATE_LIMITED,
+        rate_limit=RateLimit.from_entry({}, r.headers),
+        error=r.detail,
+    )
+
+
+_FAILED_BY_STATUS = {404: Reason.NOT_FOUND, 401: Reason.AUTH}
+
+
+def _failed(r: _Reply) -> SourceResult:
+    reason = _FAILED_BY_STATUS.get(r.status, Reason.SERVER_ERROR if r.status >= 500 else None)
+    return r.row(outcome=Outcome.FAILED, reason=reason, error=r.detail)
+
+
+_HANDLERS: dict[int, Callable[[_Reply], SourceResult]] = {
+    402: _payment,
+    403: _forbidden,
+    429: _throttled,
+}
 
 
 def classify(
@@ -193,88 +283,27 @@ def classify(
     entries = entries_of(source, body)
     estimate = estimate if estimate is not None else Money()
     pricing = source.pricing
-    currency = pricing.currency if pricing else estimate.currency
-    rail: Rail | None = pricing.rail if pricing and not pricing.free else None
-    base: dict[str, Any] = {
-        "source": source,
-        "status_code": status,
-        "charges": entries,
-        "rail": rail,
-        "attempts": attempts,
-        "elapsed_ms": elapsed_ms,
-        "request": request or {},
-        "raw": body,
-    }
+    reply = _Reply(
+        source=source,
+        status=status,
+        headers=dict(response.headers),
+        body=body,
+        entries=entries,
+        detail="" if 200 <= status < 300 else detail_of(response),
+        wallet=wallet,
+        estimate=estimate,
+        charge=charge,
+        base={
+            "source": source,
+            "status_code": status,
+            "charges": entries,
+            "rail": pricing.rail if pricing and not pricing.free else None,
+            "attempts": attempts,
+            "elapsed_ms": elapsed_ms,
+            "request": request or {},
+            "raw": body,
+        },
+    )
     if 200 <= status < 300:
-        documents, summary = _documents(source, body)
-        charged = [e for e in entries if e.charged]
-        if charged and charged[0].rail is not None:
-            base["rail"] = charged[0].rail
-        return SourceResult(
-            outcome=Outcome.RETURNED,
-            documents=documents,
-            summary=summary,
-            cost=_cost(body, currency) or (charge.amount if charge else None),
-            paid_from=wallet.key if wallet is not None and charged else None,
-            charge=charge,
-            **base,
-        )
-    detail = detail_of(response)
-    rejected = _rejected_entry(entries)
-    if status == 402:
-        if charge is not None:
-            return SourceResult(
-                outcome=Outcome.PAYMENT_REQUIRED,
-                charge=charge,
-                error=detail or "the Space did not accept the payment",
-                **base,
-            )
-        required = estimate
-        if rejected is not None and rejected.amount is not None:
-            required = rejected.amount
-        return SourceResult(
-            outcome=Outcome.REJECTED,
-            reason=Reason.NO_CREDITS,
-            topup=topup_for(source, wallet, required, rejected),
-            error=detail,
-            **base,
-        )
-    if status == 403:
-        outcome = outcome_of(body)
-        reason = _FORBIDDEN.get(outcome or "")
-        if reason is None and rejected is not None:
-            reason = _REASON_CODES.get(rejected.reason_code or "")
-        if reason is None and "not published" in detail.lower():
-            reason = Reason.NOT_PUBLISHED
-        details = rejected.details if rejected is not None else {}
-        return SourceResult(
-            outcome=Outcome.REJECTED,
-            reason=reason or Reason.BLOCKED,
-            rate_limit=(
-                RateLimit.from_entry(details, dict(response.headers))
-                if (reason or Reason.BLOCKED) is Reason.RATE_LIMITED
-                else None
-            ),
-            error=detail,
-            **base,
-        )
-    if (
-        status == 429
-    ):  # the Space's own throttle, outside its policy engine: no entry, no body shape
-        return SourceResult(
-            outcome=Outcome.REJECTED,
-            reason=Reason.RATE_LIMITED,
-            rate_limit=RateLimit.from_entry({}, dict(response.headers)),
-            error=detail,
-            **base,
-        )
-    failed: Reason | None
-    if status == 404:
-        failed = Reason.NOT_FOUND
-    elif status == 401:
-        failed = Reason.AUTH
-    elif status >= 500:
-        failed = Reason.SERVER_ERROR
-    else:
-        failed = None
-    return SourceResult(outcome=Outcome.FAILED, reason=failed, error=detail, **base)
+        return _returned(reply)
+    return _HANDLERS.get(status, _failed)(reply)
