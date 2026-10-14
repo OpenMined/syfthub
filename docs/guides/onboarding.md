@@ -107,7 +107,8 @@ All documentation lives in the `docs/` directory:
 
 - `docs/architecture/` -- system design and component deep-dives
 - `docs/api/` -- API reference for backend and aggregator
-- `docs/guides/` -- setup, publishing, SDK, and CLI guides
+- `docs/guides/` -- setup, publishing and CLI guides (language-neutral)
+- `docs/python/`, `docs/typescript/` -- per-SDK guides; the two SDKs do not cover the same ground
 - `docs/explanation/` -- conceptual docs (auth, RAG, invocation)
 - `docs/runbooks/` -- deployment and operations procedures
 

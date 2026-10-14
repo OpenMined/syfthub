@@ -53,8 +53,9 @@ OpenAPI (dev): `http://localhost:8080/docs`
 | Doc | Audience |
 |---|---|
 | [Publishing Endpoints](guides/publishing-endpoints.md) | ML engineers, data scientists |
-| [Python SDK](guides/python-sdk.md) | Python developers |
-| [TypeScript SDK](guides/typescript-sdk.md) | JavaScript/TypeScript developers |
+| [Python SDK 2.x](python/guides/sdk.md) | Python developers: search, pre-flight, wallets |
+| [Python SDK 0.x](python/guides/sdk-0.x.md) | Python developers on the 0.3 release: endpoint management, chat |
+| [TypeScript SDK](typescript/guides/sdk.md) | JavaScript/TypeScript developers: endpoint management, chat |
 | [CLI Reference](guides/cli.md) | Terminal users |
 
 ---

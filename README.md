@@ -76,7 +76,7 @@ for await (const endpoint of client.hub.browse()) {
 }
 ```
 
-See the [SDK guides](docs/guides/python-sdk.md) for the full reference.
+See the [Python SDK guide](docs/python/guides/sdk.md) and the [TypeScript SDK guide](docs/typescript/guides/sdk.md) for the full reference.
 
 ## Documentation
 
