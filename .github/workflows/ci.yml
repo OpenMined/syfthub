@@ -472,7 +472,7 @@ jobs:
             dockerfile: components/aggregator/Dockerfile
             target: ""
           - image: mcp
-            context: .
+            context: ./components/mcp
             dockerfile: components/mcp/Dockerfile
             target: production
     outputs:
@@ -700,7 +700,7 @@ jobs:
             dockerfile: components/aggregator/Dockerfile
             target: ""
           - image: mcp
-            context: .
+            context: ./components/mcp
             dockerfile: components/mcp/Dockerfile
             target: production
     outputs:

@@ -1,9 +1,9 @@
 # SyftHub MCP Server Dockerfile
 # Multi-stage build for development and production
 #
-# Build contexts:
-#   - Development: context: ../components/mcp (SDK mounted as volume)
-#   - Production:  context: ..                 (SDK included in build, from repository root)
+# Both stages build with context: components/mcp. The SDK is not built here: pyproject.toml
+# pins syfthub-sdk from PyPI (the 0.x package the server imports as syfthub_sdk), so changes
+# under sdk/python do not reach this image.
 
 # ==============================================================================
 # Base stage with Python and system dependencies
@@ -39,10 +39,9 @@ WORKDIR /app
 
 # ==============================================================================
 # Development stage
-# Build with: context: ../components/mcp (from deploy directory)
 FROM base AS development
 
-# Copy dependency files (from mcp context)
+# Copy dependency files
 COPY --chown=syfthub:syfthub pyproject.toml ./
 
 # Switch to non-root user
@@ -77,11 +76,10 @@ CMD .venv/bin/pip install --quiet -e . && \
 
 # ==============================================================================
 # Production stage
-# Build with: context: .. (repository root, from components/mcp directory)
 FROM base AS production
 
-# Copy MCP dependency files (from components/mcp subdirectory)
-COPY --chown=syfthub:syfthub components/mcp/pyproject.toml ./
+# Copy dependency files
+COPY --chown=syfthub:syfthub pyproject.toml ./
 
 # Switch to non-root user
 USER syfthub
@@ -97,9 +95,9 @@ RUN uv venv .venv && \
 RUN .venv/bin/python -c "from fastmcp import FastMCP"
 
 # Copy source code
-COPY --chown=syfthub:syfthub components/mcp/server.py ./
-COPY --chown=syfthub:syfthub components/mcp/syfthub_client.py ./
-COPY --chown=syfthub:syfthub components/mcp/fastmcp.json ./
+COPY --chown=syfthub:syfthub server.py ./
+COPY --chown=syfthub:syfthub syfthub_client.py ./
+COPY --chown=syfthub:syfthub fastmcp.json ./
 
 # Environment variables for production
 # RSA_PRIVATE_KEY: Base64-encoded PEM private key for JWT signing (REQUIRED for multi-worker)
