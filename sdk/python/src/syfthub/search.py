@@ -500,7 +500,10 @@ class Searcher:
                 response = await self._space.query(url, token, body, tenant=source.tenant)
                 if response.status_code == 401:
                     self._tokens.forget(source.owner_username, url)
-                    token = await self._tokens.get(source.owner_username, url)
+                    try:
+                        token = await self._tokens.get(source.owner_username, url)
+                    except ValidationError as e:
+                        return self._failed(source, Reason.AUTH, str(e), request, attempts, started)
                     attempts += 1
                     response = await self._space.query(url, token, body, tenant=source.tenant)
                 if response.status_code == 402 and response.headers.get("www-authenticate"):
@@ -524,12 +527,13 @@ class Searcher:
                         return self._payment_required(
                             source, charge, None, str(e), request, attempts, started, response
                         )
+                    # The Hub debited the wallet at /wallet/pay: the charge counts from here,
+                    # whatever the re-send answers.
+                    self._ledger.record(charge.amount)
                     attempts += 1
                     response = await self._space.query(
                         url, token, body, tenant=source.tenant, x_payment=credential
                     )
-                    if response.status_code < 300:
-                        self._ledger.record(charge.amount)
             except TransportError as e:
                 self._breakers.failure(host, connection=True)
                 return self._failed(

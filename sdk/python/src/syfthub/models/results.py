@@ -248,19 +248,28 @@ class Results(Bound):
         return self._view(rows)
 
     def __add__(self, other: Results) -> Results:
-        """Rows from ``other`` replace rows for the same path; the plan is this one's."""
+        """Rows from ``other`` replace rows for the same path, in this one's order; the plan is
+        this one's. An action of this result loses the paths ``other`` answered for, and goes
+        when none are left: ``other`` carries its own actions for them."""
         merged = {r.path: r for r in self.rows}
         merged.update({r.path: r for r in other.rows})
-        return self._derive(rows=tuple(merged.values()), actions=self.actions + other.actions)
+        answered = {r.path for r in other.rows}
+        kept: list[AnyAction] = []
+        for action in self.actions:
+            affects = tuple(s for s in action.affects if s.path not in answered)
+            if len(affects) == len(action.affects):
+                kept.append(action)
+            elif affects:
+                kept.append(action.model_copy(update={"affects": affects}))
+        return self._derive(rows=tuple(merged.values()), actions=tuple(kept) + other.actions)
 
     async def retry(self) -> Results:
-        """Re-send the retryable rows; the same as ``self.plan.execute()`` for just those."""
-        retry_paths = {r.path for r in self.retryable}
+        """Re-send the retryable rows, in this result's order; the same as
+        ``self.plan.execute()`` for just those, merged back with ``+``."""
+        retry_paths = tuple(r.path for r in self.retryable)
         if not retry_paths:
             return self
-        plan = self.plan.model_copy(
-            update={"sources": tuple(retry_paths & set(self.plan.sources)) or tuple(retry_paths)}
-        )
+        plan = self.plan.model_copy(update={"sources": retry_paths})
         plan._bind(self._require_hub())
         fresh: Results = await plan.execute()
         return self + fresh

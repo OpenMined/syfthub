@@ -355,6 +355,7 @@ async def test_space_errors_become_rows_and_retry_resends_only_them(
         "alice/more",
     ]
     assert merged["kim/assistant"].reason is Reason.NOT_FOUND and merged.plan is results.plan
+    assert merged.actions == ()  # the host answered: the earlier CircuitOpen is gone
     assert api["source:alice/free-docs"].call_count == 1  # a retry resolves only its own rows
 
 
@@ -378,6 +379,28 @@ async def test_401_from_a_space_mints_a_fresh_token_once(
         again["alice/free-docs"].outcome is Outcome.FAILED
         and again["alice/free-docs"].reason is Reason.AUTH
     )
+
+
+async def test_a_failed_token_remint_is_a_failed_row_not_an_exception(
+    api: respx.MockRouter, hub: AsyncHub
+) -> None:
+    minted: dict[str, int] = {}
+
+    def mint(request: httpx.Request) -> httpx.Response:
+        owner = request.url.params["owner_username"]
+        minted[owner] = minted.get(owner, 0) + 1
+        if owner == "alice" and minted[owner] > 1:
+            return httpx.Response(400, json={"detail": "alice revoked your access"})
+        return httpx.Response(200, json={"target_token": f"sat-{owner}", "expires_in": 60})
+
+    api["token"].side_effect = mint
+    space(api, "alice/free-docs").respond(401, json={"detail": "expired"})
+    space(api, "kim/assistant").respond(200, json=ok_body(("k", 0.7)))
+    results = await hub.search("q", ["alice/free-docs", "kim/assistant"]).execute()
+    row = results["alice/free-docs"]
+    assert row.outcome is Outcome.FAILED and row.reason is Reason.AUTH
+    assert row.error is not None and "revoked" in row.error
+    assert results["kim/assistant"].ok and minted == {"alice": 2, "kim": 1}
 
 
 async def test_5xx_after_retries_opens_the_breaker_and_holds_the_host(
@@ -499,6 +522,23 @@ async def test_mpp_challenge_is_paid_through_the_hub_within_budget(
     }
     assert route.calls.last.request.headers["X-Payment"] == "cred-1"
     assert "X-Payment" not in route.calls[0].request.headers
+
+
+async def test_an_mpp_charge_counts_even_when_the_paid_resend_fails(
+    api: respx.MockRouter, hub: AsyncHub
+) -> None:
+    challenge = 'Payment realm="kim", amount="0.02", currency="USD"'
+    route = space(api, "kim/metered")
+    route.side_effect = [
+        httpx.Response(402, json={"detail": "pay"}, headers={"WWW-Authenticate": challenge}),
+        httpx.ConnectError("gone"),
+        httpx.ConnectError("gone"),
+    ]
+    api.post(f"{HUB}/api/v1/wallet/pay").respond(200, json={"x_payment": "cred-1"})
+    results = await hub.search("q", ["kim/metered"]).execute()
+    row = results["kim/metered"]
+    assert row.outcome is Outcome.FAILED and row.reason is Reason.UNREACHABLE
+    assert hub.spent == {"USD": Money.of("0.02")}  # the Hub debited the wallet at /wallet/pay
 
 
 async def test_mpp_challenge_over_budget_or_refused_is_payment_required(

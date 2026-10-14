@@ -49,6 +49,24 @@ async def test_password_login_sets_identity_and_tokens(api: respx.MockRouter) ->
         assert me.calls.last.request.headers["User-Agent"].startswith("syfthub-sdk/")
 
 
+async def test_a_bad_token_login_keeps_the_working_session(api: respx.MockRouter) -> None:
+    api.post("/api/v1/auth/login").respond(200, json=LOGIN)
+    me = api.get("/api/v1/auth/me")
+    me.side_effect = [
+        httpx.Response(200, json=ME),
+        httpx.Response(401, json={"detail": "bad token"}),
+        httpx.Response(200, json=ME),
+    ]
+    async with AsyncHub(HUB, options=fast()) as hub:
+        await hub.login("alice", "pw")
+        with pytest.raises(AuthError, match="bad token"):
+            await hub.login(token="typo")
+        assert hub.authenticated and hub.me is not None and hub.me.auth is AuthMethod.PASSWORD
+        identity = await hub.auth.whoami()  # still the password session, nothing to renew
+        assert identity.auth is AuthMethod.PASSWORD
+        assert me.calls.last.request.headers["Authorization"] == "Bearer acc-1"
+
+
 async def test_bad_password_raises_auth_error(api: respx.MockRouter) -> None:
     api.post("/api/v1/auth/login").respond(401, json={"detail": "Incorrect username or password"})
     async with AsyncHub(HUB, options=fast()) as hub:

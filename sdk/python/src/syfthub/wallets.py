@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from .errors import PaymentFailed, SyftHubError, ValidationError
-from .models.enums import InvoiceStatus
 from .models.money import Bundle, Money
 from .models.ports import HubPorts
 from .models.sources import Pricing, Source
@@ -166,17 +165,15 @@ class WalletsNamespace:
         return tuple(self._bind(Invoice.from_space(wallet.key, b)) for b in bodies)
 
     async def invoice_refresh(self, invoice: Invoice) -> Invoice:
-        """``GET invoices_url`` and match by id. If the id is not listed, the balance is the
-        fallback: a balance at or above the invoice amount counts as paid."""
+        """``GET invoices_url`` and match by id. A Space lists every invoice it issued, so one
+        that is not listed comes back as it was: never marked paid on any other evidence."""
         wallet = await self._wallet_by_key(invoice.wallet_key)
-        if wallet.invoices_url:
-            for body in await self._space.invoices(wallet.invoices_url, await self._token(wallet)):
-                if str(body.get("id")) == invoice.id:
-                    return self._bind(Invoice.from_space(wallet.key, body))
-        balance, _ = await self.wallet_balance(wallet)
-        if balance >= invoice.amount:
-            paid = invoice.model_copy(update={"status": InvoiceStatus.PAID})
-            return self._bind(paid)
+        bodies = await self._space.invoices(
+            self._require(wallet, "invoices_url"), await self._token(wallet)
+        )
+        for body in bodies:
+            if str(body.get("id")) == invoice.id:
+                return self._bind(Invoice.from_space(wallet.key, body))
         return self._bind(invoice)
 
     # ── internals ─────────────────────────────────────────────────────────

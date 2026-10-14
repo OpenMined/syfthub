@@ -161,10 +161,12 @@ async def test_top_up_errors_surface_as_payment_failed(
         await w.top_up("pro")
 
 
-async def test_invoice_refresh_falls_back_to_balance(api: respx.MockRouter, hub: AsyncHub) -> None:
+async def test_invoice_refresh_keeps_an_unlisted_invoice_as_it_was(
+    api: respx.MockRouter, hub: AsyncHub
+) -> None:
     (w,) = await hub.wallets.list()
-    api.get(f"{SPACE}/api/invoices").respond(200, json=[])
-    api.get(f"{SPACE}/api/credits").respond(200, json={"balance": 10, "currency": "USD"})
+    listing = api.get(f"{SPACE}/api/invoices").respond(200, json=[])
+    credits = api.get(f"{SPACE}/api/credits").respond(200, json={"balance": 10, "currency": "USD"})
     from syfthub import Invoice
 
     inv = Invoice.from_dict(
@@ -176,9 +178,15 @@ async def test_invoice_refresh_falls_back_to_balance(api: respx.MockRouter, hub:
             "amount": {"amount": "10", "currency": "USD"},
         },
     )
+    # a balance that happens to cover the amount is not a payment
+    assert (await inv.refresh()).open and credits.call_count == 1  # the one read in list()
+    listing.respond(
+        200,
+        json=[
+            {"id": "ghost", "bundle_name": "pro", "amount": 10, "currency": "USD", "status": "paid"}
+        ],
+    )
     assert (await inv.refresh()).paid
-    api.get(f"{SPACE}/api/credits").respond(200, json={"balance": 1, "currency": "USD"})
-    assert (await inv.refresh()).open
 
 
 async def test_wallet_invoices_lists_mine(api: respx.MockRouter, hub: AsyncHub) -> None:

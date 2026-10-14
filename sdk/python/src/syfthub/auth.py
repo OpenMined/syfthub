@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from .errors import AuthError, ConfigurationError
+from .errors import AuthError, ConfigurationError, SyftHubError
 from .models.enums import AuthMethod
 from .models.session import Identity
 
@@ -133,10 +133,14 @@ class AuthNamespace:
         if token is not None:
             if username or password:
                 raise ConfigurationError("pass either token= or username/password, not both")
-            self._session.access_token = token
-            self._session.refresh_token = None
-            self._session.username = self._session.password = None
-            identity = await self._whoami(AuthMethod.TOKEN)
+            s = self._session
+            before = (s.access_token, s.refresh_token, s.username, s.password)
+            s.access_token, s.refresh_token, s.username, s.password = token, None, None, None
+            try:
+                identity = await self._whoami(AuthMethod.TOKEN)
+            except SyftHubError:  # a token that does not work must not cost the session that did
+                s.access_token, s.refresh_token, s.username, s.password = before
+                raise
         elif username and password:
             body = await self._api.login(username, password)
             self._session.access_token = str(body["access_token"])

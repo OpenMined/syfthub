@@ -135,7 +135,7 @@ class Invoice(Bound):
         return self.status.open
 
     async def refresh(self) -> Invoice:
-        """A new ``Invoice`` read back from ``invoices_url`` (balance as the fallback)."""
+        """A new ``Invoice`` read back from ``invoices_url``; unchanged if the Space does not list it."""
         fresh = await self._require_hub().invoice_refresh(self)
         return fresh
 
