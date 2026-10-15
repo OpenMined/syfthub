@@ -431,20 +431,3 @@ In `sdk/python/examples/`:
 - `profile_hub.py` reports where the time goes: every request split into connection setup, the
   wait for the server and the body read, and every SDK operation split into time on the wire
   versus time in this process, per operation, per route and per source.
-
-## Migrating from 0.x
-
-v2 is a different client with a narrower, deeper surface. Pin `syfthub-sdk<2` to stay on 0.x.
-
-| 0.x | 2.x |
-|---|---|
-| `SyftHubClient(base_url=, api_token=)` | `AsyncHub(url, token=)` or `Hub(url, token=)` |
-| `client.login(username, password)` | `await hub.login(username, password)` |
-| `client.me()` | `await hub.auth.whoami()` or `hub.me` |
-| `client.hub.browse()`, `client.hub.trending()` | `await hub.sources.list(...)` |
-| `client.hub.search(text)` | `await hub.sources.search(text)` |
-| `client.hub.get(path)` | `await hub.sources.get(path)` |
-| `client.chat(prompt, model=, data_sources=)` | `await hub.search(prompt, [model, *data_sources]).execute()`: documents from data sources, `answers` from models. No aggregation yet. |
-| `client.my_endpoints.*`, `client.api_tokens.*`, `client.accounting.*`, `client.register(...)` | Not in v2. Use the web UI or the HTTP API. |
-| `client.get_tokens()` / `set_tokens()` | Pass the token to the constructor; the SDK does not persist tokens. |
-| `SYFTHUB_API_TOKEN` | `SYFTHUB_TOKEN` |
