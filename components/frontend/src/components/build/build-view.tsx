@@ -70,53 +70,48 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
               <div className='space-y-6 lg:col-span-2'>
                 <Section
                   title='Installation'
-                  description='One command to get started.'
+                  description='One command to get started. 2.x is a pre-release until the first stable tag.'
                   icon={<Box className='h-5 w-5' />}
                 >
-                  <CodeBlock code='pip install syfthub-sdk' language='bash' />
+                  <CodeBlock code='pip install --pre syfthub-sdk' language='bash' />
                 </Section>
 
                 <Section
-                  title='Explore & Query'
-                  description='Browse what others have published and start experimenting.'
+                  title='Search'
+                  description='Name the sources you want, or leave them out and every free source you may use is searched.'
                   icon={<Terminal className='h-5 w-5' />}
                 >
                   <CodeBlock
-                    code={`from syfthub_sdk import SyftHubClient
+                    code={`import syfthub
 
-# Connect to the directory
-client = SyftHubClient(base_url="https://hub.syft.com")
-user = client.auth.login(username="alice", password="secret123")
+# A personal access token from your profile, or set SYFTHUB_TOKEN
+with syfthub.Hub(token="syft_pat_...") as hub:
+    for source in hub.sources.list():
+        print(source.path, source.pricing or "free")
 
-# Discover available data and models
-for endpoint in client.hub.browse():
-    print(f"{endpoint.path}: {endpoint.name}")
-
-# Dig into a specific capability
-endpoint = client.hub.get("alice/my-model")
-print(endpoint.readme)`}
+    results = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"]).execute()
+    for path, doc in results.documents:
+        print(path, doc.score, doc.content[:80])`}
                     language='python'
                   />
                 </Section>
 
                 <Section
-                  title='Publish Your Own'
-                  description='Share your data or models so others can build with them.'
+                  title='See the cost before anything is sent'
+                  description='Pre-flight prices every source and names what blocks it. You decide, then execute.'
                   icon={<Code2 className='h-5 w-5' />}
                 >
                   <CodeBlock
-                    code={`# Publish a capability to the directory
-endpoint = client.my_endpoints.create(
-    name="My Model",
-    visibility="public",
-    description="A machine learning model",
-    readme="# My Model\\n\\nDocumentation here."
-)
-print(f"Created: {endpoint.slug}")
+                    code={`plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
+pre = plan.preflight()                 # one row per source; nothing sent, nothing spent
+for row in pre:
+    print(row.path, row.verdict.value, row.estimate)
 
-# List your published capabilities
-for ep in client.my_endpoints.list():
-    print(f"{ep.name} ({ep.visibility})")`}
+for action in pre.actions:             # TopUp, OverBudget, AccessDenied, CircuitOpen
+    plan = plan.skip(*action.paths)    # or action.top_up(), hub.set_budget(...)
+
+results = plan.execute()               # one request per Space, in parallel
+print(results.cost, hub.spent)`}
                     language='python'
                   />
                 </Section>
@@ -126,10 +121,10 @@ for ep in client.my_endpoints.list():
                 <InfoCard
                   title='What You Can Do'
                   items={[
-                    'Discover data and models others have shared',
-                    'Query capabilities with built-in privacy',
-                    'Run distributed RAG across sources',
-                    'Publish and manage your own endpoints'
+                    'Search published sources in parallel, straight from your process',
+                    'See what each source costs and needs before anything is sent',
+                    'Pay metered sources as you go, within a budget you set',
+                    'Save a plan and resume it after a top-up'
                   ]}
                 />
                 <Card>
@@ -138,8 +133,8 @@ for ep in client.my_endpoints.list():
                   </CardHeader>
                   <CardContent className='grid gap-2'>
                     <ResourceLink
-                      label='Documentation'
-                      href='https://syft.docs.openmined.org/sdk/python'
+                      label='Guide'
+                      href='https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md'
                     />
                     <ResourceLink
                       label='PyPI Package'

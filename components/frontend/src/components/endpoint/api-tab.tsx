@@ -14,27 +14,23 @@ interface ApiTabProperties {
   endpointType: EndpointType;
 }
 
-const PLACEHOLDER_MODEL = 'owner/your-model-slug';
-const FILENAME = 'query.py';
+const FILENAME = 'search.py';
 
 function buildSnippet(path: string, dataSourceOnly: boolean): string {
-  const model = dataSourceOnly ? `"${PLACEHOLDER_MODEL}"` : `"${path}"`;
-  const dataSources = dataSourceOnly ? `\n    data_sources=["${path}"],` : '';
   const origin = globalThis.location.origin;
-  return `from syfthub_sdk import SyftHubClient
+  const read = dataSourceOnly
+    ? `    for path, doc in results.documents:  # scored chunks, best first
+        print(path, doc.score, doc.content[:80])`
+    : `    print(results.answers["${path}"])  # what the model returned`;
+  return `# pip install --pre syfthub-sdk
+import syfthub
 
-client = SyftHubClient(
-    base_url="${origin}",
-    api_token="syft_pat_...",
-)
-
-response = client.chat.complete(
-    prompt="Hello, world!",
-    model=${model},${dataSources}
-)
-print(response.response)
-
-client.close()
+with syfthub.Hub("${origin}", token="syft_pat_...") as hub:
+    plan = hub.search("Hello, world!", ["${path}"])
+    pre = plan.preflight()  # nothing sent yet
+    print(pre.ready, pre.estimate)  # can it run, and what it will cost
+    results = plan.execute()
+${read}
 `;
 }
 
@@ -130,17 +126,7 @@ export function ApiTab({ endpointPath, endpointType }: Readonly<ApiTabProperties
           <code className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-xs'>
             syft_pat_...
           </code>
-          {dataSourceOnly ? (
-            <>
-              . Because this endpoint is a data source, pair it with any model endpoint in the{' '}
-              <code className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-xs'>
-                model
-              </code>{' '}
-              field.
-            </>
-          ) : (
-            '.'
-          )}
+          . Pre-flight shows what the query costs and needs before anything is sent.
         </p>
       </header>
 
