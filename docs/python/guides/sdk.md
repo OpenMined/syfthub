@@ -52,7 +52,7 @@ rows; pre-flight exists so the app can show the user what is about to happen.
 import syfthub
 
 hub = syfthub.AsyncHub(
-    "https://syfthub.org",      # or SYFTHUB_URL; defaults to the public Hub
+    "https://syfthub.openmined.org",  # or SYFTHUB_URL; this public Hub is the default
     token="syft_pat_...",       # or SYFTHUB_TOKEN
     budget=1.00,                # optional; a session cap per currency (see Session budget)
     options=syfthub.Options(),  # timeouts, retries, circuit breaker, concurrency
