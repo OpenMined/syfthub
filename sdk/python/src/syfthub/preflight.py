@@ -168,12 +168,13 @@ def plan_preflight(plan: SearchPlan, facts: Facts) -> Preflight:
 def pick_sources(
     candidates: Iterable[Source], plan: SearchPlan, email: str | None
 ) -> tuple[Source, ...]:
-    """For a plan without explicit sources: free, reachable document sources the caller may use,
-    ``max_sources`` of them. Skipped ones are kept so they show as ``SKIPPED`` rows."""
+    """For a plan without explicit sources: every free, reachable document source the caller may
+    use, in catalogue order, or the first ``max_sources`` of them when the plan sets a ceiling.
+    Skipped ones are kept so they show as ``SKIPPED`` rows."""
     picked: list[Source] = []
     active = 0
     for source in candidates:
-        if active >= plan.max_sources:
+        if plan.max_sources is not None and active >= plan.max_sources:
             break
         if not (source.free and source.reachable and source.type.returns_documents):
             continue

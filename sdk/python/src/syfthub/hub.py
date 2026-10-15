@@ -122,11 +122,12 @@ class AsyncHub:
         limit: int = 5,
         similarity_threshold: float = 0.5,
         include_metadata: bool = True,
-        max_sources: int = 10,
+        max_sources: int | None = None,
     ) -> SearchPlan:
         """Compose a plan. Nothing is sent: ``await plan.preflight()`` prices it,
-        ``await plan.execute()`` runs it. Without ``sources`` the Hub picks free document
-        sources for the query, at most ``max_sources``."""
+        ``await plan.execute()`` runs it. Without ``sources`` the plan covers every free document
+        source in the catalogue that you may use; ``max_sources`` caps that pick and never a list
+        you name. For the Hub's keyword ranking pass ``await hub.sources.search(text)``."""
         return self._searcher.compose(
             query,
             sources,

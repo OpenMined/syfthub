@@ -52,7 +52,7 @@ rows; pre-flight exists so the app can show the user what is about to happen.
 import syfthub
 
 hub = syfthub.AsyncHub(
-    "https://syfthub.org",      # or SYFTHUB_URL; defaults to the public Hub
+    "https://syfthub.openmined.org",  # or SYFTHUB_URL; this public Hub is the default
     token="syft_pat_...",       # or SYFTHUB_TOKEN
     budget=1.00,                # optional; a session cap per currency (see Session budget)
     options=syfthub.Options(),  # timeouts, retries, circuit breaker, concurrency
@@ -116,7 +116,7 @@ A source is a published endpoint, addressed as `owner/slug`. The catalogue lives
 listing = await hub.sources.list()                      # every public source, all pages
 mine = await hub.sources.list(owner="erin")             # server-side filters: owner, type, matching
 free = await hub.sources.list(free=True, tag="hr")      # local filters: free, tag
-hits = await hub.sources.search("parental leave")       # the Hub's semantic search, top_k=10
+hits = await hub.sources.search("parental leave")       # the Hub's keyword search, top_k=10
 
 source = await hub.sources.get("erin/trials")           # SourceNotFound if it does not exist
 source.type            # SourceType.DOCUMENTS | MODEL | BOTH
@@ -127,8 +127,10 @@ source.access(email)   # Access(allowed, rule) from the access policy, predicted
 ```
 
 `SourceList` is a tuple-like view: `listing.paths`, `listing["erin/trials"]`, `listing[0]`, and
-the chainable `filter(type=, owner=, free=, tag=)`, `matching(text)` and `pick(*paths)`. A
-`SourceList` can be passed straight to `hub.search`.
+the chainable `filter(type=, owner=, free=, tag=)`, `accessible(viewer)`, `matching(text)` and
+`pick(*paths)`. `accessible` takes an email or `hub.me` and keeps the sources whose access policy
+admits that viewer, so `listing.filter(free=True).accessible(hub.me)` is what you may search for
+nothing. A `SourceList` can be passed straight to `hub.search`.
 
 Every `list`, `get` and `search` call reads the Hub now. `hub.sources.cached(path)` is the only
 lookup that does not: it returns what the last read said, for a minute, without a request.
@@ -151,9 +153,11 @@ plan = hub.search(
 )
 ```
 
-Without `sources`, the Hub picks free document sources for the query, at most `max_sources`
-(default 10). `plan.explicit` tells the two apart and `plan.active` lists the paths that are not
-skipped.
+Without `sources`, the plan covers every free document source in the catalogue that your account
+may use; paid sources are only ever searched when you name them. `max_sources` puts a ceiling on
+that automatic pick and never trims a list you pass. For the Hub's keyword ranking instead, pass
+its result in: `hub.search(q, await hub.sources.search(q))`. `plan.explicit` tells the two apart
+and `plan.active` lists the paths that are not skipped.
 
 ## Pre-flight
 

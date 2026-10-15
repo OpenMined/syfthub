@@ -94,6 +94,24 @@ def test_sourcelist_lookup_and_views(listing: SourceList) -> None:
     assert listing.filter(owner="erin").total == 42
 
 
+def test_sourcelist_accessible_takes_an_email_or_an_identity(listing: SourceList) -> None:
+    from syfthub import Identity
+
+    gated = Source.from_hub(
+        hub_body(
+            "carol",
+            "private",
+            policies=[{"type": "access", "config": {"allowed_users": ["*@carol.org"]}}],
+        )
+    )
+    all_four = listing + SourceList(items=(gated,), total=1)
+    assert all_four.accessible("bob@carol.org").paths == all_four.paths
+    assert all_four.accessible("me@x.org").paths == listing.paths
+    assert all_four.accessible(Identity(username="me", email="me@x.org")).paths == listing.paths
+    assert all_four.accessible(None).paths == listing.paths  # anonymous: no gated source
+    assert all_four.filter(free=True).accessible("me@x.org").total == 42
+
+
 def test_sourcelist_matching_is_fuzzy_and_ordered(listing: SourceList) -> None:
     assert listing.matching("trials").paths[0] == "erin/trials"
     assert "alice/free-docs" in listing.matching("clinical").paths

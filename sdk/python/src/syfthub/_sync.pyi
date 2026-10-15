@@ -178,7 +178,7 @@ class Hub:
         limit: int = ...,
         similarity_threshold: float = ...,
         include_metadata: bool = ...,
-        max_sources: int = ...,
+        max_sources: int | None = ...,
     ) -> SearchPlan: ...
     def set_budget(
         self,
