@@ -264,11 +264,25 @@ def test_pick_sources_for_an_implicit_plan(free_source: Source, paid_source: Sou
         )
     )
     more = [Source.from_hub(hub_body("alice", f"d{i}")) for i in range(3)]
-    plan = SearchPlan(query="q", max_sources=3).skip("alice/d0")
-    picked = pick_sources([free_source, paid_source, model, both, gated, *more], plan, "me@x")
-    assert [s.path for s in picked] == ["alice/free-docs", "kim/hybrid", "alice/d0", "alice/d1"]
+    candidates = [free_source, paid_source, model, both, gated, *more]
+    plan = SearchPlan(query="q").skip("alice/d0")
+    picked = pick_sources(candidates, plan, "me@x")
+    assert [s.path for s in picked] == [
+        "alice/free-docs",
+        "kim/hybrid",
+        "alice/d0",
+        "alice/d1",
+        "alice/d2",
+    ]
     pre = plan_preflight(plan, Facts(sources=picked, email="me@x"))
-    assert [r.path for r in pre.sending] == ["alice/free-docs", "kim/hybrid", "alice/d1"]
+    assert [r.path for r in pre.sending] == [
+        "alice/free-docs",
+        "kim/hybrid",
+        "alice/d1",
+        "alice/d2",
+    ]
+    capped = pick_sources(candidates, plan.model_copy(update={"max_sources": 3}), "me@x")
+    assert [s.path for s in capped] == ["alice/free-docs", "kim/hybrid", "alice/d0", "alice/d1"]
 
 
 def test_paths_of_accepts_strings_sources_and_lists(free_source: Source) -> None:

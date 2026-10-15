@@ -645,32 +645,36 @@ async def test_prepaid_402_from_the_space_is_rejected_with_a_topup_action(
 # ── implicit sources and snapshots ───────────────────────────────────────
 
 
-async def test_implicit_plan_lets_the_hub_pick_free_document_sources(
+async def test_implicit_plan_covers_every_free_document_source(
     api: respx.MockRouter, hub: AsyncHub
 ) -> None:
-    search = api.post(f"{HUB}/api/v1/endpoints/search").respond(
+    listing = api.get(f"{HUB}/api/v1/endpoints/public").respond(
         200,
-        json={
-            "results": [
-                SOURCES["erin/trials"],
-                SOURCES["alice/free-docs"],
-                SOURCES["kim/assistant"],
-                SOURCES["alice/more"],
-            ],
-            "total": 4,
-            "query": "q",
-        },
+        json=[
+            SOURCES["erin/trials"],  # paid: never picked
+            SOURCES["alice/free-docs"],
+            SOURCES["kim/assistant"],  # a model: no documents
+            SOURCES["alice/more"],
+        ],
     )
+    search = api.post(f"{HUB}/api/v1/endpoints/search").respond(200, json={"results": []})
     space(api, "alice/free-docs").respond(200, json=ok_body(("a", 0.9)))
     space(api, "alice/more").respond(200, json=ok_body(("b", 0.8)))
-    plan = hub.search("q", max_sources=1)
-    assert not plan.explicit
+    plan = hub.search("q")
+    assert not plan.explicit and plan.max_sources is None
     results = await plan.execute()
-    assert results.paths == ("alice/free-docs",) and results.ok
-    assert json.loads(search.calls.last.request.content) == {"query": "q", "top_k": 10}
-    results = await plan.skip("alice/free-docs").execute()
+    assert results.paths == ("alice/free-docs", "alice/more") and results.ok
+    assert listing.called and not search.called  # the catalogue, not a keyword match
+    assert "search" not in listing.calls.last.request.url.params
+
+    capped = await hub.search("q", max_sources=1).execute()
+    assert capped.paths == ("alice/free-docs",) and capped.ok
+    results = await hub.search("q", max_sources=1).skip("alice/free-docs").execute()
     assert results.paths == ("alice/free-docs", "alice/more")
     assert results["alice/free-docs"].reason is Reason.BY_USER and results["alice/more"].ok
+
+    named = await hub.search("q", ["alice/free-docs", "alice/more"], max_sources=1).execute()
+    assert named.paths == ("alice/free-docs", "alice/more")  # a named list is never capped
 
 
 async def test_plan_and_results_survive_a_snapshot(api: respx.MockRouter, hub: AsyncHub) -> None:

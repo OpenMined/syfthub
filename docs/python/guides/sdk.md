@@ -151,9 +151,11 @@ plan = hub.search(
 )
 ```
 
-Without `sources`, the Hub picks free document sources for the query, at most `max_sources`
-(default 10). `plan.explicit` tells the two apart and `plan.active` lists the paths that are not
-skipped.
+Without `sources`, the plan covers every free document source in the catalogue that your account
+may use; paid sources are only ever searched when you name them. `max_sources` puts a ceiling on
+that automatic pick and never trims a list you pass. For the Hub's keyword ranking instead, pass
+its result in: `hub.search(q, await hub.sources.search(q))`. `plan.explicit` tells the two apart
+and `plan.active` lists the paths that are not skipped.
 
 ## Pre-flight
 

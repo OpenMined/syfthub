@@ -59,7 +59,7 @@ class SearchPlan(Bound):
     similarity_threshold: float = 0.5
     include_metadata: bool = True
     skips: tuple[str, ...] = ()
-    max_sources: int = 10
+    max_sources: int | None = None  # a ceiling on automatic picking; never caps named sources
     version: str = Field(default_factory=lambda: __version__)
     created_at: datetime = Field(default_factory=_now)
     _pre: Any = PrivateAttr(default=None)
@@ -73,8 +73,8 @@ class SearchPlan(Bound):
 
     @field_validator("limit", "max_sources")
     @classmethod
-    def _at_least_one(cls, v: int) -> int:
-        if v < 1:
+    def _at_least_one(cls, v: int | None) -> int | None:
+        if v is not None and v < 1:
             raise ValueError("must be at least 1")
         return v
 
@@ -97,7 +97,7 @@ class SearchPlan(Bound):
 
     @property
     def explicit(self) -> bool:
-        """True when ``sources`` was given at compose; False when the Hub picks them."""
+        """True when ``sources`` was given at compose; False when the SDK picks every free source."""
         return bool(self.sources)
 
     @property

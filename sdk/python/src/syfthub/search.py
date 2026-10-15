@@ -138,7 +138,7 @@ class Searcher:
         limit: int = 5,
         similarity_threshold: float = 0.5,
         include_metadata: bool = True,
-        max_sources: int = 10,
+        max_sources: int | None = None,
     ) -> SearchPlan:
         """A validated, bound ``SearchPlan``. No network: the plan is a value until pre-flight."""
         try:
@@ -234,7 +234,7 @@ class Searcher:
         if plan.explicit:
             resolved = await self._sources.resolve(plan.sources)
             return tuple(resolved[p] for p in plan.sources)
-        listing = await self._sources.search(plan.query, top_k=max(plan.max_sources * 2, 10))
+        listing = await self._sources.list()  # the whole public catalogue, not a keyword match
         return pick_sources(listing, plan, email)
 
     # ── send ──────────────────────────────────────────────────────────────
