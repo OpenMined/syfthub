@@ -29,7 +29,7 @@ SYSTEM = (
 
 
 def hub() -> syfthub.AsyncHub:
-    return syfthub.AsyncHub(token=os.environ["SYFTHUB_TOKEN"], budget=1.00)  # caps USD only
+    return syfthub.AsyncHub(token=os.environ["SYFTHUB_TOKEN"])
 
 
 async def retrieve(plan: syfthub.SearchPlan) -> syfthub.Results | syfthub.TopUp:
@@ -40,7 +40,7 @@ async def retrieve(plan: syfthub.SearchPlan) -> syfthub.Results | syfthub.TopUp:
                 return action  # needs the user; see answer() and resume()
             case syfthub.OverBudget() | syfthub.AccessDenied() | syfthub.CircuitOpen():
                 plan = plan.skip(*action.paths)  # drop the source, keep going
-    return await plan.execute()  # MPP charges within budget are paid on the way
+    return await plan.execute()  # MPP charges are paid on the way
 
 
 async def answer(

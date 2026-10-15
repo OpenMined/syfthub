@@ -65,5 +65,5 @@ def ask_openai(question: str, context: str) -> str:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    with syfthub.Hub(token=os.environ["SYFTHUB_TOKEN"], budget=1.00) as hub:  # caps USD only
+    with syfthub.Hub(token=os.environ["SYFTHUB_TOKEN"]) as hub:
         print(json.dumps(answer(hub, sys.argv[1], sys.argv[2:]), indent=2))

@@ -5,11 +5,7 @@ see what each one will cost and need before anything is sent, then run the searc
 straight from your process to the publisher's Space; the Hub is only consulted for the catalogue,
 the per-Space access tokens and, for metered sources, the payment credential.
 
-**Version:** 2.0.0a1 | **Requires:** Python >= 3.11 | **Status:** first cut, headless and
-search-only. Chat, metadata filters and the Aggregator come in later cuts.
-
-This is **v2**. It replaces the 0.x `syfthub_sdk` package under the same distribution name. Pins on
-`syfthub-sdk<2` keep working; see [Migrating from 0.x](#migrating-from-0x) at the end.
+Requires Python 3.11 or newer.
 
 ## Installation
 
@@ -27,7 +23,7 @@ is set (see [Options](#options)).
 ```python
 import syfthub
 
-async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN; caps 1.00 USD
+async with syfthub.AsyncHub(token="...") as hub:    # or set SYFTHUB_TOKEN
     plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
     pre = await plan.preflight()            # rows + actions; nothing sent, nothing spent
     for action in pre.actions:              # TopUp, OverBudget, AccessDenied, CircuitOpen
