@@ -126,61 +126,19 @@ repos:
         files: ^components/frontend/.*\.(ts|tsx)$
         pass_filenames: false
 
-  # TypeScript SDK hooks
+  # Frontend API client hooks (components/frontend/sdk)
   - repo: local
     hooks:
-      - id: ts-sdk-eslint
-        name: ESLint (sdk/typescript)
-        entry: sh -c 'cd sdk/typescript && npm run lint'
+      - id: frontend-sdk-eslint
+        name: ESLint (frontend/sdk)
+        entry: sh -c 'cd components/frontend/sdk && npm run lint'
         language: system
-        files: ^sdk/typescript/.*\.(js|ts)$
+        files: ^components/frontend/sdk/.*\.(js|ts)$
         pass_filenames: false
 
-      - id: ts-sdk-typecheck
-        name: TypeScript check (sdk/typescript)
-        entry: sh -c 'cd sdk/typescript && npm run typecheck'
+      - id: frontend-sdk-typecheck
+        name: TypeScript check (frontend/sdk)
+        entry: sh -c 'cd components/frontend/sdk && npm run typecheck'
         language: system
-        files: ^sdk/typescript/.*\.ts$
-        pass_filenames: false
-
-  # Go SDK hooks (sdk/golang)
-  - repo: local
-    hooks:
-      - id: go-sdk-fmt
-        name: go fmt (sdk/golang)
-        entry: sh -c 'cd sdk/golang && test -z "$(gofmt -l .)"'
-        language: system
-        files: ^sdk/golang/.*\.go$
-        pass_filenames: false
-
-      - id: go-sdk-vet
-        name: go vet (sdk/golang)
-        entry: sh -c 'cd sdk/golang && go vet ./...'
-        language: system
-        files: ^sdk/golang/.*\.go$
-        pass_filenames: false
-
-      - id: go-sdk-test
-        name: go test (sdk/golang)
-        entry: sh -c 'cd sdk/golang && go test ./... -count=1'
-        language: system
-        files: ^sdk/golang/.*\.go$
-        pass_filenames: false
-        stages: [pre-push]
-
-  # CLI hooks (Go)
-  - repo: local
-    hooks:
-      - id: cli-gofmt
-        name: go fmt (cli)
-        entry: sh -c 'cd cli && test -z "$(gofmt -l .)"'
-        language: system
-        files: ^cli/.*\.go$
-        pass_filenames: false
-
-      - id: cli-govet
-        name: go vet (cli)
-        entry: sh -c 'cd cli && go vet ./...'
-        language: system
-        files: ^cli/.*\.go$
+        files: ^components/frontend/sdk/.*\.ts$
         pass_filenames: false

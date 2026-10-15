@@ -35,18 +35,18 @@ setup:  ## Install dev dependencies (pre-commit, etc.)
 	@test -d .venv || uv venv .venv
 	@. .venv/bin/activate && uv pip install pre-commit
 	@. .venv/bin/activate && pre-commit install
-	@npm install ./sdk/typescript
-	@npm --prefix sdk/typescript run build
+	@npm --prefix components/frontend/sdk install
+	@npm --prefix components/frontend/sdk run build
 	@echo ''
 	@echo 'Setup complete! Activate the virtualenv with:'
 	@echo '  source .venv/bin/activate'
 	@echo ''
 
-sdk-build:  ## Build the TypeScript SDK (required for frontend dev: bind-mount overlays the container build)
-	@if [ ! -f sdk/typescript/dist/index.js ]; then \
-		echo 'Building TypeScript SDK...'; \
-		npm --prefix sdk/typescript install --silent; \
-		npm --prefix sdk/typescript run build; \
+sdk-build:  ## Build the frontend's API client (required for frontend dev: bind-mount overlays the container build)
+	@if [ ! -f components/frontend/sdk/dist/index.js ]; then \
+		echo 'Building the frontend API client...'; \
+		npm --prefix components/frontend/sdk install --silent; \
+		npm --prefix components/frontend/sdk run build; \
 	fi
 
 dev: sdk-build  ## Start development environment
@@ -80,18 +80,11 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo 'Aggregator tests...'
 	@cd components/aggregator && uv sync --extra dev && uv run pytest
 	@echo ''
-	@echo 'CLI Go tests...'
-	@cd cli && go test ./...
-	@echo ''
-	@echo 'Go SDK tests...'
-	@cd sdk/golang/syfthub && go test ./...
-	@cd sdk/golang/syfthubapi && go test ./...
-	@echo ''
 	@echo 'Python SDK unit tests...'
 	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit
 	@echo ''
-	@echo 'TypeScript SDK unit tests...'
-	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
+	@echo 'Frontend API client unit tests...'
+	@cd components/frontend/sdk && npx vitest run --exclude 'tests/integration/**' || echo 'Frontend API client tests skipped'
 	@echo ''
 	@echo 'Frontend tests...'
 	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
@@ -107,8 +100,8 @@ test-integration:  ## Run integration tests (requires dev server running)
 	@echo 'Python SDK integration tests...'
 	@cd sdk/python && uv run pytest tests/integration/ -v
 	@echo ''
-	@echo 'TypeScript SDK integration tests...'
-	@cd sdk/typescript && npx vitest run tests/integration/
+	@echo 'Frontend API client integration tests...'
+	@cd components/frontend/sdk && npx vitest run tests/integration/
 
 check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo '═══════════════════════════════════════════════════════════════'
@@ -149,15 +142,9 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@cd components/frontend && npx prettier --check src/
 	@cd components/frontend && npm run typecheck
 	@echo ''
-	@echo 'TypeScript SDK checks (eslint, typecheck)...'
-	@cd sdk/typescript && npm install --silent && npm run lint
-	@cd sdk/typescript && npm run typecheck
-	@echo ''
-	@echo 'Go SDK checks (fmt, vet)...'
-	@cd sdk/golang && $(MAKE) lint
-	@echo ''
-	@echo 'CLI checks (fmt, vet)...'
-	@cd cli && $(MAKE) lint
+	@echo 'Frontend API client checks (eslint, typecheck)...'
+	@cd components/frontend/sdk && npm install --silent && npm run lint
+	@cd components/frontend/sdk && npm run typecheck
 	@echo ''
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo '  All checks passed!'

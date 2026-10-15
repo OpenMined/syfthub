@@ -12,7 +12,7 @@ SyftHub is a **registry and discovery platform for AI/ML endpoints** — "GitHub
 
 - A central registry where teams publish model and data source endpoints
 - Discovery and search (full-text via Meilisearch)
-- Standardized access through SDKs (Python, TypeScript, Go) and a CLI
+- Standardized access through the Python SDK
 - Multi-tenancy and organization-level access control
 - A stateless RAG aggregator for chat workflows using registered endpoints
 - MCP (Model Context Protocol) integration for connecting AI assistants to registered services
@@ -26,7 +26,7 @@ SyftHub is a **registry and discovery platform for AI/ML endpoints** — "GitHub
 
 ```mermaid
 graph TB
-    User([Human User<br/>Browser / SDK / CLI])
+    User([Human User<br/>Browser / SDK])
     SyftBox([SyftBox<br/>External Client])
     SyftAISpace([SyftAI-Space<br/>Data Sources & Models])
 
@@ -39,7 +39,7 @@ graph TB
 ```
 
 **External actors:**
-- **Human users** interact via the web UI, SDKs, or CLI
+- **Human users** interact via the web UI or the Python SDK
 - **SyftBox** integrates via the MCP OAuth 2.1 flow
 - **SyftAI-Space instances** are external data sources and models that the aggregator queries during RAG workflows
 
@@ -235,7 +235,7 @@ sequenceDiagram
 | **MCP Server** | Python, FastMCP |
 | **Database** | PostgreSQL (primary), Redis (cache/sessions), Meilisearch (search) |
 | **Messaging** | NATS JetStream |
-| **Package Management** | uv (Python), npm (TypeScript/frontend), Go modules (Go SDK/CLI) |
+| **Package Management** | uv (Python), npm (frontend) |
 | **Testing** | pytest (backend), Playwright (frontend E2E), vitest |
 | **CI/CD** | GitHub Actions |
 | **Deployment** | Docker Compose, GHCR (container registry), Nginx |

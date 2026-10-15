@@ -55,8 +55,6 @@ OpenAPI (dev): `http://localhost:8080/docs`
 | [Publishing Endpoints](guides/publishing-endpoints.md) | ML engineers, data scientists |
 | [Python SDK 2.x](python/guides/sdk.md) | Python developers: search, pre-flight, wallets |
 | [Python SDK (legacy)](python/guides/sdk-legacy.md) | Python developers still on the 0.3 release: endpoint management, chat |
-| [TypeScript SDK](typescript/guides/sdk.md) | JavaScript/TypeScript developers: endpoint management, chat |
-| [CLI Reference](guides/cli.md) | Terminal users |
 
 ---
 
@@ -75,10 +73,10 @@ OpenAPI (dev): `http://localhost:8080/docs`
 | SDK | Package | Path | Install |
 |---|---|---|---|
 | Python | `syfthub-sdk` (import `syfthub`) | `sdk/python/` | `pip install --pre syfthub-sdk` (2.x pre-release; `syfthub-sdk<2` for the 0.x client) |
-| TypeScript | `@syfthub/sdk` | `sdk/typescript/` | `npm install @syfthub/sdk` |
-| Go (hub client) | — | `sdk/golang/syfthub/` | `go get` |
-| Go (endpoint SDK) | — | `sdk/golang/syfthubapi/` | `go get` |
-| CLI | — | `cli/` | Binary from GitHub Releases |
+
+The TypeScript SDK, the Go SDK and the `syft` CLI are retired; their last state is on the
+[`legacy-sdks`](https://github.com/OpenMined/syfthub/tree/legacy-sdks) branch. The TypeScript client
+continues as the frontend's internal API client in `components/frontend/sdk`.
 
 ---
 

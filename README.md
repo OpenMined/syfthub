@@ -11,7 +11,7 @@ Discover, share, and run AI models and data sources — like GitHub, but for end
 [![CI](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml/badge.svg)](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-[Documentation](docs/index.md) · [Python SDK](sdk/python) · [TypeScript SDK](sdk/typescript) · [Go SDK](sdk/golang) · [Contributing](CONTRIBUTING.md)
+[Documentation](docs/index.md) · [Python SDK](sdk/python) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -30,7 +30,7 @@ If you've ever wished there were a single place to find the model your team's be
 - **Chat with endpoints** — built-in RAG aggregator orchestrates retrieval and generation across endpoints.
 - **Collaborate in organizations** with role-based access for teams.
 - **Federated identity** — SyftHub issues short-lived signed tokens so satellite services can verify users without phoning home.
-- **First-class SDKs** for Python, TypeScript, and Go, plus a CLI.
+- **A Python SDK** that searches sources, shows what each one costs and needs before anything is sent, and pays metered sources on the way.
 
 ## Quick Start
 
@@ -47,7 +47,7 @@ The full stack starts behind nginx at <http://localhost:8080>. API docs live at 
 
 To stop everything: `make stop`.
 
-## Using the SDKs
+## Using the Python SDK
 
 ```python
 # Python (syfthub-sdk 2.x: pip install --pre syfthub-sdk)
@@ -64,19 +64,12 @@ with syfthub.Hub(token="syft_pat_...", budget=1.00) as hub:   # optional cap, pe
         print(path, doc.score, doc.content[:80])
 ```
 
-```typescript
-// TypeScript
-import { SyftHubClient } from '@syfthub/sdk';
+See the [Python SDK guide](docs/python/guides/sdk.md) for the full reference.
 
-const client = new SyftHubClient({ baseUrl: 'https://hub.syft.com' });
-await client.auth.login({ email: 'alice@example.com', password: '...' });
-
-for await (const endpoint of client.hub.browse()) {
-  console.log(endpoint.name);
-}
-```
-
-See the [Python SDK guide](docs/python/guides/sdk.md) and the [TypeScript SDK guide](docs/typescript/guides/sdk.md) for the full reference.
+The TypeScript SDK, the Go SDK and the `syft` CLI are retired. Their last state is kept on the
+[`legacy-sdks`](https://github.com/OpenMined/syfthub/tree/legacy-sdks) branch, and the published
+packages (`@syfthub/sdk` 0.3.1 on npm, `syfthub-sdk` 0.3.1 on PyPI) stay available for existing
+users. The TypeScript client now lives in `components/frontend/sdk` as part of the web app.
 
 ## Documentation
 
@@ -93,8 +86,7 @@ Full docs live in [`docs/`](docs/index.md):
 ```
 syfthub/
 ├── components/        services (backend, frontend, aggregator, mcp)
-├── sdk/               official SDKs (python, typescript, go)
-├── cli/               command-line client
+├── sdk/               the Python SDK
 ├── deploy/            deployment configs
 └── docs/              documentation
 ```

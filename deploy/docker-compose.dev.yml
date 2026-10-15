@@ -165,8 +165,8 @@ services:
       - ../components/frontend/tailwind.config.js:/app/components/frontend/tailwind.config.js:cached
       - ../components/frontend/index.html:/app/components/frontend/index.html:cached
       - ../components/frontend/_config.ts:/app/components/frontend/_config.ts:cached
-      # Mount SDK (path matches npm file: resolution: /app/components/frontend/../../sdk/typescript)
-      - ../sdk/typescript:/app/sdk/typescript:cached
+      # Mount the frontend's API client (the "file:sdk" dependency)
+      - ../components/frontend/sdk:/app/components/frontend/sdk:cached
       # Exclude node_modules to avoid conflicts with container-installed packages
       - /app/components/frontend/node_modules
     environment:

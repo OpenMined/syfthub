@@ -2,14 +2,10 @@
 # Build with context: .. (repository root, from components/frontend)
 FROM node:20-alpine
 
-# IMPORTANT: Directory structure must match repository layout for file: dependency resolution.
-# The @syfthub/sdk dependency is: "file:../../sdk/typescript"
-
-# Copy SDK first (required for file: dependency resolution)
-WORKDIR /app/sdk/typescript
-COPY sdk/typescript ./
-
-# Build SDK so dist/ exists for the file: dependency
+# The frontend's API client lives in components/frontend/sdk and is a "file:sdk" dependency:
+# build it first so dist/ exists.
+WORKDIR /app/components/frontend/sdk
+COPY components/frontend/sdk ./
 RUN npm ci --ignore-scripts && npm run build
 
 # Set working directory for frontend (mirrors repo: components/frontend)
