@@ -1,29 +1,37 @@
 # SyftHub Python SDK
 
-`syfthub` is the Python client for [SyftHub](https://syfthub.org): log in once, pick the sources you
-want to search, see what each one will cost and need before anything is sent, then run the search.
+[![PyPI](https://img.shields.io/pypi/v/syfthub-sdk.svg)](https://pypi.org/project/syfthub-sdk/)
+[![Python](https://img.shields.io/pypi/pyversions/syfthub-sdk.svg)](https://pypi.org/project/syfthub-sdk/)
 
-This is **v2**. It replaces the earlier `syfthub_sdk` package under the same distribution name,
-`syfthub-sdk`. The 0.x line stays on PyPI for existing pins.
+`syfthub` is the Python client for [SyftHub](https://syfthub.org). Log in once, pick the sources
+you want to search, see what each one will cost and need before anything is sent, then run the
+search. Queries go straight from your process to each publisher's Space; the Hub is only consulted
+for the catalogue, the per-Space tokens and, for metered sources, the payment credential.
 
-## Status
+## Documentation
 
-First cut, under construction: headless and search-only. Chat, metadata filters and the Aggregator
-come in later cuts.
+The full guide is at
+**[docs/python/guides/sdk.md](https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md)**:
+sources, pre-flight, decisions, wallets, budgets, snapshots, options and errors.
 
-## Install
+Runnable examples, including a notebook and a chat app with SyftHub as retrieval, are in
+[examples/](https://github.com/OpenMined/syfthub/tree/main/sdk/python/examples).
+
+## Installation
 
 ```bash
-pip install --pre syfthub-sdk      # 2.x is a pre-release until the first stable tag
+pip install --pre syfthub-sdk            # pre-release until the first stable 2.x tag
 pip install --pre 'syfthub-sdk[http2]'   # with HTTP/2, for Options(http2=True)
 ```
+
+Requires Python 3.11 or newer.
 
 ## Quick start
 
 ```python
 import syfthub
 
-async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN; caps 1.00 USD
+async with syfthub.AsyncHub(token="...") as hub:    # or set SYFTHUB_TOKEN
     plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
     pre = await plan.preflight()            # rows + actions; nothing sent, nothing spent
     for action in pre.actions:              # TopUp, OverBudget, AccessDenied, CircuitOpen
@@ -33,9 +41,6 @@ async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_
         print(path, doc.score, doc.content[:80])
 ```
 
-Budgets are optional and per currency: `budget=1.00` caps USD only, `budget={"USD": 1.00, "IDR": 50000}`
-caps both, and a currency with no cap is not budgeted. The SDK never converts money.
-
 The sync twin is the same API without `await`:
 
 ```python
@@ -43,8 +48,11 @@ with syfthub.Hub(token="...") as hub:
     results = hub.search("adverse events in phase 3", ["erin/trials"]).execute()
 ```
 
-`syfthub.testing.FakeHub` stands in for a Hub and its Spaces in your own tests, with no extra
-dependency. See `examples/` for the reference chat app and `tests/unit/test_testing.py` for the fake.
+## Testing your app
+
+`syfthub.testing.FakeHub` stands in for a Hub and its Spaces, with no extra dependency. See
+[Testing your app](https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md#testing-your-app)
+in the guide.
 
 ## Development
 
@@ -56,5 +64,9 @@ uv run pytest tests/unit
 uv run python scripts/gen_sync_stub.py   # after changing a public async method or what it returns
 ```
 
-`src/syfthub/_sync.pyi` and `src/syfthub/sync.py` are generated: they give the sync `Hub` the
-types of the async package. A unit test fails until they are regenerated.
+`src/syfthub/_sync.pyi` and `src/syfthub/sync.py` are generated from the async package. A unit
+test fails until they are regenerated.
+
+## License
+
+Apache 2.0. See [LICENSE](https://github.com/OpenMined/syfthub/blob/main/LICENSE).

@@ -1,4 +1,4 @@
-# Python SDK 0.x Guide (legacy)
+# Python SDK Guide (legacy, 0.x)
 
 > This describes `syfthub-sdk` 0.3.x, the `syfthub_sdk` package: a full Hub client with endpoint
 > management, chat and accounting. It is the release on PyPI today and what the MCP server runs.

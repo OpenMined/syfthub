@@ -5,11 +5,7 @@ see what each one will cost and need before anything is sent, then run the searc
 straight from your process to the publisher's Space; the Hub is only consulted for the catalogue,
 the per-Space access tokens and, for metered sources, the payment credential.
 
-**Version:** 2.0.0a1 | **Requires:** Python >= 3.11 | **Status:** first cut, headless and
-search-only. Chat, metadata filters and the Aggregator come in later cuts.
-
-This is **v2**. It replaces the 0.x `syfthub_sdk` package under the same distribution name. Pins on
-`syfthub-sdk<2` keep working; see [Migrating from 0.x](#migrating-from-0x) at the end.
+Requires Python 3.11 or newer.
 
 ## Installation
 
@@ -27,7 +23,7 @@ is set (see [Options](#options)).
 ```python
 import syfthub
 
-async with syfthub.AsyncHub(token="...", budget=1.00) as hub:      # or SYFTHUB_TOKEN; caps 1.00 USD
+async with syfthub.AsyncHub(token="...") as hub:    # or set SYFTHUB_TOKEN
     plan = hub.search("adverse events in phase 3", ["erin/trials", "carol/papers"])
     pre = await plan.preflight()            # rows + actions; nothing sent, nothing spent
     for action in pre.actions:              # TopUp, OverBudget, AccessDenied, CircuitOpen
@@ -58,7 +54,7 @@ import syfthub
 hub = syfthub.AsyncHub(
     "https://syfthub.org",      # or SYFTHUB_URL; defaults to the public Hub
     token="syft_pat_...",       # or SYFTHUB_TOKEN
-    budget=1.00,                # optional; 1.00 USD here, or one cap per currency (see Budget)
+    budget=1.00,                # optional; a session cap per currency (see Session budget)
     options=syfthub.Options(),  # timeouts, retries, circuit breaker, concurrency
 )
 ```
@@ -259,26 +255,41 @@ and `top(k)` return views for presentation.
 
 ## Money
 
-### Budget
+### Session budget
 
-There is no budget until you set one. A budget is one cap per currency, because publishers bill in
-their own currencies and the SDK never converts money.
+A budget belongs to the session, not to a plan: it caps what every search on this `hub` may spend
+together. There is no budget until you set one. Because publishers bill in their own currencies
+and the SDK never converts money, a budget is one cap per currency, and a currency with no cap is
+not budgeted at all.
 
 ```python
-hub = syfthub.AsyncHub(budget=1.00)                       # 1.00 USD; nothing else is capped
+hub = syfthub.AsyncHub(budget=1.00)                         # shorthand for {"USD": 1.00}
 hub = syfthub.AsyncHub(budget={"USD": 1.00, "IDR": 50000})  # one cap per currency
 hub = syfthub.AsyncHub(budget=syfthub.Money.of(5, "EUR"))   # a cap in another currency
-
-hub.budget.limits        # {"USD": Money(1.00), ...}
-hub.budget.remaining     # per capped currency, after what this session spent
-hub.spent                # {"USD": Money(...), "IDR": Money(...)}: every charge, capped or not
-hub.set_budget({"USD": 2.00})   # replace the caps; spend is kept
-hub.set_budget(None)            # no caps
 ```
 
-Each currency is judged on its own. Pre-flight holds a row whose estimate would cross the cap in
-its currency; a row billed in a currency with no cap is sent and its note says so. Execute records
-what each Space actually charged, per currency, whether or not that currency is capped.
+A number or string caps USD. A `Money` caps its own currency. A mapping caps several currencies
+at once; its values may be numbers or `Money`, and a `Money` whose currency differs from its key
+raises `ConfigurationError`.
+
+The caps can change at any point in the session. Spend is kept across changes and only a new
+`hub` starts from zero.
+
+```python
+hub.set_budget({"USD": 2.00})   # replace the caps; what was spent stays
+hub.set_budget(None)            # no caps; spend is still recorded
+
+hub.budget.limits               # {"USD": Money(2.00)}
+hub.budget.remaining            # per capped currency: cap minus spend
+hub.budget.remaining_in("USD")  # one currency; None when it has no cap
+hub.spent                       # {"USD": Money(...), "IDR": Money(...)}: every charge, capped or not
+```
+
+Pre-flight judges each currency on its own, in plan order: the first paid row whose estimate would
+cross its currency's cap, and every paid row in that currency after it, are held behind one
+`OverBudget` action per crossed currency. A row billed in a currency with no cap is sent, and its
+note says so. Execute records what each Space actually charged, per currency, whether or not that
+currency is capped; a metered (MPP) charge counts as soon as it is paid.
 
 ### Prepaid wallets
 
@@ -435,20 +446,3 @@ In `sdk/python/examples/`:
 - `profile_hub.py` reports where the time goes: every request split into connection setup, the
   wait for the server and the body read, and every SDK operation split into time on the wire
   versus time in this process, per operation, per route and per source.
-
-## Migrating from 0.x
-
-v2 is a different client with a narrower, deeper surface. Pin `syfthub-sdk<2` to stay on 0.x.
-
-| 0.x | 2.x |
-|---|---|
-| `SyftHubClient(base_url=, api_token=)` | `AsyncHub(url, token=)` or `Hub(url, token=)` |
-| `client.login(username, password)` | `await hub.login(username, password)` |
-| `client.me()` | `await hub.auth.whoami()` or `hub.me` |
-| `client.hub.browse()`, `client.hub.trending()` | `await hub.sources.list(...)` |
-| `client.hub.search(text)` | `await hub.sources.search(text)` |
-| `client.hub.get(path)` | `await hub.sources.get(path)` |
-| `client.chat(prompt, model=, data_sources=)` | `await hub.search(prompt, [model, *data_sources]).execute()`: documents from data sources, `answers` from models. No aggregation yet. |
-| `client.my_endpoints.*`, `client.api_tokens.*`, `client.accounting.*`, `client.register(...)` | Not in v2. Use the web UI or the HTTP API. |
-| `client.get_tokens()` / `set_tokens()` | Pass the token to the constructor; the SDK does not persist tokens. |
-| `SYFTHUB_API_TOKEN` | `SYFTHUB_TOKEN` |

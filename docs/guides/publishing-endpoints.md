@@ -31,7 +31,7 @@ POST /api/v1/endpoints
 | TypeScript `@syfthub/sdk` | Yes, `client.myEndpoints.create(...)` | [TypeScript SDK guide](../typescript/guides/sdk.md#endpoints) |
 | Go `sdk/golang` | Yes, `MyEndpoints.Create(...)` | `sdk/golang/syfthub/endpoints.go` |
 | Python `syfthub-sdk` 2.x | No. It is a consumer client: it searches published endpoints and pays for them. | [Python SDK guide](../python/guides/sdk.md) |
-| Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [Python SDK 0.x guide](../python/guides/sdk-0.x.md#endpoints) |
+| Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [legacy Python SDK guide](../python/guides/sdk-legacy.md#endpoints) |
 
 ### Via CLI
 
