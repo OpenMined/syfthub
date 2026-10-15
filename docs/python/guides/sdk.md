@@ -54,7 +54,7 @@ import syfthub
 hub = syfthub.AsyncHub(
     "https://syfthub.org",      # or SYFTHUB_URL; defaults to the public Hub
     token="syft_pat_...",       # or SYFTHUB_TOKEN
-    budget=1.00,                # optional; 1.00 USD here, or one cap per currency (see Budget)
+    budget=1.00,                # optional; a session cap per currency (see Session budget)
     options=syfthub.Options(),  # timeouts, retries, circuit breaker, concurrency
 )
 ```
@@ -255,26 +255,41 @@ and `top(k)` return views for presentation.
 
 ## Money
 
-### Budget
+### Session budget
 
-There is no budget until you set one. A budget is one cap per currency, because publishers bill in
-their own currencies and the SDK never converts money.
+A budget belongs to the session, not to a plan: it caps what every search on this `hub` may spend
+together. There is no budget until you set one. Because publishers bill in their own currencies
+and the SDK never converts money, a budget is one cap per currency, and a currency with no cap is
+not budgeted at all.
 
 ```python
-hub = syfthub.AsyncHub(budget=1.00)                       # 1.00 USD; nothing else is capped
+hub = syfthub.AsyncHub(budget=1.00)                         # shorthand for {"USD": 1.00}
 hub = syfthub.AsyncHub(budget={"USD": 1.00, "IDR": 50000})  # one cap per currency
 hub = syfthub.AsyncHub(budget=syfthub.Money.of(5, "EUR"))   # a cap in another currency
-
-hub.budget.limits        # {"USD": Money(1.00), ...}
-hub.budget.remaining     # per capped currency, after what this session spent
-hub.spent                # {"USD": Money(...), "IDR": Money(...)}: every charge, capped or not
-hub.set_budget({"USD": 2.00})   # replace the caps; spend is kept
-hub.set_budget(None)            # no caps
 ```
 
-Each currency is judged on its own. Pre-flight holds a row whose estimate would cross the cap in
-its currency; a row billed in a currency with no cap is sent and its note says so. Execute records
-what each Space actually charged, per currency, whether or not that currency is capped.
+A number or string caps USD. A `Money` caps its own currency. A mapping caps several currencies
+at once; its values may be numbers or `Money`, and a `Money` whose currency differs from its key
+raises `ConfigurationError`.
+
+The caps can change at any point in the session. Spend is kept across changes and only a new
+`hub` starts from zero.
+
+```python
+hub.set_budget({"USD": 2.00})   # replace the caps; what was spent stays
+hub.set_budget(None)            # no caps; spend is still recorded
+
+hub.budget.limits               # {"USD": Money(2.00)}
+hub.budget.remaining            # per capped currency: cap minus spend
+hub.budget.remaining_in("USD")  # one currency; None when it has no cap
+hub.spent                       # {"USD": Money(...), "IDR": Money(...)}: every charge, capped or not
+```
+
+Pre-flight judges each currency on its own, in plan order: the first paid row whose estimate would
+cross its currency's cap, and every paid row in that currency after it, are held behind one
+`OverBudget` action per crossed currency. A row billed in a currency with no cap is sent, and its
+note says so. Execute records what each Space actually charged, per currency, whether or not that
+currency is capped; a metered (MPP) charge counts as soon as it is paid.
 
 ### Prepaid wallets
 
