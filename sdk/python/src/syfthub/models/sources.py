@@ -18,6 +18,7 @@ from pydantic import Field, model_validator
 from .base import Frozen
 from .enums import PAYMENT_POLICY_TYPES, PolicyType, PriceUnit, Rail, SourceType
 from .money import Bundle, Money
+from .session import Identity
 
 _DEFAULT_CURRENCY: dict[str, str] = {Rail.XENDIT.value: "IDR"}
 
@@ -410,6 +411,12 @@ class SourceList(Frozen):
             and (tag is None or tag in s.tags)
         ]
         return self._view(kept)
+
+    def accessible(self, viewer: Identity | str | None) -> SourceList:
+        """The sources whose access policy admits ``viewer``, predicted client-side the way
+        ``Source.access`` does. ``None`` keeps only sources that need no login."""
+        email = viewer.email if isinstance(viewer, Identity) else viewer
+        return self._view([s for s in self.items if s.access(email).allowed])
 
     def pick(self, *paths: str) -> SourceList:
         return self._view([self[p] for p in paths])

@@ -79,7 +79,8 @@ class SourcesNamespace:
         return self._remember(Source.from_hub(body))
 
     async def search(self, text: str, *, top_k: int = 10) -> SourceList:
-        """The Hub's semantic search over the listing (``POST /endpoints/search``)."""
+        """The Hub's keyword search over the listing (``POST /endpoints/search``): a full-text
+        match on name, description, readme and tags, best first."""
         body = await self._api.search(text, top_k=top_k)
         results = body.get("results") or []
         sources = [self._remember(Source.from_hub(r)) for r in results if isinstance(r, dict)]

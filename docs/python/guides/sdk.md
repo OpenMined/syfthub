@@ -116,7 +116,7 @@ A source is a published endpoint, addressed as `owner/slug`. The catalogue lives
 listing = await hub.sources.list()                      # every public source, all pages
 mine = await hub.sources.list(owner="erin")             # server-side filters: owner, type, matching
 free = await hub.sources.list(free=True, tag="hr")      # local filters: free, tag
-hits = await hub.sources.search("parental leave")       # the Hub's semantic search, top_k=10
+hits = await hub.sources.search("parental leave")       # the Hub's keyword search, top_k=10
 
 source = await hub.sources.get("erin/trials")           # SourceNotFound if it does not exist
 source.type            # SourceType.DOCUMENTS | MODEL | BOTH
@@ -127,8 +127,10 @@ source.access(email)   # Access(allowed, rule) from the access policy, predicted
 ```
 
 `SourceList` is a tuple-like view: `listing.paths`, `listing["erin/trials"]`, `listing[0]`, and
-the chainable `filter(type=, owner=, free=, tag=)`, `matching(text)` and `pick(*paths)`. A
-`SourceList` can be passed straight to `hub.search`.
+the chainable `filter(type=, owner=, free=, tag=)`, `accessible(viewer)`, `matching(text)` and
+`pick(*paths)`. `accessible` takes an email or `hub.me` and keeps the sources whose access policy
+admits that viewer, so `listing.filter(free=True).accessible(hub.me)` is what you may search for
+nothing. A `SourceList` can be passed straight to `hub.search`.
 
 Every `list`, `get` and `search` call reads the Hub now. `hub.sources.cached(path)` is the only
 lookup that does not: it returns what the last read said, for a minute, without a request.
