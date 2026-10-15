@@ -125,20 +125,3 @@ repos:
         language: system
         files: ^components/frontend/.*\.(ts|tsx)$
         pass_filenames: false
-
-  # Frontend API client hooks (components/frontend/sdk)
-  - repo: local
-    hooks:
-      - id: frontend-sdk-eslint
-        name: ESLint (frontend/sdk)
-        entry: sh -c 'cd components/frontend/sdk && npm run lint'
-        language: system
-        files: ^components/frontend/sdk/.*\.(js|ts)$
-        pass_filenames: false
-
-      - id: frontend-sdk-typecheck
-        name: TypeScript check (frontend/sdk)
-        entry: sh -c 'cd components/frontend/sdk && npm run typecheck'
-        language: system
-        files: ^components/frontend/sdk/.*\.ts$
-        pass_filenames: false

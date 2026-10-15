@@ -76,7 +76,7 @@ OpenAPI (dev): `http://localhost:8080/docs`
 
 The TypeScript SDK, the Go SDK and the `syft` CLI are retired; their last state is on the
 [`legacy-sdks`](https://github.com/OpenMined/syfthub/tree/legacy-sdks) branch. The TypeScript client
-continues as the frontend's internal API client in `components/frontend/sdk`.
+continues as the frontend's internal API client in `components/frontend/src/lib/sdk`.
 
 ---
 

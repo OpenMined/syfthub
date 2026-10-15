@@ -2,13 +2,6 @@
 # Build with context: .. (repository root, from components/frontend)
 FROM node:20-alpine
 
-# The frontend's API client lives in components/frontend/sdk and is a "file:sdk" dependency:
-# build it first so dist/ exists.
-WORKDIR /app/components/frontend/sdk
-COPY components/frontend/sdk ./
-RUN npm ci --ignore-scripts && npm run build
-
-# Set working directory for frontend (mirrors repo: components/frontend)
 WORKDIR /app/components/frontend
 
 # Copy frontend package.json and lockfile

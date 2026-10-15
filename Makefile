@@ -1,4 +1,4 @@
-.PHONY: help setup dev stop test test-integration check logs sdk-build
+.PHONY: help setup dev stop test test-integration check logs
 
 # =============================================================================
 # SyftHub Development Commands
@@ -35,21 +35,12 @@ setup:  ## Install dev dependencies (pre-commit, etc.)
 	@test -d .venv || uv venv .venv
 	@. .venv/bin/activate && uv pip install pre-commit
 	@. .venv/bin/activate && pre-commit install
-	@npm --prefix components/frontend/sdk install
-	@npm --prefix components/frontend/sdk run build
 	@echo ''
 	@echo 'Setup complete! Activate the virtualenv with:'
 	@echo '  source .venv/bin/activate'
 	@echo ''
 
-sdk-build:  ## Build the frontend's API client (required for frontend dev: bind-mount overlays the container build)
-	@if [ ! -f components/frontend/sdk/dist/index.js ]; then \
-		echo 'Building the frontend API client...'; \
-		npm --prefix components/frontend/sdk install --silent; \
-		npm --prefix components/frontend/sdk run build; \
-	fi
-
-dev: sdk-build  ## Start development environment
+dev:  ## Start development environment
 	@docker compose -f deploy/docker-compose.dev.yml up -d --build
 	@echo ''
 	@echo '══════════════════════════════════════════'
@@ -83,9 +74,6 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo 'Python SDK unit tests...'
 	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit
 	@echo ''
-	@echo 'Frontend API client unit tests...'
-	@cd components/frontend/sdk && npx vitest run --exclude 'tests/integration/**' || echo 'Frontend API client tests skipped'
-	@echo ''
 	@echo 'Frontend tests...'
 	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
@@ -101,7 +89,7 @@ test-integration:  ## Run integration tests (requires dev server running)
 	@cd sdk/python && uv run pytest tests/integration/ -v
 	@echo ''
 	@echo 'Frontend API client integration tests...'
-	@cd components/frontend/sdk && npx vitest run tests/integration/
+	@cd components/frontend && npx vitest run --config vitest.integration.config.ts
 
 check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo '═══════════════════════════════════════════════════════════════'
@@ -141,10 +129,6 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@cd components/frontend && npm install --silent && npm run lint
 	@cd components/frontend && npx prettier --check src/
 	@cd components/frontend && npm run typecheck
-	@echo ''
-	@echo 'Frontend API client checks (eslint, typecheck)...'
-	@cd components/frontend/sdk && npm install --silent && npm run lint
-	@cd components/frontend/sdk && npm run typecheck
 	@echo ''
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo '  All checks passed!'

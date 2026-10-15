@@ -69,7 +69,7 @@ See the [Python SDK guide](docs/python/guides/sdk.md) for the full reference.
 The TypeScript SDK, the Go SDK and the `syft` CLI are retired. Their last state is kept on the
 [`legacy-sdks`](https://github.com/OpenMined/syfthub/tree/legacy-sdks) branch, and the published
 packages (`@syfthub/sdk` 0.3.1 on npm, `syfthub-sdk` 0.3.1 on PyPI) stay available for existing
-users. The TypeScript client now lives in `components/frontend/sdk` as part of the web app.
+users. The TypeScript client now lives in `components/frontend/src/lib/sdk` as part of the web app.
 
 ## Documentation
 

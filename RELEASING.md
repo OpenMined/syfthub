@@ -49,5 +49,5 @@ pre-release by hand; the workflow does not do it.
 ## Retired packages
 
 `@syfthub/sdk` on npm and the Go module are no longer released. The TypeScript client lives in
-`components/frontend/sdk` and ships inside the frontend image; the last published versions and
+`components/frontend/src/lib/sdk` and ships inside the frontend image; the last published versions and
 the Go SDK are kept on the `legacy-sdks` branch.

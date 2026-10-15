@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 
-import type { AgentEvent, AgentSessionClient, AgentSessionState } from '@syfthub/sdk';
+import type { AgentEvent, AgentSessionClient, AgentSessionState } from '@/lib/sdk';
 
 import { syftClient } from '@/lib/sdk-client';
 

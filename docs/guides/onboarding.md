@@ -58,7 +58,7 @@ Exposes SyftHub capabilities to AI assistants via the Model Context Protocol. Us
 components/
   backend/       FastAPI backend (service/repo pattern, Alembic migrations)
   frontend/      React 19 SPA (shadcn/ui, Tailwind, Zustand, React Query)
-    sdk/         the frontend's API client (TypeScript, internal, not published)
+                 src/lib/sdk is the frontend's API client (TypeScript, internal, not published)
   aggregator/    Async RAG pipeline (ONNX reranker, NATS transport)
   mcp/           MCP + OAuth server
 

@@ -3,15 +3,6 @@
 # Stage 1: Build environment
 FROM node:20-alpine AS builder
 
-# The frontend's API client lives in components/frontend/sdk and is a "file:sdk" dependency,
-# so it is built first and the directory layout mirrors the repository.
-WORKDIR /app/components/frontend/sdk
-COPY components/frontend/sdk/package.json components/frontend/sdk/package-lock.json ./
-RUN npm ci
-COPY components/frontend/sdk/ .
-RUN npm run build
-
-# Set working directory for frontend (mirrors repo: components/frontend)
 WORKDIR /app/components/frontend
 
 # Copy frontend package files

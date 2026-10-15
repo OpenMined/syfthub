@@ -80,5 +80,31 @@ export default tseslint.config(
       'sonarjs/todo-tag': 'warn',
       'sonarjs/no-hardcoded-passwords': 'off' // False positives on API endpoint names
     }
+  },
+  {
+    // The API client (formerly the published @syfthub/sdk) was written against a looser
+    // ruleset. It is folded in as is; tighten these as its files are touched.
+    files: ['src/lib/sdk/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-base-to-string': 'off',
+      '@typescript-eslint/no-deprecated': 'off',
+      '@typescript-eslint/no-invalid-void-type': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unnecessary-type-parameters': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/return-await': 'off',
+      'sonarjs/deprecation': 'off',
+      'sonarjs/slow-regex': 'off',
+      'sonarjs/void-use': 'off',
+      'unicorn/prevent-abbreviations': 'off'
+    }
+  },
+  {
+    files: ['src/lib/sdk/__tests__/**/*.ts'],
+    rules: {
+      'sonarjs/no-clear-text-protocols': 'off' // test URLs point at http://localhost
+    }
   }
 );

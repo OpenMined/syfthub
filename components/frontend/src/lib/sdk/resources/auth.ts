@@ -1,0 +1,600 @@
+import type { HTTPClient } from '../http.js';
+import type { TransactionTokensResponse } from '../models/accounting.js';
+import type {
+  AuthConfig,
+  PasswordResetConfirmInput,
+  PasswordResetRequestInput,
+  RegisterResult,
+  User,
+  UserRegisterInput,
+  VerifyOTPInput
+} from '../models/index.js';
+
+import { AuthenticationError } from '../errors.js';
+
+/**
+ * Response from login/register endpoints.
+ */
+interface AuthResponse {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+}
+
+/**
+ * Response from registration endpoint (may have null tokens).
+ */
+interface RegistrationResponse {
+  user: User;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenType: string;
+  requiresEmailVerification: boolean;
+}
+
+/**
+ * A mint target: the account that owns the host, and the URL the token is for.
+ *
+ * A bare string is the deprecated account-wide form — accepted so existing
+ * callers keep compiling, but it fails once that account runs more than one
+ * satellite, because a username names an account rather than a host.
+ */
+export type AudienceTarget = string | { owner: string; resource?: string };
+
+/** Normalise a target to its object form. */
+function toTarget(t: AudienceTarget): { owner: string; resource?: string } {
+  return typeof t === 'string' ? { owner: t } : t;
+}
+
+/**
+ * The key a token is cached under.
+ *
+ * The resource, not the owner: one account can run several hosts, and a token
+ * minted for one is rejected at another. Keying by owner would hand a token for
+ * the space to a request bound for the station.
+ */
+export function tokenKey(owner: string, resource?: string): string {
+  return resource ?? owner;
+}
+
+/**
+ * Query params for a mint.
+ *
+ * With a resource, the hub derives the satellite from the URL — the binding
+ * that makes the token unusable elsewhere. Without one it falls back to the
+ * deprecated `aud` alias, which resolves only a single-satellite account.
+ */
+export function satelliteTokenParams(audience: string, resource?: string): Record<string, string> {
+  return resource ? { owner_username: audience, resource } : { aud: audience };
+}
+
+/** Unique targets, deduped on the same key the tokens are cached under. */
+function dedupeTargets(targets: AudienceTarget[]): { owner: string; resource?: string }[] {
+  const seen = new Map<string, { owner: string; resource?: string }>();
+  for (const t of targets.map((target) => toTarget(target))) {
+    seen.set(tokenKey(t.owner, t.resource), t);
+  }
+  return [...seen.values()];
+}
+
+/**
+ * Authentication resource for login, register, and session management.
+ *
+ * @example
+ * // Register a new user
+ * const user = await client.auth.register({
+ *   username: 'alice',
+ *   email: 'alice@example.com',
+ *   password: 'SecurePass123!',
+ *   fullName: 'Alice'
+ * });
+ *
+ * @example
+ * // Login
+ * const user = await client.auth.login('alice', 'SecurePass123!');
+ *
+ * @example
+ * // Get current user
+ * const me = await client.auth.me();
+ *
+ * @example
+ * // Logout
+ * await client.auth.logout();
+ */
+export class AuthResource {
+  constructor(private readonly http: HTTPClient) {}
+
+  /**
+   * Register a new user account.
+   *
+   * If an accounting service URL is configured (via `accountingServiceUrl` or server default),
+   * the backend will handle accounting integration using a "try-create-first" approach:
+   *
+   * **Accounting Password Behavior:**
+   * - **Not provided**: A secure password is auto-generated and a new accounting account is created.
+   * - **Provided (new user)**: The account is created with your chosen password.
+   * - **Provided (existing user)**: Your password is validated and accounts are linked.
+   *
+   * This means you can set your own accounting password during registration even if you're
+   * a new user - you don't need an existing accounting account first.
+   *
+   * @param input - Registration details (username, email, password, fullName)
+   * @returns The created User
+   * @throws {ValidationError} If input validation fails
+   * @throws {UserAlreadyExistsError} If username or email already exists in SyftHub
+   * @throws {AccountingAccountExistsError} If email already exists in accounting service
+   *         and no `accountingPassword` was provided. Retry with the password.
+   * @throws {InvalidAccountingPasswordError} If the provided accounting password doesn't
+   *         match an existing accounting account
+   * @throws {AccountingServiceUnavailableError} If the accounting service is unreachable
+   *
+   * @example
+   * // Basic registration (auto-generated accounting password)
+   * const user = await client.auth.register({
+   *   username: 'alice',
+   *   email: 'alice@example.com',
+   *   password: 'SecurePass123!',
+   *   fullName: 'Alice'
+   * });
+   *
+   * @example
+   * // Registration with custom accounting password (NEW user)
+   * const user = await client.auth.register({
+   *   username: 'bob',
+   *   email: 'bob@example.com',
+   *   password: 'SecurePass123!',
+   *   fullName: 'Bob',
+   *   accountingPassword: 'MyChosenAccountingPass!'  // Creates account with this password
+   * });
+   *
+   * @example
+   * // Handle existing accounting account
+   * try {
+   *   await client.auth.register({ username, email, password, fullName });
+   * } catch (error) {
+   *   if (error instanceof AccountingAccountExistsError) {
+   *     // Prompt user for their existing accounting password
+   *     const accountingPassword = await promptUser('Enter your existing accounting password:');
+   *     await client.auth.register({ username, email, password, fullName, accountingPassword });
+   *   } else {
+   *     throw error;
+   *   }
+   * }
+   */
+  async register(input: UserRegisterInput): Promise<RegisterResult> {
+    const response = await this.http.post<RegistrationResponse>('/api/v1/auth/register', input, {
+      includeAuth: false
+    });
+
+    // Store tokens if present (not withheld for email verification)
+    if (response.accessToken && response.refreshToken) {
+      this.http.setTokens(response.accessToken, response.refreshToken);
+    }
+
+    return {
+      user: response.user,
+      requiresEmailVerification: response.requiresEmailVerification
+    };
+  }
+
+  /**
+   * Login with username/email and password.
+   *
+   * Uses OAuth2 password flow (form-urlencoded body).
+   *
+   * @param username - Username or email
+   * @param password - Password
+   * @returns The authenticated User
+   * @throws {AuthenticationError} If credentials are invalid
+   */
+  async login(username: string, password: string): Promise<User> {
+    const response = await this.http.post<AuthResponse>(
+      '/api/v1/auth/login',
+      { username, password },
+      {
+        includeAuth: false,
+        isFormData: true
+      }
+    );
+
+    // Store tokens in HTTP client
+    this.http.setTokens(response.accessToken, response.refreshToken);
+
+    return response.user;
+  }
+
+  /**
+   * Logout the current user.
+   *
+   * Invalidates tokens on the server and clears local token storage.
+   */
+  async logout(): Promise<void> {
+    try {
+      await this.http.post<void>('/api/v1/auth/logout');
+    } finally {
+      // Always clear tokens, even if the API call fails
+      this.http.clearTokens();
+    }
+  }
+
+  /**
+   * Get the current authenticated user.
+   *
+   * @returns The current User
+   * @throws {AuthenticationError} If not authenticated
+   */
+  async me(): Promise<User> {
+    return this.http.get<User>('/api/v1/auth/me');
+  }
+
+  /**
+   * Manually refresh the access token.
+   *
+   * This is normally handled automatically when a request returns 401.
+   *
+   * @throws {AuthenticationError} If refresh token is invalid or expired
+   */
+  async refresh(): Promise<void> {
+    const tokens = this.http.getTokens();
+    if (!tokens) {
+      throw new AuthenticationError('No refresh token available');
+    }
+
+    const response = await this.http.post<{
+      accessToken: string;
+      refreshToken: string;
+    }>('/api/v1/auth/refresh', { refreshToken: tokens.refreshToken }, { includeAuth: false });
+
+    this.http.setTokens(response.accessToken, response.refreshToken);
+  }
+
+  /**
+   * Change the current user's password.
+   *
+   * @param currentPassword - Current password for verification
+   * @param newPassword - New password to set
+   * @throws {AuthenticationError} If current password is incorrect
+   * @throws {ValidationError} If new password doesn't meet requirements
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await this.http.put<void>('/api/v1/auth/me/password', {
+      currentPassword,
+      newPassword
+    });
+  }
+
+  /**
+   * Get the platform's authentication configuration.
+   *
+   * No authentication required. Use this to determine whether email
+   * verification or password reset is available.
+   *
+   * @returns AuthConfig with feature flags
+   */
+  async getAuthConfig(): Promise<AuthConfig> {
+    return this.http.get<AuthConfig>('/api/v1/auth/config', undefined, { includeAuth: false });
+  }
+
+  /**
+   * Verify a registration OTP and receive auth tokens.
+   *
+   * After registering when email verification is required, call this with
+   * the 6-digit code sent to the user's email.
+   *
+   * Idempotent: if the user is already verified, tokens are issued immediately.
+   *
+   * @param input - Email and 6-digit code
+   * @returns The authenticated User
+   * @throws {APIError} If the code is invalid or max attempts exceeded
+   */
+  async verifyOtp(input: VerifyOTPInput): Promise<User> {
+    const response = await this.http.post<AuthResponse>('/api/v1/auth/register/verify-otp', input, {
+      includeAuth: false
+    });
+
+    this.http.setTokens(response.accessToken, response.refreshToken);
+    return response.user;
+  }
+
+  /**
+   * Resend the registration OTP code.
+   *
+   * Rate-limited. Always returns successfully to prevent email enumeration.
+   *
+   * @param email - Email address to resend the OTP to
+   */
+  async resendOtp(email: string): Promise<void> {
+    await this.http.post<void>(
+      '/api/v1/auth/register/resend-otp',
+      { email },
+      {
+        includeAuth: false
+      }
+    );
+  }
+
+  /**
+   * Confirm the email address on the account with the code sent to it.
+   *
+   * The address is not passed in: the server reads it from the authenticated
+   * user, so a caller can only ever verify their own. A wrong code changes
+   * nothing and can be retried.
+   *
+   * @param code - The 6-digit code sent to the address on the account
+   * @returns The updated User, with `emailVerifiedAt` set
+   * @throws {ValidationError} If the address is already verified
+   */
+  async verifyEmail(code: string): Promise<User> {
+    return this.http.post<User>('/api/v1/auth/me/email/verify', { code });
+  }
+
+  /**
+   * Send a fresh verification code to the address on the account.
+   *
+   * @throws {ValidationError} If already verified, or email delivery is not
+   *   configured on the server — in which case addresses cannot be proven at all
+   *   and nothing will ever be marked verified.
+   */
+  async resendEmailVerification(): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/me/email/resend');
+  }
+
+  /**
+   * Request a password reset OTP.
+   *
+   * Always returns successfully to prevent email enumeration.
+   * If SMTP is not configured on the server, this is a no-op.
+   *
+   * @param input - Email address for password reset
+   */
+  async requestPasswordReset(input: PasswordResetRequestInput): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/password-reset/request', input, {
+      includeAuth: false
+    });
+  }
+
+  /**
+   * Confirm a password reset with OTP and set a new password.
+   *
+   * @param input - Email, 6-digit code, and new password
+   * @throws {APIError} If the code is invalid or max attempts exceeded
+   */
+  async confirmPasswordReset(input: PasswordResetConfirmInput): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/password-reset/confirm', input, {
+      includeAuth: false
+    });
+  }
+
+  /**
+   * Get a peer token for NATS communication with tunneling spaces.
+   *
+   * Peer tokens are short-lived credentials that allow the aggregator to
+   * communicate with tunneling SyftAI Spaces via NATS pub/sub.
+   *
+   * @param targetUsernames - Usernames of the tunneling spaces to communicate with
+   * @returns PeerTokenResponse with token, channel, expiry, and NATS URL
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * const peer = await client.auth.getPeerToken(['alice', 'bob']);
+   * console.log(`Peer channel: ${peer.peerChannel}, expires in ${peer.expiresIn}s`);
+   */
+  async getPeerToken(targetUsernames: string[]): Promise<PeerTokenResponse> {
+    return this.http.post<PeerTokenResponse>('/api/v1/peer-token', {
+      target_usernames: targetUsernames
+    });
+  }
+
+  /**
+   * Get a guest peer token for NATS communication without authentication.
+   *
+   * Guest peer tokens are rate-limited by IP address. They use the same
+   * response format as authenticated peer tokens.
+   *
+   * @param targetUsernames - Usernames of the tunneling spaces to communicate with
+   * @returns PeerTokenResponse with token, channel, expiry, and NATS URL
+   *
+   * @example
+   * const peer = await client.auth.getGuestPeerToken(['alice']);
+   * console.log(`Guest peer channel: ${peer.peerChannel}`);
+   */
+  async getGuestPeerToken(targetUsernames: string[]): Promise<PeerTokenResponse> {
+    return this.http.post<PeerTokenResponse>(
+      '/api/v1/nats/guest-peer-token',
+      { target_usernames: targetUsernames },
+      { includeAuth: false }
+    );
+  }
+
+  /**
+   * Get a satellite token for a specific audience (target service).
+   *
+   * Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
+   * services (like SyftAI-Space) to verify user identity without calling
+   * SyftHub for every request.
+   *
+   * @param audience - Username of the account that owns the target host
+   * @param resource - URL this token will be sent to. Binds the token to that
+   *   one host; without it the hub falls back to the deprecated account-wide
+   *   form, which fails once the account runs more than one satellite.
+   * @returns Satellite token response with token and expiry
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If the owner runs no host at that URL
+   *
+   * @example
+   * const tokenResponse = await client.auth.getSatelliteToken(
+   *   'alice',
+   *   'https://alice.example.com'
+   * );
+   */
+  async getSatelliteToken(audience: string, resource?: string): Promise<SatelliteTokenResponse> {
+    return this.http.get<SatelliteTokenResponse>(
+      '/api/v1/token',
+      satelliteTokenParams(audience, resource)
+    );
+  }
+
+  /**
+   * Get satellite tokens for multiple audiences in parallel.
+   *
+   * This is useful when making requests to endpoints owned by different users.
+   * Tokens are cached and reused where possible.
+   *
+   * @param audiences - Targets, each either a bare username (deprecated) or an
+   *   `{ owner, resource }` pair. Pass the pair: a token is bound to one host,
+   *   so a bare username fails once that account runs more than one.
+   * @returns Map keyed by the resource where given, else by owner
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * const tokens = await client.auth.getSatelliteTokens([
+   *   { owner: 'alice', resource: 'https://alice.example.com' },
+   * ]);
+   */
+  async getSatelliteTokens(audiences: AudienceTarget[]): Promise<Map<string, string>> {
+    const targets = dedupeTargets(audiences);
+    const tokenMap = new Map<string, string>();
+
+    // Fetch tokens in parallel
+    const results = await Promise.allSettled(
+      targets.map(async ({ owner, resource }) => {
+        const response = await this.getSatelliteToken(owner, resource);
+        return { audience: tokenKey(owner, resource), token: response.targetToken };
+      })
+    );
+
+    // Collect successful results; warn on failures so misconfigured IDPs are visible
+    for (const [i, result] of results.entries()) {
+      if (result.status === 'fulfilled') {
+        tokenMap.set(result.value.audience, result.value.token);
+      } else {
+        const target = targets[i];
+        console.warn(
+          `[SyftHub] Failed to fetch satellite token for ` +
+            `"${target ? tokenKey(target.owner, target.resource) : 'unknown'}":`,
+          result.reason
+        );
+      }
+    }
+
+    return tokenMap;
+  }
+
+  /**
+   * Get a guest satellite token for a specific audience (target service).
+   *
+   * Guest tokens allow unauthenticated users to access policy-free endpoints.
+   * No authentication is required to call this method.
+   *
+   * @param audience - Username of the account that owns the target host
+   * @param resource - URL this token will be sent to; see getSatelliteToken
+   * @returns Satellite token response with token and expiry
+   * @throws {ValidationError} If the owner runs no host at that URL
+   *
+   * @example
+   * const tokenResponse = await client.auth.getGuestSatelliteToken(
+   *   'alice',
+   *   'https://alice.example.com'
+   * );
+   */
+  async getGuestSatelliteToken(
+    audience: string,
+    resource?: string
+  ): Promise<SatelliteTokenResponse> {
+    return this.http.get<SatelliteTokenResponse>(
+      '/api/v1/token/guest',
+      satelliteTokenParams(audience, resource),
+      { includeAuth: false }
+    );
+  }
+
+  /**
+   * Get guest satellite tokens for multiple audiences in parallel.
+   *
+   * No authentication is required to call this method.
+   *
+   * @param audiences - Targets; see getSatelliteTokens
+   * @returns Map keyed by the resource where given, else by owner
+   *
+   * @example
+   * const tokens = await client.auth.getGuestSatelliteTokens([
+   *   { owner: 'alice', resource: 'https://alice.example.com' },
+   * ]);
+   */
+  async getGuestSatelliteTokens(audiences: AudienceTarget[]): Promise<Map<string, string>> {
+    const targets = dedupeTargets(audiences);
+    const tokenMap = new Map<string, string>();
+
+    const results = await Promise.allSettled(
+      targets.map(async ({ owner, resource }) => {
+        const response = await this.getGuestSatelliteToken(owner, resource);
+        return { audience: tokenKey(owner, resource), token: response.targetToken };
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        tokenMap.set(result.value.audience, result.value.token);
+      }
+    }
+
+    return tokenMap;
+  }
+
+  /**
+   * Get transaction tokens for multiple endpoint owners.
+   *
+   * @deprecated Transaction tokens are no longer needed. Payments are handled
+   * via the MPP 402 flow. This method is kept for backward compatibility and
+   * always returns empty tokens/errors.
+   *
+   * @param ownerUsernames - Array of endpoint owner usernames (ignored)
+   * @returns TransactionTokensResponse with empty tokens and errors
+   */
+  async getTransactionTokens(ownerUsernames: string[]): Promise<TransactionTokensResponse> {
+    // Transaction tokens are no longer needed - payments are handled via MPP 402 flow
+    void ownerUsernames;
+    return { tokens: {}, errors: {} };
+  }
+
+  /**
+   * Get the current access token (JWT or API token).
+   *
+   * This is used by the chat flow to pass the user's Hub token to the
+   * aggregator for the MPP payment callback.
+   *
+   * @returns The current access token, or null if not authenticated
+   */
+  getAccessToken(): string | null {
+    const tokens = this.http.getTokens();
+    return tokens?.accessToken ?? null;
+  }
+}
+
+/**
+ * Response from peer token endpoint.
+ */
+export interface PeerTokenResponse {
+  /** Short-lived token for NATS authentication */
+  peerToken: string;
+  /** Unique reply channel for receiving responses */
+  peerChannel: string;
+  /** Seconds until the token expires */
+  expiresIn: number;
+  /** NATS server URL for WebSocket connections */
+  natsUrl: string;
+}
+
+/**
+ * Response from satellite token endpoint.
+ */
+export interface SatelliteTokenResponse {
+  /** RS256-signed JWT for the target service */
+  targetToken: string;
+  /** Seconds until the token expires */
+  expiresIn: number;
+}
+
+// TransactionTokensResponse is imported from models/accounting.ts
+export type { TransactionTokensResponse } from '../models/accounting.js';

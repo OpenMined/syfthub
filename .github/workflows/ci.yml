@@ -226,14 +226,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: components/frontend/package-lock.json
 
-      - name: Install API client dependencies
-        working-directory: components/frontend/sdk
-        run: npm ci
-
-      - name: Build API client
-        working-directory: components/frontend/sdk
-        run: npm run build
-
       - name: Install frontend dependencies
         working-directory: components/frontend
         run: npm ci
@@ -262,14 +254,6 @@ jobs:
           cache: 'npm'
           cache-dependency-path: components/frontend/package-lock.json
 
-      - name: Install API client dependencies
-        working-directory: components/frontend/sdk
-        run: npm ci
-
-      - name: Build API client
-        working-directory: components/frontend/sdk
-        run: npm run build
-
       - name: Install frontend dependencies
         working-directory: components/frontend
         run: npm ci
@@ -289,14 +273,6 @@ jobs:
           node-version: lts/*
           cache: 'npm'
           cache-dependency-path: components/frontend/package-lock.json
-
-      - name: Install API client dependencies
-        working-directory: components/frontend/sdk
-        run: npm ci
-
-      - name: Build API client
-        working-directory: components/frontend/sdk
-        run: npm run build
 
       - name: Install frontend dependencies
         working-directory: components/frontend
