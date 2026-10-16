@@ -2963,8 +2963,12 @@ def test_slug_availability(client: TestClient, user1_token: str) -> None:
         assert result["reason"] == "invalid", bad
         assert result["message"]
 
-    # The existing /exists check stays blind to the rules.
-    response = client.get("/api/v1/endpoints/admin/exists", headers=headers)
+    # /exists is the boolean form of the same verdict: true means "don't".
+    for unusable in ("admin", "a" * 64):
+        response = client.get(f"/api/v1/endpoints/{unusable}/exists", headers=headers)
+        assert response.status_code == 200
+        assert response.json() is True, unusable
+    response = client.get("/api/v1/endpoints/free-name/exists", headers=headers)
     assert response.json() is False
 
     endpoint_data = {"name": "Mine", "slug": "free-name", "type": "model"}
@@ -2974,6 +2978,8 @@ def test_slug_availability(client: TestClient, user1_token: str) -> None:
     taken = check("free-name")
     assert taken["available"] is False
     assert taken["reason"] == "taken"
+    response = client.get("/api/v1/endpoints/free-name/exists", headers=headers)
+    assert response.json() is True
 
 
 def test_slug_availability_is_per_user(
