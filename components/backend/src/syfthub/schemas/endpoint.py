@@ -201,6 +201,43 @@ RESERVED_SLUGS = {
     "explore",
 }
 
+SLUG_MIN_LENGTH = 3
+SLUG_MAX_LENGTH = 63  # matches the String(63) column
+
+
+def validate_slug_value(slug: str) -> str:
+    """Apply every slug rule a publish is held to; raise ValueError if broken.
+
+    Shared by the create schema and the availability check so a publisher
+    asking "can I use this name" gets the same answer the publish would.
+    """
+    if len(slug) < SLUG_MIN_LENGTH:
+        raise ValueError(f"Slug must be at least {SLUG_MIN_LENGTH} characters")
+    if len(slug) > SLUG_MAX_LENGTH:
+        raise ValueError(f"Slug must be at most {SLUG_MAX_LENGTH} characters")
+
+    # Check for uppercase letters before converting
+    if slug != slug.lower():
+        raise ValueError("Slug must contain only lowercase letters")
+
+    # Check reserved slugs
+    if slug in RESERVED_SLUGS:
+        raise ValueError(f"'{slug}' is a reserved slug and cannot be used")
+
+    # Check for consecutive hyphens
+    if "--" in slug:
+        raise ValueError("Slug cannot contain consecutive hyphens")
+
+    # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
+    slug_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    if not re.match(slug_pattern, slug):
+        raise ValueError(
+            "Slug must contain only lowercase letters, numbers, and hyphens. "
+            "Cannot start or end with hyphen."
+        )
+
+    return slug
+
 
 def _validate_and_normalize_tags(tags: List[str]) -> List[str]:
     """Validate and normalize a list of tags.
@@ -259,9 +296,9 @@ class EndpointBase(BaseModel):
     name: str = Field(
         ..., min_length=1, max_length=100, description="Display name of the endpoint"
     )
-    description: str = Field(
-        "", max_length=500, description="Description of the endpoint"
-    )
+    # No length cap: the DB column is Text and publishers (Spaces) accept
+    # unbounded summaries, so the Hub must not be the one that rejects them.
+    description: str = Field("", description="Description of the endpoint")
     type: EndpointType = Field(
         ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
@@ -279,9 +316,7 @@ class EndpointBase(BaseModel):
         pattern=r"^\d+\.\d+\.\d+$",
         description="Semantic version of the endpoint",
     )
-    readme: str = Field(
-        default="", max_length=50000, description="Markdown content for the README"
-    )
+    readme: str = Field(default="", description="Markdown content for the README")
     tags: List[str] = Field(
         default_factory=list,
         max_length=10,
@@ -311,8 +346,8 @@ class EndpointCreate(EndpointBase):
 
     slug: Optional[str] = Field(
         None,
-        min_length=3,
-        max_length=63,
+        min_length=SLUG_MIN_LENGTH,
+        max_length=SLUG_MAX_LENGTH,
         description="URL-safe identifier (auto-generated from name if not provided)",
     )
     # Optional contributors list - will be validated by server
@@ -327,28 +362,7 @@ class EndpointCreate(EndpointBase):
         """Validate endpoint slug format."""
         if v is None:
             return v
-
-        # Check for uppercase letters before converting
-        if v != v.lower():
-            raise ValueError("Slug must contain only lowercase letters")
-
-        # Check reserved slugs
-        if v in RESERVED_SLUGS:
-            raise ValueError(f"'{v}' is a reserved slug and cannot be used")
-
-        # Check for consecutive hyphens
-        if "--" in v:
-            raise ValueError("Slug cannot contain consecutive hyphens")
-
-        # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
-        slug_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-        if not re.match(slug_pattern, v):
-            raise ValueError(
-                "Slug must contain only lowercase letters, numbers, and hyphens. "
-                "Cannot start or end with hyphen."
-            )
-
-        return v
+        return validate_slug_value(v)
 
 
 class EndpointUpdate(BaseModel):
@@ -357,9 +371,7 @@ class EndpointUpdate(BaseModel):
     name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="Display name of the endpoint"
     )
-    description: Optional[str] = Field(
-        None, max_length=500, description="Description of the endpoint"
-    )
+    description: Optional[str] = Field(None, description="Description of the endpoint")
     visibility: Optional[EndpointVisibility] = Field(
         None, description="Who can access this endpoint"
     )
@@ -375,9 +387,7 @@ class EndpointUpdate(BaseModel):
         pattern=r"^\d+\.\d+\.\d+$",
         description="Semantic version of the endpoint",
     )
-    readme: Optional[str] = Field(
-        None, max_length=50000, description="Markdown content for the README"
-    )
+    readme: Optional[str] = Field(None, description="Markdown content for the README")
     tags: Optional[List[str]] = Field(
         None,
         max_length=10,
@@ -557,6 +567,20 @@ class EndpointPublicResponse(BaseModel):
 # ===========================================
 # SYNC ENDPOINT SCHEMAS
 # ===========================================
+
+
+class SlugAvailability(BaseModel):
+    """Answer to "could I publish an endpoint under this slug right now?".
+
+    Combines the create-schema rules (format, length, reserved names) with
+    the per-user uniqueness check so publishers need not mirror them.
+    """
+
+    available: bool = Field(..., description="True when a publish would be accepted")
+    reason: Optional[str] = Field(
+        None,
+        description="Why the slug is unavailable, for a person; None when available",
+    )
 
 
 class SyncValidationError(BaseModel):
