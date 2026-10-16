@@ -2945,23 +2945,22 @@ def test_slug_availability(client: TestClient, user1_token: str) -> None:
         assert response.status_code == 200
         return response.json()
 
-    assert check("free-name") == {
-        "slug": "free-name",
-        "available": True,
-        "reason": None,
-        "message": None,
-    }
+    assert check("free-name") == {"available": True, "reason": None}
 
     reserved = check("admin")
     assert reserved["available"] is False
-    assert reserved["reason"] == "reserved"
-    assert "reserved" in reserved["message"]
+    assert "reserved" in reserved["reason"]
 
-    for bad in ("ab", "a" * 64, "Upper-Case", "two--hyphens", "trail-"):
+    for bad, why in (
+        ("ab", "at least 3"),
+        ("a" * 64, "at most 63"),
+        ("Upper-Case", "lowercase"),
+        ("two--hyphens", "consecutive hyphens"),
+        ("trail-", "start or end with hyphen"),
+    ):
         result = check(bad)
         assert result["available"] is False, bad
-        assert result["reason"] == "invalid", bad
-        assert result["message"]
+        assert why in result["reason"], bad
 
     # /exists is the boolean form of the same verdict: true means "don't".
     for unusable in ("admin", "a" * 64):
@@ -2977,7 +2976,7 @@ def test_slug_availability(client: TestClient, user1_token: str) -> None:
 
     taken = check("free-name")
     assert taken["available"] is False
-    assert taken["reason"] == "taken"
+    assert taken["reason"] == "You already have an endpoint with this slug"
     response = client.get("/api/v1/endpoints/free-name/exists", headers=headers)
     assert response.json() is True
 

@@ -472,18 +472,12 @@ class EndpointService(BaseService):
         try:
             validate_slug_value(slug)
         except ValueError as exc:
-            reason = "reserved" if slug in RESERVED_SLUGS else "invalid"
-            return SlugAvailability(
-                slug=slug, available=False, reason=reason, message=str(exc)
-            )
+            return SlugAvailability(available=False, reason=str(exc))
         if self.endpoint_exists_for_user(slug, current_user):
             return SlugAvailability(
-                slug=slug,
-                available=False,
-                reason="taken",
-                message="You already have an endpoint with this slug",
+                available=False, reason="You already have an endpoint with this slug"
             )
-        return SlugAvailability(slug=slug, available=True)
+        return SlugAvailability(available=True)
 
     def get_user_endpoints(
         self,

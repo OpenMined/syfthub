@@ -576,8 +576,8 @@ def slug_availability(
 ) -> SlugAvailability:
     """Would a publish under this slug be accepted for the current user?
 
-    Same verdict as ``/exists`` but with the reason (invalid / reserved /
-    taken) and a message, so publishers need not mirror the slug rules.
+    Same verdict as ``/exists`` plus the reason when refused, so publishers
+    need not mirror the slug rules.
     """
     return endpoint_service.slug_availability(endpoint_slug, current_user)
 

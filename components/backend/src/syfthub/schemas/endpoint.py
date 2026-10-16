@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -572,17 +572,14 @@ class EndpointPublicResponse(BaseModel):
 class SlugAvailability(BaseModel):
     """Answer to "could I publish an endpoint under this slug right now?".
 
-    Combines the create-schema rules (``invalid``/``reserved``) with the
-    per-user uniqueness check (``taken``) so publishers need not mirror them.
+    Combines the create-schema rules (format, length, reserved names) with
+    the per-user uniqueness check so publishers need not mirror them.
     """
 
-    slug: str = Field(..., description="Slug that was checked")
     available: bool = Field(..., description="True when a publish would be accepted")
-    reason: Optional[Literal["invalid", "reserved", "taken"]] = Field(
-        None, description="Why the slug is unavailable; None when available"
-    )
-    message: Optional[str] = Field(
-        None, description="Human-readable explanation when unavailable"
+    reason: Optional[str] = Field(
+        None,
+        description="Why the slug is unavailable, for a person; None when available",
     )
 
 
