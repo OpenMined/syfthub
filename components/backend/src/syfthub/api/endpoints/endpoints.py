@@ -26,6 +26,7 @@ from syfthub.schemas.endpoint import (
     EndpointVisibility,
     GroupedEndpointsResponse,
     OwnersListResponse,
+    SlugAvailability,
     SyncEndpointsRequest,
     SyncEndpointsResponse,
 )
@@ -560,6 +561,20 @@ def endpoint_exists_for_user(
 ) -> bool:
     """Check if endpoint exists for user."""
     return endpoint_service.endpoint_exists_for_user(endpoint_slug, current_user)
+
+
+@router.get("/{endpoint_slug}/availability", response_model=SlugAvailability)
+def slug_availability(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> SlugAvailability:
+    """Would a publish under this slug be accepted for the current user?
+
+    Unlike ``/exists`` this also applies the slug rules (length, format,
+    reserved names), so publishers can rely on it instead of mirroring them.
+    """
+    return endpoint_service.slug_availability(endpoint_slug, current_user)
 
 
 @router.patch("/slug/{endpoint_slug}", response_model=EndpointResponse)

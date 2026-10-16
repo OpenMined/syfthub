@@ -34,12 +34,14 @@ from syfthub.schemas.endpoint import (
     GroupedEndpointsResponse,
     OwnersListResponse,
     Policy,
+    SlugAvailability,
     SyncEndpointsResponse,
     SyncValidationError,
     UptimeBucket,
     filter_visible_policies,
     generate_slug_from_name,
     get_matching_types,
+    validate_slug_value,
 )
 from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
 from syfthub.services.base import BaseService
@@ -464,6 +466,24 @@ class EndpointService(BaseService):
         """Check if endpoint exists for user."""
         endpoint = self.endpoint_repository.get_by_user_and_slug(current_user.id, slug)
         return endpoint is not None
+
+    def slug_availability(self, slug: str, current_user: User) -> SlugAvailability:
+        """Say whether a publish under ``slug`` would be accepted for this user."""
+        try:
+            validate_slug_value(slug)
+        except ValueError as exc:
+            reason = "reserved" if slug in RESERVED_SLUGS else "invalid"
+            return SlugAvailability(
+                slug=slug, available=False, reason=reason, message=str(exc)
+            )
+        if self.endpoint_exists_for_user(slug, current_user):
+            return SlugAvailability(
+                slug=slug,
+                available=False,
+                reason="taken",
+                message="You already have an endpoint with this slug",
+            )
+        return SlugAvailability(slug=slug, available=True)
 
     def get_user_endpoints(
         self,
