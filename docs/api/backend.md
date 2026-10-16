@@ -774,7 +774,7 @@ List public endpoints grouped by owner (for Global Directory view).
 
 ### `GET /endpoints/public/owners`
 
-List owners with public endpoints and counts (lightweight, for CLI `ls`).
+List owners with public endpoints and counts (a lightweight listing).
 
 **Auth:** None.
 

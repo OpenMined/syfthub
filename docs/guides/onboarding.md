@@ -58,15 +58,12 @@ Exposes SyftHub capabilities to AI assistants via the Model Context Protocol. Us
 components/
   backend/       FastAPI backend (service/repo pattern, Alembic migrations)
   frontend/      React 19 SPA (shadcn/ui, Tailwind, Zustand, React Query)
+                 src/lib/sdk is the frontend's API client (TypeScript, internal, not published)
   aggregator/    Async RAG pipeline (ONNX reranker, NATS transport)
   mcp/           MCP + OAuth server
 
 sdk/
   python/        syfthub-sdk 2.x, import syfthub (pip install --pre syfthub-sdk)
-  typescript/    @syfthub/sdk (npm install @syfthub/sdk)
-  golang/        Go hub client + server SDK
-
-cli/             Go/Cobra CLI (binary: syft)
 
 deploy/          Docker Compose, Nginx config
 ```
@@ -107,8 +104,8 @@ All documentation lives in the `docs/` directory:
 
 - `docs/architecture/` -- system design and component deep-dives
 - `docs/api/` -- API reference for backend and aggregator
-- `docs/guides/` -- setup, publishing and CLI guides (language-neutral)
-- `docs/python/`, `docs/typescript/` -- per-SDK guides; the two SDKs do not cover the same ground
+- `docs/guides/` -- setup and publishing guides (language-neutral)
+- `docs/python/` -- the Python SDK guide
 - `docs/explanation/` -- conceptual docs (auth, RAG, invocation)
 - `docs/runbooks/` -- deployment and operations procedures
 

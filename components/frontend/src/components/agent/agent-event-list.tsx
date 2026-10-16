@@ -10,7 +10,7 @@ import type {
   AgentSessionState,
   AgentToolCallEvent,
   AgentToolResultEvent
-} from '@syfthub/sdk';
+} from '@/lib/sdk';
 
 import { Tool } from '@/components/prompt-kit/tool';
 

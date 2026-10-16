@@ -8,116 +8,30 @@ import { Link } from 'react-router-dom';
 
 import { CodeBlock, CodeBlockCode, CodeBlockGroup } from '@/components/prompt-kit/code-block';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-type SdkLanguage = 'python' | 'typescript' | 'go';
 
 interface ApiTabProperties {
   endpointPath: string;
   endpointType: EndpointType;
 }
 
-const PLACEHOLDER_MODEL = 'owner/your-model-slug';
+const FILENAME = 'search.py';
 
-interface LanguageConfig {
-  label: string;
-  shikiLang: string;
-  filename: string;
-  build: (modelArgument: string, dataSourcesArgument: string, origin: string) => string;
-}
+function buildSnippet(path: string, dataSourceOnly: boolean): string {
+  const origin = globalThis.location.origin;
+  const read = dataSourceOnly
+    ? `    for path, doc in results.documents:  # scored chunks, best first
+        print(path, doc.score, doc.content[:80])`
+    : `    print(results.answers["${path}"])  # what the model returned`;
+  return `# pip install --pre syfthub-sdk
+import syfthub
 
-const LANGUAGES: Record<SdkLanguage, LanguageConfig> = {
-  python: {
-    label: 'Python',
-    shikiLang: 'python',
-    filename: 'query.py',
-    build: (model, dataSources, origin) => `from syfthub_sdk import SyftHubClient
-
-client = SyftHubClient(
-    base_url="${origin}",
-    api_token="syft_pat_...",
-)
-
-response = client.chat.complete(
-    prompt="Hello, world!",
-    model=${model},${dataSources}
-)
-print(response.response)
-
-client.close()
-`
-  },
-  typescript: {
-    label: 'TypeScript',
-    shikiLang: 'typescript',
-    filename: 'query.ts',
-    build: (model, dataSources, origin) => `import { SyftHubClient } from '@syfthub/sdk';
-
-const client = new SyftHubClient({
-  baseUrl: '${origin}',
-  apiToken: 'syft_pat_...',
-});
-
-const response = await client.chat.complete({
-  prompt: 'Hello, world!',
-  model: ${model},${dataSources}
-});
-console.log(response.response);
-
-client.close();
-`
-  },
-  go: {
-    label: 'Go',
-    shikiLang: 'go',
-    filename: 'main.go',
-    build: (model, dataSources, origin) => `package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/openmined/syfthub/sdk/golang/syfthub"
-)
-
-func main() {
-    client, err := syfthub.NewClient(
-        syfthub.WithBaseURL("${origin}"),
-        syfthub.WithAPIToken("syft_pat_..."),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-
-    resp, err := client.Chat().Complete(context.Background(), &syfthub.ChatCompleteRequest{
-        Prompt: "Hello, world!",
-        Model:  ${model},${dataSources}
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(resp.Response)
-}
-`
-  }
-};
-
-const LANGUAGE_KEYS = Object.keys(LANGUAGES) as SdkLanguage[];
-
-function buildSnippet(language: SdkLanguage, path: string, dataSourceOnly: boolean): string {
-  const config = LANGUAGES[language];
-  const isGo = language === 'go';
-  const quote = language === 'typescript' ? "'" : '"';
-  const model = dataSourceOnly ? `${quote}${PLACEHOLDER_MODEL}${quote}` : `${quote}${path}${quote}`;
-  let dataSources = '';
-  if (dataSourceOnly) {
-    if (language === 'python') dataSources = `\n    data_sources=["${path}"],`;
-    else if (language === 'typescript') dataSources = `\n  dataSources: ['${path}'],`;
-    else if (isGo) dataSources = `\n        DataSources: []string{"${path}"},`;
-  }
-  return config.build(model, dataSources, globalThis.location.origin);
+with syfthub.Hub("${origin}", token="syft_pat_...") as hub:
+    plan = hub.search("Hello, world!", ["${path}"])
+    pre = plan.preflight()  # nothing sent yet
+    print(pre.ready, pre.estimate)  # can it run, and what it will cost
+    results = plan.execute()
+${read}
+`;
 }
 
 interface CopyButtonProperties {
@@ -190,11 +104,8 @@ function SnippetCard({ filename, code, language }: Readonly<SnippetCardPropertie
 export function ApiTab({ endpointPath, endpointType }: Readonly<ApiTabProperties>) {
   const dataSourceOnly = endpointType === 'data_source';
 
-  const snippets = useMemo(
-    () =>
-      Object.fromEntries(
-        LANGUAGE_KEYS.map((lang) => [lang, buildSnippet(lang, endpointPath, dataSourceOnly)])
-      ) as Record<SdkLanguage, string>,
+  const code = useMemo(
+    () => buildSnippet(endpointPath, dataSourceOnly),
     [endpointPath, dataSourceOnly]
   );
 
@@ -207,7 +118,7 @@ export function ApiTab({ endpointPath, endpointType }: Readonly<ApiTabProperties
           <code className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-xs'>
             {endpointPath}
           </code>{' '}
-          programmatically with the SyftHub SDKs. Generate a personal access token from your{' '}
+          programmatically with the Python SDK. Generate a personal access token from your{' '}
           <Link to='/profile?tab=tokens' className='text-secondary hover:underline'>
             profile settings
           </Link>{' '}
@@ -215,39 +126,11 @@ export function ApiTab({ endpointPath, endpointType }: Readonly<ApiTabProperties
           <code className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-xs'>
             syft_pat_...
           </code>
-          {dataSourceOnly ? (
-            <>
-              . Because this endpoint is a data source, pair it with any model endpoint in the{' '}
-              <code className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-xs'>
-                model
-              </code>{' '}
-              field.
-            </>
-          ) : (
-            '.'
-          )}
+          . Pre-flight shows what the query costs and needs before anything is sent.
         </p>
       </header>
 
-      <Tabs defaultValue='python' className='space-y-4'>
-        <TabsList>
-          {LANGUAGE_KEYS.map((lang) => (
-            <TabsTrigger key={lang} value={lang}>
-              {LANGUAGES[lang].label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        {LANGUAGE_KEYS.map((lang) => (
-          <TabsContent key={lang} value={lang} className='mt-0 focus-visible:outline-none'>
-            <SnippetCard
-              filename={LANGUAGES[lang].filename}
-              code={snippets[lang]}
-              language={LANGUAGES[lang].shikiLang}
-            />
-          </TabsContent>
-        ))}
-      </Tabs>
+      <SnippetCard filename={FILENAME} code={code} language='python' />
     </section>
   );
 }

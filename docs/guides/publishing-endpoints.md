@@ -28,15 +28,12 @@ POST /api/v1/endpoints
 
 | SDK | Creates endpoints? | Where |
 |---|---|---|
-| TypeScript `@syfthub/sdk` | Yes, `client.myEndpoints.create(...)` | [TypeScript SDK guide](../typescript/guides/sdk.md#endpoints) |
-| Go `sdk/golang` | Yes, `MyEndpoints.Create(...)` | `sdk/golang/syfthub/endpoints.go` |
 | Python `syfthub-sdk` 2.x | No. It is a consumer client: it searches published endpoints and pays for them. | [Python SDK guide](../python/guides/sdk.md) |
 | Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [legacy Python SDK guide](../python/guides/sdk-legacy.md#endpoints) |
 
-### Via CLI
+### Via the API
 
 ```bash
-# Use the API directly if the CLI does not have a dedicated add command
 curl -X POST http://localhost:8080/api/v1/endpoints \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \

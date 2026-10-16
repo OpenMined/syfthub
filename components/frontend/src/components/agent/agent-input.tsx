@@ -4,7 +4,7 @@
  */
 import { useCallback, useState } from 'react';
 
-import type { AgentSessionState } from '@syfthub/sdk';
+import type { AgentSessionState } from '@/lib/sdk';
 
 interface AgentInputProps {
   readonly onSend: (content: string) => void;
