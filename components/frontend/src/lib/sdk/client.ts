@@ -73,7 +73,7 @@ function isBrowser(): boolean {
  *
  * @example
  * // Basic usage
- * import { SyftHubClient } from '@syfthub/sdk';
+ * import { SyftHubClient } from '@/lib/sdk';
  *
  * const client = new SyftHubClient({ baseUrl: 'https://hub.syft.com' });
  *

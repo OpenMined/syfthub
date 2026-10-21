@@ -4,7 +4,7 @@
  * A TypeScript client library for the SyftHub API.
  *
  * @example
- * import { SyftHubClient, EndpointType, Visibility } from '@syfthub/sdk';
+ * import { SyftHubClient, EndpointType, Visibility } from '@/lib/sdk';
  *
  * const client = new SyftHubClient({ baseUrl: 'https://hub.syft.com' });
  *
