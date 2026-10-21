@@ -51,3 +51,6 @@ pre-release by hand; the workflow does not do it.
 `@syfthub/sdk` on npm and the Go module are no longer released. The TypeScript client lives in
 `components/frontend/src/lib/sdk` and ships inside the frontend image; the last published versions and
 the Go SDK are kept on the `legacy-sdks` branch.
+
+The desktop app (`desktop/v*` releases) was removed in #247; its releases stay downloadable, but
+nothing builds it any more.
