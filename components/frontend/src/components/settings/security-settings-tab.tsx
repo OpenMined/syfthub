@@ -22,7 +22,10 @@ interface PasswordFormData {
 }
 
 export function SecuritySettingsTab() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  // An account created with Google sign-in has no password yet. It sets its
+  // first one without a "current password": the signed-in session is the proof.
+  const hasPassword = user?.has_password !== false;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -47,7 +50,7 @@ export function SecuritySettingsTab() {
     setSuccess(null);
 
     // Validate passwords
-    if (!formData.current_password) {
+    if (hasPassword && !formData.current_password) {
       setError('Please enter your current password');
       return;
     }
@@ -77,20 +80,27 @@ export function SecuritySettingsTab() {
       return;
     }
 
-    if (formData.new_password === formData.current_password) {
+    if (hasPassword && formData.new_password === formData.current_password) {
       setError('New password must be different from your current password');
       return;
     }
 
     setIsLoading(true);
+    const fallbackError = hasPassword ? 'Failed to change password' : 'Failed to set password';
 
     try {
       await changePasswordAPI({
-        current_password: formData.current_password,
+        current_password: hasPassword ? formData.current_password : '',
         new_password: formData.new_password
       });
 
-      setSuccess('Password changed successfully!');
+      if (hasPassword) {
+        setSuccess('Password changed successfully!');
+      } else {
+        setSuccess('Password set. You can now sign in with your email and password too.');
+        // Flip has_password so the form switches to "change" mode.
+        await refreshUser();
+      }
       setFormData({
         current_password: '',
         new_password: '',
@@ -102,7 +112,7 @@ export function SecuritySettingsTab() {
         setSuccess(null);
       }, 3000);
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to change password');
+      setError(error_ instanceof Error ? error_.message : fallbackError);
     } finally {
       setIsLoading(false);
     }
@@ -129,8 +139,10 @@ export function SecuritySettingsTab() {
               Account Security
             </h4>
             <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
-              Your account is secured with industry-standard encryption. Last profile update:{' '}
-              {user?.updated_at ? formatDateLong(user.updated_at) : 'Unknown'}
+              {hasPassword
+                ? 'Your account is secured with industry-standard encryption.'
+                : 'You sign in with Google. Add a password below to also sign in with your email.'}{' '}
+              Last profile update: {user?.updated_at ? formatDateLong(user.updated_at) : 'Unknown'}
             </p>
           </div>
         </div>
@@ -144,22 +156,31 @@ export function SecuritySettingsTab() {
       <form onSubmit={handleSubmit} className='space-y-5'>
         <div className='border-border flex items-center gap-2 border-t pt-4'>
           <Key className='text-muted-foreground h-4 w-4' />
-          <h4 className='text-foreground font-medium'>Change Password</h4>
+          <h4 className='text-foreground font-medium'>
+            {hasPassword ? 'Change Password' : 'Set a Password'}
+          </h4>
         </div>
 
-        <div className='space-y-2'>
-          <Label htmlFor='current_password'>Current Password</Label>
-          <Input
-            id='current_password'
-            name='current_password'
-            type='password'
-            value={formData.current_password}
-            onChange={handleInputChange('current_password')}
-            placeholder='Enter your current password…'
-            autoComplete='current-password'
-            disabled={isLoading}
-          />
-        </div>
+        {hasPassword ? (
+          <div className='space-y-2'>
+            <Label htmlFor='current_password'>Current Password</Label>
+            <Input
+              id='current_password'
+              name='current_password'
+              type='password'
+              value={formData.current_password}
+              onChange={handleInputChange('current_password')}
+              placeholder='Enter your current password…'
+              autoComplete='current-password'
+              disabled={isLoading}
+            />
+          </div>
+        ) : (
+          <p className='text-muted-foreground text-sm'>
+            Your account has no password yet. Choose one to sign in with your email as well as with
+            Google.
+          </p>
+        )}
 
         <div className='space-y-2'>
           <Label htmlFor='new_password'>New Password</Label>
@@ -250,7 +271,7 @@ export function SecuritySettingsTab() {
             type='submit'
             disabled={
               isLoading ||
-              !formData.current_password ||
+              (hasPassword && !formData.current_password) ||
               !formData.new_password ||
               !formData.confirm_password ||
               formData.new_password !== formData.confirm_password
@@ -260,12 +281,12 @@ export function SecuritySettingsTab() {
             {isLoading ? (
               <>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                Changing…
+                {hasPassword ? 'Changing…' : 'Setting…'}
               </>
             ) : (
               <>
                 <Lock className='h-4 w-4' aria-hidden='true' />
-                Change Password
+                {hasPassword ? 'Change Password' : 'Set Password'}
               </>
             )}
           </Button>

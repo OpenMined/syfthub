@@ -310,9 +310,14 @@ class AuthService(BaseService):
     def change_password(
         self, current_user: User, current_password: str, new_password: str
     ) -> None:
-        """Change user's password."""
-        # Verify current password
-        if not current_user.password_hash or not verify_password(
+        """Change the user's password, or set a first one.
+
+        An account created with Google sign-in has no password. Setting one
+        needs no "current password": the caller already proved who they are
+        with a valid session, which is at least as strong as the old password
+        would have been. Once a hash exists the usual check applies.
+        """
+        if current_user.password_hash and not verify_password(
             current_password, current_user.password_hash
         ):
             raise HTTPException(

@@ -516,3 +516,149 @@ def test_create_otp_stores_requester_ip(client: TestClient) -> None:
         assert count == 0
     finally:
         session.close()
+
+
+# =============================================================================
+# Accounts created with Google sign-in (no password)
+# =============================================================================
+def _make_google_only(client: TestClient) -> dict:
+    """Register a user, then strip the password so it looks Google-created.
+
+    Returns the login headers minted *before* the strip; the access token
+    stays valid, which is exactly a signed-in Google user's situation.
+    """
+    _register_user(client)
+    login = client.post(
+        "/api/v1/auth/login", data={"username": "otpuser", "password": "testpass123"}
+    )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    _strip_password(int(me["id"]))
+    return headers
+
+
+def _strip_password(user_id: int) -> None:
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
+
+    session = next(get_db_session())
+    try:
+        repo = UserRepository(session)
+        row = session.get(repo.model, user_id)
+        row.password_hash = None
+        row.auth_provider = "google"
+        session.commit()
+    finally:
+        session.close()
+
+
+@patch("syfthub.auth.router.send_oauth_account_notice", new_callable=AsyncMock)
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_password_reset_google_account_gets_notice_not_code(
+    mock_otp, mock_notice, client: TestClient, monkeypatch
+) -> None:
+    """A Google-only account is told by email that it has no password."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    _make_google_only(client)
+    mock_otp.reset_mock()  # registration sent one; only the reset matters here
+
+    response = client.post(
+        "/api/v1/auth/password-reset/request", json={"email": "otp@example.com"}
+    )
+
+    assert response.status_code == 200
+    # Same body as every other outcome: the page must not reveal the account.
+    assert response.json() == {
+        "message": "If the email is registered, a reset code was sent."
+    }
+    mock_otp.assert_not_called()
+    mock_notice.assert_awaited_once_with("otp@example.com")
+
+
+@patch("syfthub.auth.router.send_oauth_account_notice", new_callable=AsyncMock)
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_password_reset_unknown_email_sends_nothing(
+    mock_otp, mock_notice, client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+
+    response = client.post(
+        "/api/v1/auth/password-reset/request", json={"email": "nobody@example.com"}
+    )
+
+    assert response.status_code == 200
+    mock_otp.assert_not_called()
+    mock_notice.assert_not_called()
+
+
+def test_me_reports_whether_a_password_exists(client: TestClient) -> None:
+    _register_user(client)
+    login = client.post(
+        "/api/v1/auth/login", data={"username": "otpuser", "password": "testpass123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    assert me["has_password"] is True
+    assert "password_hash" not in me
+
+    _strip_password(int(me["id"]))
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    assert me["has_password"] is False
+    assert me["auth_provider"] == "google"
+
+
+def test_google_account_sets_first_password_without_current(
+    client: TestClient,
+) -> None:
+    """No hash yet: the signed-in session alone authorises setting one."""
+    headers = _make_google_only(client)
+
+    response = client.put(
+        "/api/v1/auth/me/password",
+        json={"new_password": "newpass123"},
+        headers=headers,
+    )
+    assert response.status_code == 204
+
+    me = client.get("/api/v1/auth/me", headers=headers).json()
+    assert me["has_password"] is True
+
+    # Password login now works alongside Google.
+    login = client.post(
+        "/api/v1/auth/login", data={"username": "otpuser", "password": "newpass123"}
+    )
+    assert login.status_code == 200
+
+    # And from here on the current password is required again.
+    response = client.put(
+        "/api/v1/auth/me/password",
+        json={"new_password": "another123"},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current password is incorrect"
+
+
+def test_local_account_still_needs_current_password(client: TestClient) -> None:
+    _register_user(client)
+    login = client.post(
+        "/api/v1/auth/login", data={"username": "otpuser", "password": "testpass123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    for body in (
+        {"new_password": "newpass123"},
+        {"current_password": "", "new_password": "newpass123"},
+        {"current_password": "wrongpass1", "new_password": "newpass123"},
+    ):
+        response = client.put("/api/v1/auth/me/password", json=body, headers=headers)
+        assert response.status_code == 400, body
+
+    response = client.put(
+        "/api/v1/auth/me/password",
+        json={"current_password": "testpass123", "new_password": "newpass123"},
+        headers=headers,
+    )
+    assert response.status_code == 204
