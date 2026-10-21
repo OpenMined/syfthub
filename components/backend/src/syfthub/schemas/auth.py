@@ -103,7 +103,14 @@ class RefreshTokenRequest(BaseModel):
 class PasswordChange(BaseModel):
     """Password change schema."""
 
-    current_password: str = Field(..., description="Current password")
+    current_password: str = Field(
+        default="",
+        description=(
+            "Current password. May be empty only for an account that has no "
+            "password yet (created with Google sign-in); it is then setting "
+            "its first one."
+        ),
+    )
     new_password: str = Field(..., description="New password")
 
     @field_validator("new_password")
