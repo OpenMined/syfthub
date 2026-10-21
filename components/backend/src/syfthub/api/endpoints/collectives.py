@@ -122,7 +122,7 @@ def get_collective_endpoint_paths(
 ) -> List[str]:
     """Return the owner/slug paths of all approved member endpoints.
 
-    Used by the TypeScript SDK to resolve a collective path (``collective/<slug>``)
+    Used by the frontend API client to resolve a collective path (``collective/<slug>``)
     into the constituent endpoint paths before building the aggregator request.
     Returns an empty list when the collective exists but has no approved members.
     """
@@ -221,7 +221,7 @@ def get_shared_endpoint_endpoint_paths(
 ) -> List[str]:
     """Return owner/slug paths of a shared endpoint's active member endpoints.
 
-    Used by the TypeScript SDK to resolve ``collective/<X>/<Y>`` paths. The
+    Used by the frontend API client to resolve ``collective/<X>/<Y>`` paths. The
     result is the intersection of the configured endpoint set with the
     collective's currently approved members; configured endpoints that have
     since left the collective are silently filtered out. The ``all`` shared

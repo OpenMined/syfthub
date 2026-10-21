@@ -25,13 +25,13 @@ import { getPublicEndpointsPaginated, isDataSourceEndpoint } from '@/lib/endpoin
 /**
  * Convert a Collective into the ChatSource shape expected by the context store
  * and the chat workflow. The `full_path` is set to `collective/<slug>`, which
- * the TypeScript SDK detects and resolves to individual endpoint paths before
+ * the API client detects and resolves to individual endpoint paths before
  * building the aggregator request.
  */
 /**
  * Convert a shared endpoint into a ChatSource keyed by both the collective and
  * shared slug. The `full_path` is `collective/<collective-slug>/<shared-slug>`,
- * which the TypeScript SDK recognises and expands to the configured-and-active
+ * which the API client recognises and expands to the configured-and-active
  * subset of members at chat time.
  */
 function sharedEndpointToChatSource(shared: CollectiveSharedEndpoint): ChatSource {
@@ -58,7 +58,7 @@ function collectiveToChatSource(collective: Collective): ChatSource {
   return {
     // The id prefix "collective:" makes it unique and avoids clashing with
     // endpoint slugs (which use slug-only IDs). The full_path is what the
-    // TypeScript SDK inspects — it detects the "collective/" prefix and
+    // API client inspects — it detects the "collective/" prefix and
     // resolves it to individual member endpoint paths before the aggregator
     // request is built.
     id: `collective:${collective.slug}`,

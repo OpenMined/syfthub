@@ -1,5 +1,5 @@
 /**
- * SyftHub TypeScript SDK
+ * SyftHub API client
  *
  * A TypeScript client library for the SyftHub API.
  *

@@ -13,7 +13,7 @@
  * pricing — so the two surfaces can never disagree on what a collective costs.
  *
  * Also exposes {@link parseCollectivePath}, the client-side mirror of the
- * TypeScript SDK's `collective/<slug>[/<shared-slug>]` parsing, so the chat
+ * API client's `collective/<slug>[/<shared-slug>]` parsing, so the chat
  * precheck can map a collective ChatSource back to its billing summary.
  */
 import type { EndpointReference, PendingSubscription } from '@/hooks/use-xendit-precheck';
@@ -27,7 +27,7 @@ const COLLECTIVE_PREFIX = 'collective/';
  * its parts, normalising the `all` subset alias away (it means "every approved
  * member", the same as omitting the subset). Returns `null` for any path that
  * is not a collective reference. Mirrors `expandCollectivePaths` in the
- * TypeScript SDK so chat and the SDK agree on what a collective path means.
+ * API client so chat and the client agree on what a collective path means.
  */
 export function parseCollectivePath(
   fullPath: string | undefined | null
