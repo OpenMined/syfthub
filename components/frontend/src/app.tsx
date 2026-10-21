@@ -37,6 +37,7 @@ const AdminPage = lazyWithRetry(() => import('./pages/admin'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
+const CliRetiredPage = lazyWithRetry(() => import('./pages/cli-retired'));
 
 /**
  * App - Root application component with routing configuration.
@@ -121,6 +122,15 @@ export default function App() {
                         element={
                           <RouteBoundary>
                             <AboutPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      {/* The retired syft CLI still opens this URL to sign in */}
+                      <Route
+                        path='cli-setup'
+                        element={
+                          <RouteBoundary>
+                            <CliRetiredPage />
                           </RouteBoundary>
                         }
                       />
