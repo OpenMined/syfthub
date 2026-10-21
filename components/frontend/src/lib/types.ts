@@ -58,6 +58,9 @@ export interface User {
   is_email_verified?: boolean;
   /** When the address on file was proven, or undefined if it has not been. */
   email_verified_at?: string;
+  /** False for an account created with Google sign-in that has not set a
+   *  password yet. Decides whether Settings offers "set" or "change". */
+  has_password?: boolean;
 }
 
 // Authentication request schemas

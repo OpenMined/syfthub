@@ -57,7 +57,7 @@ from syfthub.schemas.auth import (
 from syfthub.schemas.user import User, UserResponse
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
-from syfthub.services.email_service import send_otp_email
+from syfthub.services.email_service import send_oauth_account_notice, send_otp_email
 from syfthub.services.email_verification_service import (
     EMAIL_VERIFY_PURPOSE,
     EmailVerificationService,
@@ -384,7 +384,11 @@ def request_password_reset(
         user_repo = UserRepository(otp_service.otp_repo.session)
         model = user_repo.get_model_by_email(body.email)
 
-        # Only send if user exists and has a password (not OAuth-only)
+        # A code goes only to an account that has a password. An account
+        # created with Google sign-in gets told so by email instead: the
+        # on-screen reply stays identical either way, so nothing about which
+        # addresses exist leaks, but the person is no longer left waiting for
+        # a code that cannot come.
         if model and model.password_hash:
             client_ip = get_client_ip(request)
             code = otp_service.generate_otp(
@@ -393,6 +397,8 @@ def request_password_reset(
             background_tasks.add_task(
                 send_otp_email, body.email, code, "password_reset"
             )
+        elif model:
+            background_tasks.add_task(send_oauth_account_notice, body.email)
     except OTPRateLimitedError:
         # Swallow to prevent email enumeration via 429 vs 200 distinction
         logger.warning("OTP rate limit hit in password-reset for %s", body.email)

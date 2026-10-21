@@ -26,6 +26,7 @@ from syfthub.schemas.endpoint import (
     EndpointVisibility,
     GroupedEndpointsResponse,
     OwnersListResponse,
+    SlugAvailability,
     SyncEndpointsRequest,
     SyncEndpointsResponse,
 )
@@ -558,8 +559,27 @@ def endpoint_exists_for_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
 ) -> bool:
-    """Check if endpoint exists for user."""
-    return endpoint_service.endpoint_exists_for_user(endpoint_slug, current_user)
+    """True when the current user cannot publish under this slug.
+
+    The boolean form of ``/availability``, kept for publishers that predate
+    it: true for a slug the user already owns *and* for one the Hub would
+    refuse anyway (reserved or invalid), so "false" always means "go ahead".
+    """
+    return not endpoint_service.slug_availability(endpoint_slug, current_user).available
+
+
+@router.get("/{endpoint_slug}/availability", response_model=SlugAvailability)
+def slug_availability(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> SlugAvailability:
+    """Would a publish under this slug be accepted for the current user?
+
+    Same verdict as ``/exists`` plus the reason when refused, so publishers
+    need not mirror the slug rules.
+    """
+    return endpoint_service.slug_availability(endpoint_slug, current_user)
 
 
 @router.patch("/slug/{endpoint_slug}", response_model=EndpointResponse)

@@ -152,7 +152,10 @@ export function mapSdkUserToFrontend(sdkUser: SdkUser): User {
     bio: sdkUser.bio ?? undefined,
     is_email_public: sdkUser.isEmailPublic ?? false,
     is_email_verified: sdkUser.isEmailVerified ?? false,
-    email_verified_at: sdkUser.emailVerifiedAt?.toISOString()
+    email_verified_at: sdkUser.emailVerifiedAt?.toISOString(),
+    // An older backend omits the flag; assume a password exists so the
+    // settings form keeps asking for the current one.
+    has_password: sdkUser.hasPassword ?? true
   };
 }
 

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 
 from syfthub.domain.base_url import TUNNELING_PREFIX
 from syfthub.schemas.auth import AuthProvider, UserRole
@@ -121,9 +121,25 @@ class UserResponse(BaseModel):
         ),
     )
     auth_provider: AuthProvider = Field(..., description="Authentication provider")
+    # Read from ``password_hash`` when built from a User; the hash itself never
+    # leaves the server. False for an account created with Google sign-in that
+    # has not set a password yet, which is what decides whether the settings
+    # page offers "set a password" or "change password".
+    has_password: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("has_password", "password_hash"),
+        description="Whether the account can sign in with a password",
+    )
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")
     # MPP wallet address (Tempo blockchain)
+
+    @field_validator("has_password", mode="before")
+    @classmethod
+    def _hash_presence(cls, v: object) -> bool:
+        """A non-empty hash means true; a bool passes through."""
+        return bool(v)
+
     wallet_address: Optional[str] = Field(
         None, description="Tempo blockchain wallet address"
     )

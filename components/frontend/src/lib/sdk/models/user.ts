@@ -30,6 +30,12 @@ export interface User {
    * confirmed with `auth.verifyEmail()`.
    */
   readonly emailVerifiedAt?: Date | null;
+  /**
+   * Whether the account can sign in with a password. False for an account
+   * created with Google sign-in that has not set one yet; such an account
+   * sets its first password through `auth.changePassword('', newPassword)`.
+   */
+  readonly hasPassword?: boolean;
 }
 
 /**

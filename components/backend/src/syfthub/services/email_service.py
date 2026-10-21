@@ -43,9 +43,11 @@ SUBJECTS = {
 }
 
 EMAIL_CHANGED_SUBJECT = "The email address on your SyftHub account was changed"
+OAUTH_ACCOUNT_SUBJECT = "Your SyftHub account signs in with Google"
 
 _otp_template = _jinja_env.get_template("otp_email.html")
 _email_changed_template = _jinja_env.get_template("email_changed_notice.html")
+_oauth_account_template = _jinja_env.get_template("oauth_account_notice.html")
 _invitation_template = _jinja_env.get_template("collective_invitation_email.html")
 
 
@@ -248,3 +250,33 @@ async def send_email_changed_notice(to_email: str, new_email: str) -> None:
         await _send_via_resend(to_email, EMAIL_CHANGED_SUBJECT, html_body, plain_text)
     except Exception:
         logger.exception("Failed to send email-changed notice to %s", to_email)
+
+
+async def send_oauth_account_notice(to_email: str) -> None:
+    """Answer a password-reset request for an account that has no password.
+
+    Such an account was created with Google sign-in. Staying silent, as the
+    reset endpoint must on screen to avoid confirming which addresses exist,
+    leaves the person waiting for a code that never comes. This email is the
+    one place that can tell them what to do instead: sign in with Google and,
+    if they want one, set a password from Settings afterwards.
+
+    Designed for FastAPI BackgroundTasks; failures are logged, never raised.
+    """
+    if not settings.smtp_configured:
+        logger.warning("Email not configured — skipping OAuth notice to %s", to_email)
+        return
+
+    html_body = _oauth_account_template.render(email=to_email)
+    plain_text = (
+        "Someone asked to reset the password for the SyftHub account "
+        f"{to_email}.\n\n"
+        "This account was created with Google sign-in and has no password, "
+        "so there is nothing to reset. Sign in with the Google button instead.\n\n"
+        "If you would also like a password, sign in with Google first, then "
+        "open Settings > Security and choose Set password.\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    await _send_with_retries(
+        to_email, OAUTH_ACCOUNT_SUBJECT, html_body, plain_text, "oauth account notice"
+    )

@@ -231,6 +231,8 @@ services:
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
       - MEILI_ENV=development
+      # Migrate the data volume in place when the image moves to a newer engine version
+      - MEILI_UPGRADE_DB=true
     networks:
       - syfthub-network
     healthcheck:

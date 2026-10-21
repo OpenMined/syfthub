@@ -2906,3 +2906,98 @@ def test_cluster_policy_sync_rejects_invalid_wallet_owner(
     detail = response.json()["detail"]
     assert detail["code"] == "VALIDATION_ERROR"
     assert detail["errors"][0]["field"] == "policies"
+
+
+def test_create_endpoint_accepts_long_description_and_readme(
+    client: TestClient, user1_token: str
+) -> None:
+    """No length cap on description or readme: Spaces send unbounded text."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    endpoint_data = {
+        "name": "Long Text",
+        "slug": "long-text",
+        "description": "d" * 5000,
+        "readme": "r" * 100_000,
+        "type": "model",
+        "visibility": "public",
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+    assert response.json()["description"] == "d" * 5000
+    assert response.json()["readme"] == "r" * 100_000
+
+    response = client.patch(
+        f"/api/v1/endpoints/{response.json()['id']}",
+        json={"description": "u" * 6000},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["description"] == "u" * 6000
+
+
+def test_slug_availability(client: TestClient, user1_token: str) -> None:
+    """/availability applies the publish rules and the per-user uniqueness."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    def check(slug: str) -> dict:
+        response = client.get(f"/api/v1/endpoints/{slug}/availability", headers=headers)
+        assert response.status_code == 200
+        return response.json()
+
+    assert check("free-name") == {"available": True, "reason": None}
+
+    reserved = check("admin")
+    assert reserved["available"] is False
+    assert "reserved" in reserved["reason"]
+
+    for bad, why in (
+        ("ab", "at least 3"),
+        ("a" * 64, "at most 63"),
+        ("Upper-Case", "lowercase"),
+        ("two--hyphens", "consecutive hyphens"),
+        ("trail-", "start or end with hyphen"),
+    ):
+        result = check(bad)
+        assert result["available"] is False, bad
+        assert why in result["reason"], bad
+
+    # /exists is the boolean form of the same verdict: true means "don't".
+    for unusable in ("admin", "a" * 64):
+        response = client.get(f"/api/v1/endpoints/{unusable}/exists", headers=headers)
+        assert response.status_code == 200
+        assert response.json() is True, unusable
+    response = client.get("/api/v1/endpoints/free-name/exists", headers=headers)
+    assert response.json() is False
+
+    endpoint_data = {"name": "Mine", "slug": "free-name", "type": "model"}
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    taken = check("free-name")
+    assert taken["available"] is False
+    assert taken["reason"] == "You already have an endpoint with this slug"
+    response = client.get("/api/v1/endpoints/free-name/exists", headers=headers)
+    assert response.json() is True
+
+
+def test_slug_availability_is_per_user(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """Slugs are unique per owner, so another user's slug is still free."""
+    headers1 = {"Authorization": f"Bearer {user1_token}"}
+    headers2 = {"Authorization": f"Bearer {user2_token}"}
+    endpoint_data = {"name": "Mine", "slug": "shared-name", "type": "model"}
+    assert (
+        client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
+    ).status_code == 201
+
+    response = client.get(
+        "/api/v1/endpoints/shared-name/availability", headers=headers2
+    )
+    assert response.json()["available"] is True
+
+
+def test_slug_availability_requires_auth(client: TestClient) -> None:
+    response = client.get("/api/v1/endpoints/free-name/availability")
+    assert response.status_code == 401
