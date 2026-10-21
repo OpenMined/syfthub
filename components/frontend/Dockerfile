@@ -3,21 +3,6 @@
 # Stage 1: Build environment
 FROM node:20-alpine AS builder
 
-# IMPORTANT: The directory structure must match the repository layout exactly
-# because package-lock.json contains relative paths for the file: dependency.
-# The @syfthub/sdk dependency is: "file:../../sdk/typescript"
-# So from /app/components/frontend, ../../sdk/typescript must resolve correctly.
-
-# Set working directory for SDK build (mirrors repo: sdk/typescript)
-WORKDIR /app/sdk/typescript
-
-# Copy and build SDK first (required for file: dependency resolution)
-COPY sdk/typescript/package.json sdk/typescript/package-lock.json ./
-RUN npm ci
-COPY sdk/typescript/ .
-RUN npm run build
-
-# Set working directory for frontend (mirrors repo: components/frontend)
 WORKDIR /app/components/frontend
 
 # Copy frontend package files

@@ -19,7 +19,6 @@ import { ErrorBoundary } from './observability';
 const googleClientId = getGoogleClientId();
 
 // Lazy load all pages for code splitting (with auto-reload on stale chunks)
-const CLISetupPage = lazyWithRetry(() => import('./pages/cli-setup'));
 const HomePage = lazyWithRetry(() => import('./pages/home'));
 const BrowsePage = lazyWithRetry(() => import('./pages/browse'));
 const ChatPage = lazyWithRetry(() => import('./pages/chat'));
@@ -83,16 +82,6 @@ export default function App() {
                 <BrowserRouter>
                   <ScrollToTop />
                   <Routes>
-                    {/* CLI setup — standalone page, no sidebar or navbar */}
-                    <Route
-                      path='cli-setup'
-                      element={
-                        <RouteBoundary>
-                          <CLISetupPage />
-                        </RouteBoundary>
-                      }
-                    />
-
                     <Route element={<MainLayout />}>
                       {/* Public routes */}
                       <Route

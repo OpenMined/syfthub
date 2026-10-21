@@ -2,7 +2,7 @@
 // User Profile Utilities
 // ============================================================================
 
-import type { AuthConfig, User as SdkUser } from '@syfthub/sdk';
+import type { AuthConfig, User as SdkUser } from '@/lib/sdk';
 import type {
   AvailabilityResponse,
   User as FrontendUser,
@@ -12,7 +12,7 @@ import type {
   UserUpdate
 } from './types';
 
-import { SyftHubClient } from '@syfthub/sdk';
+import { SyftHubClient } from '@/lib/sdk';
 
 /**
  * SyftHub SDK Client Configuration
@@ -176,7 +176,7 @@ export function getAuthHeaders(): Record<string, string> {
 }
 
 // Re-export commonly used SDK types for convenience
-export type { AuthTokens } from '@syfthub/sdk';
+export type { AuthTokens } from '@/lib/sdk';
 export {
   // Error types
   SyftHubError,
@@ -199,7 +199,7 @@ export {
   Visibility,
   EndpointType,
   UserRole
-} from '@syfthub/sdk';
+} from '@/lib/sdk';
 
 // Re-export model types
 export type {
@@ -222,7 +222,7 @@ export type {
   // Auth OTP types
   RegisterResult,
   AuthConfig
-} from '@syfthub/sdk';
+} from '@/lib/sdk';
 
 // Re-export chat types for frontend usage
 export type {
@@ -244,7 +244,7 @@ export type {
   TokenEvent,
   DoneEvent,
   ErrorEvent
-} from '@syfthub/sdk';
+} from '@/lib/sdk';
 
 /**
  * Change the current user's password.

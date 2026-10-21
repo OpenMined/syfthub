@@ -51,7 +51,7 @@ Satellite services fetch this once, cache it, and only refresh when verification
 
 ```mermaid
 sequenceDiagram
-    participant User as User (SDK/CLI)
+    participant User as User (SDK)
     participant Hub as SyftHub Backend
     participant Sat as Satellite Service
 

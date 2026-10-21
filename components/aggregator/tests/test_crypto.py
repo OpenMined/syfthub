@@ -37,7 +37,7 @@ def manual_space_decrypt_request(
     space_priv,
     correlation_id: str,
 ) -> str:
-    """Simulate the Go SDK decrypting a tunnel request."""
+    """Simulate the Space decrypting a tunnel request."""
     ephemeral_pub_bytes = crypto._b64url_decode(enc_info["ephemeral_public_key"])
     nonce = crypto._b64url_decode(enc_info["nonce"])
     ciphertext = crypto._b64url_decode(enc_info["encrypted_payload"])
@@ -46,14 +46,14 @@ def manual_space_decrypt_request(
     return crypto.decrypt_payload(ciphertext, aes_key, nonce, correlation_id.encode()).decode()
 
 
-def manual_simulate_go_encrypt_response(
+def manual_simulate_space_encrypt_response(
     payload_json: str,
     request_ephemeral_priv,
     correlation_id: str,
 ) -> tuple[dict, str]:
-    """Simulate the Go SDK encrypting a tunnel response.
+    """Simulate the Space encrypting a tunnel response.
 
-    The Go SDK:
+    The Space:
     1. Generates a fresh response ephemeral keypair (resp_priv, resp_pub)
     2. ECDH: X25519(resp_priv, request_ephemeral_pub) = shared_secret
     3. aes_key = HKDF(shared_secret, HKDF_RESPONSE_INFO)
@@ -183,7 +183,7 @@ def test_request_decrypt_wrong_correlation_id_raises():
 
 
 def test_response_encrypt_decrypt_roundtrip():
-    """Space (Go) encrypts response → aggregator decrypts (Python decrypt_tunnel_response)."""
+    """The Space encrypts the response → aggregator decrypts (Python decrypt_tunnel_response)."""
     _, space_pub_b64 = make_space_keypair()
     payload = json.dumps({"summary": {"message": {"content": "Here are results..."}}})
     correlation_id = str(uuid.uuid4())
@@ -195,8 +195,8 @@ def test_response_encrypt_decrypt_roundtrip():
         correlation_id=correlation_id,
     )
 
-    # Space (Go) encrypts the response — simulated here with manual_simulate_go_encrypt_response
-    enc_info, enc_payload_b64 = manual_simulate_go_encrypt_response(
+    # The Space encrypts the response — simulated here with manual_simulate_space_encrypt_response
+    enc_info, enc_payload_b64 = manual_simulate_space_encrypt_response(
         payload_json=payload,
         request_ephemeral_priv=ephemeral_priv,
         correlation_id=correlation_id,
@@ -223,7 +223,7 @@ def test_response_decrypt_wrong_correlation_id_raises():
         correlation_id=correlation_id,
     )
 
-    enc_info, enc_payload_b64 = manual_simulate_go_encrypt_response(
+    enc_info, enc_payload_b64 = manual_simulate_space_encrypt_response(
         payload_json='{"ok": true}',
         request_ephemeral_priv=ephemeral_priv,
         correlation_id=correlation_id,

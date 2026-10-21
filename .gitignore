@@ -44,7 +44,6 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
-!cli/syft.spec
 
 # Installer logs
 pip-log.txt
@@ -191,8 +190,7 @@ backend/.venv/
 backend/.env
 # Local dev / test SQLite databases. Anchored to the real layout: a pattern
 # containing a slash is relative to this file, so plain `backend/` never
-# matched components/backend/. Not blanket `*.db` — the golang examples
-# intentionally track a .policy_store.db.
+# matched components/backend/.
 components/backend/*.db
 components/backend/*.db-journal
 

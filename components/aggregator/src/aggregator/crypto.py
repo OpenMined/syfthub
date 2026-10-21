@@ -14,7 +14,7 @@ Protocol:
     5. ciphertext = AES-256-GCM(aes_key, nonce, plaintext, aad=correlation_id.encode())
     6. Transmit: (pub_e, nonce, ciphertext) as base64url + correlation_id
 
-  Receiver (Go SDK space):
+  Receiver (the Space):
     1. shared_secret = X25519(space_priv, pub_e)
     2. aes_key = HKDF-SHA256(shared_secret, same info/salt, len=32)
     3. plaintext = AES-256-GCM-Decrypt(aes_key, nonce, ciphertext, aad=correlation_id.encode())
@@ -190,7 +190,7 @@ def decrypt_tunnel_response(
 ) -> str:
     """Decrypt a tunnel response payload.
 
-    The Go SDK encrypts responses using the aggregator's ephemeral public key
+    The Space encrypts responses using the aggregator's ephemeral public key
     (from the request's encryption_info) as the ECDH peer. We recover the
     shared secret using our ephemeral private key and the response's ephemeral
     public key.
