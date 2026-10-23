@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from syfthub.schemas.endpoint import Connection, EndpointType, Policy
+from syfthub.schemas.endpoint import Connection, EndpointType, Policy, QuerySchema
 
 
 class EndpointSearchRequest(BaseModel):
@@ -59,6 +59,10 @@ class EndpointSearchResult(BaseModel):
     )
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
+    )
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
     )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")

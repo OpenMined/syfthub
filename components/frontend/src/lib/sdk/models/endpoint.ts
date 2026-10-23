@@ -22,6 +22,14 @@ export interface Connection {
 }
 
 /**
+ * What a query against an endpoint may carry, as declared by its publisher.
+ */
+export interface QuerySchema {
+  /** Metadata keys a search response may carry per document */
+  readonly metadataFields: readonly string[];
+}
+
+/**
  * Full endpoint model (for authenticated users viewing their own endpoints).
  */
 export interface Endpoint {
@@ -40,6 +48,7 @@ export interface Endpoint {
   readonly starsCount: number;
   readonly policies: readonly Policy[];
   readonly connect: readonly Connection[];
+  readonly querySchema?: QuerySchema | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -61,6 +70,7 @@ export interface EndpointPublic {
   readonly starsCount: number;
   readonly policies: readonly Policy[];
   readonly connect: readonly Connection[];
+  readonly querySchema?: QuerySchema | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -85,6 +95,7 @@ export interface EndpointSearchResult {
   readonly starsCount: number;
   readonly policies: readonly Policy[];
   readonly connect: readonly Connection[];
+  readonly querySchema?: QuerySchema | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   /** Relevance score from semantic search (0.0-1.0) */
@@ -136,6 +147,7 @@ export interface EndpointCreateInput {
   tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
+  querySchema?: QuerySchema | null;
   contributors?: number[];
 }
 
@@ -151,6 +163,7 @@ export interface EndpointUpdateInput {
   tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
+  querySchema?: QuerySchema | null;
   contributors?: number[];
 }
 
