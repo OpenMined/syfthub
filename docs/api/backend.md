@@ -711,6 +711,7 @@ Create a new endpoint.
 | `tags` | string[] | No | — | Searchable tags |
 | `policies` | object | No | — | Access policy config (JSON) |
 | `connect` | object[] | No | — | Connection configurations |
+| `query_schema` | object | No | `{"metadata_fields": string[]}` | What a query may carry, as declared by the publisher; `null` when undeclared |
 | `contributors` | string[] | No | — | Contributor usernames |
 
 **Response `201 Created`:** Full `EndpointResponse`.

@@ -192,6 +192,7 @@ def _returned(r: _Reply) -> SourceResult:
     return r.row(
         outcome=Outcome.RETURNED,
         documents=documents,
+        metadata_fields=SourceResult.metadata_fields_of(r.body),
         summary=summary,
         cost=_cost(r.body, currency) or (r.charge.amount if r.charge else None),
         paid_from=r.wallet.key if r.wallet is not None and charged else None,

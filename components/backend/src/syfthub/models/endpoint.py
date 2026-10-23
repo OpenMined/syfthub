@@ -106,6 +106,11 @@ class EndpointModel(BaseModel, TimestampMixin):
     connect: Mapped[List[dict]] = mapped_column(
         JSONType, nullable=False, default=lambda: []
     )
+    # What a query may carry, as published (``schemas.endpoint.QuerySchema``).
+    # NULL: the publisher declared nothing (older spaces, model endpoints).
+    query_schema: Mapped[Optional[dict]] = mapped_column(
+        JSONType, nullable=True, default=None
+    )
 
     # RAG integration - vector store file ID
     rag_file_id: Mapped[Optional[str]] = mapped_column(

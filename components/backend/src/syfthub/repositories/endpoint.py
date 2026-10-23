@@ -100,6 +100,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             stars_count=row.stars_count,
             policies=visible_policies,
             connect=transformed_connect,
+            query_schema=row.query_schema,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -711,6 +712,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 contributors=endpoint_data.contributors,
                 policies=[policy.model_dump() for policy in endpoint_data.policies],
                 connect=[conn.model_dump() for conn in endpoint_data.connect],
+                query_schema=(
+                    endpoint_data.query_schema.model_dump()
+                    if endpoint_data.query_schema is not None
+                    else None
+                ),
                 is_active=True,
                 space_id=space_id,
             )
@@ -761,6 +767,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 endpoint_model.connect = [
                     conn.model_dump() for conn in endpoint_data.connect
                 ]
+            if endpoint_data.query_schema is not None:
+                endpoint_model.query_schema = endpoint_data.query_schema.model_dump()
             # REMOVED is_active update - this should only be done by admin_update_endpoint
 
             self.session.commit()
@@ -889,7 +897,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         Args:
             endpoints_data: List of dicts with endpoint data (pre-validated)
                 Each dict should have: name, slug, description, type, visibility,
-                version, readme, tags, contributors, policies, connect
+                version, readme, tags, contributors, policies, connect,
+                query_schema (optional)
             user_id: The user ID who owns these endpoints
             space_id: The satellite serving them, or None when the account has
                 registered none
@@ -913,6 +922,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 contributors=data.get("contributors", []),
                 policies=data.get("policies", []),
                 connect=data.get("connect", []),
+                query_schema=data.get("query_schema"),
                 is_active=True,
                 space_id=space_id,
             )

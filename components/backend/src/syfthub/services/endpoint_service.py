@@ -431,6 +431,7 @@ class EndpointService(BaseService):
             tags=final_tags,
             policies=endpoint_data.policies,
             connect=endpoint_data.connect,
+            query_schema=endpoint_data.query_schema,
             slug=final_slug,
             contributors=valid_contributors,
         )
@@ -1041,6 +1042,7 @@ class EndpointService(BaseService):
                     stars_count=ep.stars_count,
                     policies=ep.policies,
                     connect=ep.connect,
+                    query_schema=ep.query_schema,
                     created_at=ep.created_at,
                     updated_at=ep.updated_at,
                     relevance_score=score,
@@ -1342,6 +1344,11 @@ class EndpointService(BaseService):
                 "contributors": valid_contributors,
                 "policies": [p.model_dump() for p in endpoint_data.policies],
                 "connect": [c.model_dump() for c in endpoint_data.connect],
+                "query_schema": (
+                    endpoint_data.query_schema.model_dump()
+                    if endpoint_data.query_schema is not None
+                    else None
+                ),
             }
             validated_endpoints.append(validated_endpoint)
 
