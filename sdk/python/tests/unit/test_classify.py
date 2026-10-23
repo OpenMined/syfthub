@@ -190,3 +190,31 @@ def test_a_bare_429_is_a_retryable_rate_limit(free_source: Source) -> None:
     assert throttled.outcome is Outcome.REJECTED and throttled.reason is Reason.RATE_LIMITED
     assert throttled.retryable and throttled.rate_limit is not None
     assert throttled.rate_limit.reset_seconds == 9 and "slow down" in (throttled.error or "")
+
+
+def test_metadata_fields_come_from_provider_info(free_source: Source) -> None:
+    body = {
+        "references": {
+            "documents": [{"document_id": "d1", "content": "x", "metadata": {"title": "T"}}],
+            "provider_info": {"search_engine": "rss_chromadb", "metadata_fields": ["title"]},
+        }
+    }
+    row = classify(free_source, response(200, body))
+    assert row.ok and row.metadata_fields == ("title",)
+    assert row.documents[0].metadata == {"title": "T"}
+
+
+def test_metadata_fields_empty_when_the_space_did_not_say(free_source: Source) -> None:
+    for body in (
+        {"references": {"documents": []}},
+        {"references": {"documents": [], "provider_info": {"search_engine": "x"}}},
+        {"references": {"documents": [], "provider_info": {"metadata_fields": None}}},
+    ):
+        row = classify(free_source, response(200, body))
+        assert row.ok and row.metadata_fields == ()
+
+
+def test_metadata_fields_keep_only_strings(free_source: Source) -> None:
+    body = {"references": {"documents": [], "provider_info": {"metadata_fields": ["a", 1]}}}
+    row = classify(free_source, response(200, body))
+    assert row.metadata_fields == ("a",)

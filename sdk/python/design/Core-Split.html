@@ -1,0 +1,411 @@
+<title>SyftHub SDK Core Split</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, figures break out to the column's full width; tables scroll inside their own box. */
+:root {
+  --bg: #fbfbf9;
+  --fg: #1f2429;
+  --muted: #5d6670;
+  --rule: #d9dcd6;
+  --surface: #f1f2ee;
+  --core: #0f6e73;        /* the one hue: what lives in the Rust core */
+  --core-fill: #d7ecec;
+  --skin-fill: #ffffff;
+  --warn: #9a5b00;
+  --display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --body: "Source Sans 3", "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15191c; --fg: #e6e8e3; --muted: #9aa3ab; --rule: #333a40; --surface: #1d2226;
+    --core: #5fc3c6; --core-fill: #173b3d; --skin-fill: #1d2226; --warn: #e0a24a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15191c; --fg: #e6e8e3; --muted: #9aa3ab; --rule: #333a40; --surface: #1d2226;
+  --core: #5fc3c6; --core-fill: #173b3d; --skin-fill: #1d2226; --warn: #e0a24a; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 17px; line-height: 1.5; }
+main { max-width: 860px; margin: 0 auto; padding-block: 40px 80px; padding-inline: 20px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.2rem; }
+h2 { font-size: 1.45rem; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+p { max-width: 68ch; margin: 0.8rem 0; }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 60ch; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.6rem; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--surface); padding: 0.05em 0.35em; border-radius: 3px; }
+figure { margin: 1.6rem 0; }
+figure svg { max-width: 100%; height: auto; display: block; }
+figcaption { font-size: 0.92rem; color: var(--muted); margin-top: 0.6rem; max-width: 68ch; }
+.scroll { overflow-x: auto; }
+/* diagram parts: page CSS styles the SVG so both themes hold */
+.box { fill: var(--skin-fill); stroke: currentColor; stroke-width: 1.2; }
+.corebox { fill: var(--core-fill); stroke: var(--core); stroke-width: 1.5; }
+.corelabel { fill: var(--core); }
+.lane { fill: var(--surface); stroke: none; }
+.dim { fill: var(--muted); }
+.cb { stroke: var(--core); }
+svg text { font-family: var(--body); font-size: 12.5px; fill: currentColor; }
+svg text.m { font-family: var(--mono); font-size: 11px; }
+svg text.t { font-weight: 600; font-size: 13px; }
+/* allocation table */
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; min-width: 640px; }
+th, td { text-align: left; vertical-align: top; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--rule); }
+th { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.where { white-space: nowrap; }
+tr.group td { background: var(--surface); font-family: var(--display); font-weight: 600; font-size: 1rem; padding-top: 0.7rem; }
+.chip { display: inline-block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; padding: 0.1em 0.55em; border-radius: 999px; border: 1.3px solid currentColor; }
+.chip.core { background: var(--core); border-color: var(--core); color: #fff; }
+:root[data-theme="dark"] .chip.core { color: #0d1a1b; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.core { color: #0d1a1b; } }
+.chip.skin { color: var(--fg); }
+.chip.both { color: var(--core); border-style: dashed; }
+.num { font-variant-numeric: tabular-nums; }
+/* estimate row */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin: 1.4rem 0; }
+.stat { border-top: 2px solid var(--core); padding-top: 0.5rem; }
+.stat b { font-family: var(--display); font-size: 1.6rem; font-weight: 600; display: block; line-height: 1.1; }
+.stat span { color: var(--muted); font-size: 0.9rem; }
+/* variants */
+.variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.2rem; margin-top: 1rem; }
+.variant { border: 1px solid var(--rule); padding: 1rem 1.1rem; min-width: 0; }
+.variant.pick { border-color: var(--core); }
+.variant h3 { margin-top: 0; }
+.variant ul { padding-left: 1.1rem; margin: 0.5rem 0; }
+.variant li { margin: 0.3rem 0; }
+ul.plain { padding-left: 1.1rem; max-width: 68ch; }
+ul.plain li { margin: 0.35rem 0; }
+.note { border-left: 3px solid var(--warn); padding-left: 0.9rem; color: var(--muted); max-width: 68ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+  <div class="eyebrow">SyftHub SDK v2 · design note · 2026-10-12</div>
+  <h1>SyftHub SDK Core Split</h1>
+  <p class="lede">Which parts of the SDK would live in one Rust core, which parts stay per language, and what a search call looks like once it crosses that boundary. Numbers come from the Python first cut as it stands today.</p>
+
+  <h2>The rule for sorting features</h2>
+  <p><strong>Policy and protocol go inside. Surface and transport stay outside.</strong> Anything that must behave identically in every language (what the Hub and Spaces say on the wire, which rows send, what a 402 means, when a breaker opens) belongs in the core. Anything a user touches directly (method names, native types, their own HTTP client, exceptions, async flavour) belongs to the language.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 540" role="img" aria-label="Four language skins sit above binding generators, which sit above one Rust core; the core calls back up into each skin for HTTP and logging.">
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+        <marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="corelabel"/></marker>
+      </defs>
+      <!-- skins -->
+      <text x="20" y="22" class="m dim">PER LANGUAGE · "skin"</text>
+      <g>
+        <rect x="20" y="32" width="200" height="96" class="box"/>
+        <text x="32" y="52" class="t">Python</text>
+        <text x="32" y="70">pydantic wrappers, AsyncHub + Hub</text>
+        <text x="32" y="86">httpx transport, respx tests</text>
+        <text x="32" y="102">exceptions, logging bridge</text>
+      </g>
+      <g>
+        <rect x="240" y="32" width="200" height="96" class="box"/>
+        <text x="252" y="52" class="t">TypeScript</text>
+        <text x="252" y="70">interfaces, Promise API</text>
+        <text x="252" y="86">fetch transport</text>
+        <text x="252" y="102">Error subclasses</text>
+      </g>
+      <g>
+        <rect x="460" y="32" width="200" height="96" class="box"/>
+        <text x="472" y="52" class="t">Go</text>
+        <text x="472" y="70">structs, context.Context API</text>
+        <text x="472" y="86">net/http transport</text>
+        <text x="472" y="102">error values</text>
+      </g>
+      <g>
+        <rect x="680" y="32" width="200" height="96" class="box"/>
+        <text x="692" y="52" class="t">Swift / Kotlin</text>
+        <text x="692" y="70">async throws / suspend</text>
+        <text x="692" y="86">URLSession / OkHttp</text>
+        <text x="692" y="102">later</text>
+      </g>
+      <!-- bindings -->
+      <text x="20" y="176" class="m dim">GENERATED BINDINGS</text>
+      <rect x="20" y="186" width="200" height="40" class="box"/>
+      <text x="32" y="211">UniFFI · Python</text>
+      <rect x="240" y="186" width="200" height="40" class="box"/>
+      <text x="252" y="211">wasm-bindgen or napi-rs</text>
+      <rect x="460" y="186" width="200" height="40" class="box"/>
+      <text x="472" y="211">uniffi-bindgen-go</text>
+      <rect x="680" y="186" width="200" height="40" class="box"/>
+      <text x="692" y="211">UniFFI · Swift, Kotlin</text>
+      <!-- down arrows skins -> bindings -->
+      <line x1="120" y1="128" x2="120" y2="184" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="340" y1="128" x2="340" y2="184" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="560" y1="128" x2="560" y2="184" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="780" y1="128" x2="780" y2="184" stroke="currentColor" marker-end="url(#a)"/>
+      <!-- bindings -> ffi -->
+      <line x1="120" y1="226" x2="120" y2="272" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="340" y1="226" x2="340" y2="272" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="560" y1="226" x2="560" y2="272" stroke="currentColor" marker-end="url(#a)"/>
+      <line x1="780" y1="226" x2="780" y2="272" stroke="currentColor" marker-end="url(#a)"/>
+      <text x="610" y="256" class="m dim">calls: records in, records out</text>
+      <!-- core -->
+      <text x="20" y="262" class="m corelabel">ONE RUST CORE</text>
+      <rect x="20" y="274" width="860" height="36" class="corebox"/>
+      <text x="32" y="297" class="t corelabel">syfthub-ffi · the exported API: compose, preflight, execute, wallets, snapshots</text>
+      <rect x="20" y="322" width="860" height="150" class="corebox"/>
+      <text x="32" y="344" class="t corelabel">syfthub-core</text>
+      <rect x="32" y="356" width="200" height="104" class="box"/>
+      <text x="42" y="375" class="t">protocol</text>
+      <text x="42" y="393">Hub and Space routes</text>
+      <text x="42" y="409">session renewal</text>
+      <text x="42" y="425">satellite token cache</text>
+      <text x="42" y="441">policy and pricing parse</text>
+      <rect x="244" y="356" width="200" height="104" class="box"/>
+      <text x="254" y="375" class="t">rules</text>
+      <text x="254" y="393">pre-flight verdicts</text>
+      <text x="254" y="409">response classifier</text>
+      <text x="254" y="425">budget and wallet maths</text>
+      <text x="254" y="441">MPP 402 pay and resend</text>
+      <rect x="456" y="356" width="200" height="104" class="box"/>
+      <text x="466" y="375" class="t">resilience</text>
+      <text x="466" y="393">retry with jitter</text>
+      <text x="466" y="409">per-host breaker, probe</text>
+      <text x="466" y="425">concurrency limit</text>
+      <text x="466" y="441">401 re-mint once</text>
+      <rect x="668" y="356" width="200" height="104" class="box"/>
+      <text x="678" y="375" class="t">state</text>
+      <text x="678" y="393">plan, preflight, results</text>
+      <text x="678" y="409">snapshot JSON + version</text>
+      <text x="678" y="425">spent, breaker state</text>
+      <text x="678" y="441">source cache (60s)</text>
+      <!-- callback arrow: core -> skin -->
+      <path d="M 890 322 L 890 80 L 882 80" fill="none" class="cb" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ac)"/>
+      <text x="893" y="200" class="m corelabel" transform="rotate(-90 893 200)" text-anchor="middle">Transport.send(request)</text>
+      <text x="20" y="500" class="m dim">solid: the skin calls the core</text>
+      <text x="20" y="518" class="m corelabel">dashed: the core calls back into the skin for HTTP, clock and log lines (foreign trait)</text>
+    </svg>
+    <figcaption>Each language keeps a thin skin over one generated binding. The core owns every rule and every wire format. HTTP goes out through a trait the skin implements, so each language keeps its native client.</figcaption>
+  </figure>
+
+  <h2>Feature allocation</h2>
+  <p>Every feature of the first cut, plus the pieces the full v2 design adds later. The line counts are the Python module sizes today, so the split is measured rather than guessed.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Feature</th><th>Where</th><th>Why there</th><th class="num">Python lines today</th></tr></thead>
+    <tbody>
+      <tr class="group"><td colspan="4">Session and auth</td></tr>
+      <tr><td>Login, refresh, whoami, token renewal under 401 storms</td><td class="where"><span class="chip core">core</span></td><td>One correct renewal lock instead of four.</td><td class="num">160</td></tr>
+      <tr><td>Satellite token cache (80% TTL, one re-mint on 401)</td><td class="where"><span class="chip core">core</span></td><td>Protocol detail every port got subtly wrong before.</td><td class="num">in auth</td></tr>
+      <tr><td>Reading <code>SYFTHUB_URL</code> and <code>SYFTHUB_TOKEN</code></td><td class="where"><span class="chip skin">skin</span></td><td>Idiomatic per language; the core takes explicit values.</td><td class="num">10</td></tr>
+      <tr class="group"><td colspan="4">Sources</td></tr>
+      <tr><td>Hub routes, pagination to <code>max_items</code>, 60s cache</td><td class="where"><span class="chip core">core</span></td><td>Wire format and paging rules.</td><td class="num">279</td></tr>
+      <tr><td>Policy parsing: pricing, rails, bundles, access globs, reachability, query URL, tenant</td><td class="where"><span class="chip core">core</span></td><td>The Hub and Space contract in one place.</td><td class="num">280</td></tr>
+      <tr><td><code>SourceList</code> views: <code>matching</code>, <code>filter</code>, <code>pick</code>, <code>+</code></td><td class="where"><span class="chip both">shared</span></td><td>Fuzzy scoring in core; the collection type is native per language.</td><td class="num">120</td></tr>
+      <tr class="group"><td colspan="4">Wallets and payments</td></tr>
+      <tr><td>Grouping sources by wallet id, balance, top-up, invoices, <code>wait_paid</code> polling</td><td class="where"><span class="chip core">core</span></td><td>Money rules and Space routes.</td><td class="num">433</td></tr>
+      <tr><td><code>Money</code> as Decimal, bundle suggestion</td><td class="where"><span class="chip core">core</span></td><td>Rust decimal in core; skins expose their decimal type.</td><td class="num">76</td></tr>
+      <tr class="group"><td colspan="4">Search pipeline</td></tr>
+      <tr><td>Compose and validate a plan, <code>skip</code></td><td class="where"><span class="chip core">core</span></td><td>Validation messages identical everywhere.</td><td class="num">229</td></tr>
+      <tr><td>Pre-flight rules: skip, reachability, access, circuit, credits per wallet, budget, health</td><td class="where"><span class="chip core">core</span></td><td>This is the product. One implementation.</td><td class="num">682</td></tr>
+      <tr><td>Response classifier: 2xx, 402 prepaid, 402 MPP, 403 variants, 404, 401, 5xx</td><td class="where"><span class="chip core">core</span></td><td>Reads <code>policy_metadata</code> the same way for every port.</td><td class="num">270</td></tr>
+      <tr><td>Execute: fan-out, per-host probe, MPP pay through the Hub, spend recording</td><td class="where"><span class="chip core">core</span></td><td>Concurrency and billing must not drift.</td><td class="num">in search</td></tr>
+      <tr><td><code>Results</code> views: <code>only</code>, <code>drop</code>, <code>top</code>, <code>+</code>, document ordering</td><td class="where"><span class="chip both">shared</span></td><td>Ordering rule in core; iteration and indexing native.</td><td class="num">267</td></tr>
+      <tr class="group"><td colspan="4">Resilience</td></tr>
+      <tr><td>Retry with full jitter, retryable statuses</td><td class="where"><span class="chip core">core</span></td><td>Policy, not plumbing.</td><td class="num">21</td></tr>
+      <tr><td>Per-host circuit breaker with one probe after cooldown</td><td class="where"><span class="chip core">core</span></td><td>State machine; identical across ports.</td><td class="num">65</td></tr>
+      <tr><td>The HTTP client: pool, TLS, proxies, timeouts, user agent</td><td class="where"><span class="chip skin">skin</span></td><td>Implements the core's <code>Transport</code> trait with httpx, fetch or net/http.</td><td class="num">145</td></tr>
+      <tr><td>Header redaction in debug logs</td><td class="where"><span class="chip core">core</span></td><td>The core emits log lines already redacted; the skin routes them.</td><td class="num">in client</td></tr>
+      <tr class="group"><td colspan="4">Snapshots</td></tr>
+      <tr><td><code>to_dict</code> / <code>from_dict</code> for plan, invoice, results; version check</td><td class="where"><span class="chip core">core</span></td><td>One JSON schema, one <code>StaleSnapshot</code> rule.</td><td class="num">83</td></tr>
+      <tr class="group"><td colspan="4">Surface</td></tr>
+      <tr><td>Namespaces <code>hub.sources</code>, <code>hub.wallets</code>, method names, keyword arguments</td><td class="where"><span class="chip skin">skin</span></td><td>What users read in docs; must feel native.</td><td class="num">186</td></tr>
+      <tr><td>Model types: pydantic in Python, interfaces in TS, structs in Go</td><td class="where"><span class="chip skin">skin</span></td><td>Thin wrappers over the core's records.</td><td class="num">~500</td></tr>
+      <tr><td>Error hierarchy: <code>SyftHubError</code> and subclasses</td><td class="where"><span class="chip skin">skin</span></td><td>The core returns one error enum; the skin maps it.</td><td class="num">83</td></tr>
+      <tr><td>Async and sync twins</td><td class="where"><span class="chip skin">skin</span></td><td>The core exposes async; the sync twin blocks on it with no private loop.</td><td class="num">221</td></tr>
+      <tr class="group"><td colspan="4">Testing and packaging</td></tr>
+      <tr><td>Conformance vectors: facts to preflight, response to row, failures to breaker state</td><td class="where"><span class="chip core">core</span></td><td>Shared JSON fixtures; the core's own test suite.</td><td class="num">new</td></tr>
+      <tr><td><code>syfthub.testing</code> fakes (FakeHub, FakeSpace)</td><td class="where"><span class="chip both">shared</span></td><td>Canned bodies in core; the mock transport is per language.</td><td class="num">530</td></tr>
+      <tr><td>Wheels, npm packages, Go modules, docs, examples</td><td class="where"><span class="chip skin">skin</span></td><td>One release matrix per language.</td><td class="num">n/a</td></tr>
+      <tr class="group"><td colspan="4">Later cuts</td></tr>
+      <tr><td>Chat room, <code>chat.context</code>, filters, client-side aggregator fan-out</td><td class="where"><span class="chip core">core</span></td><td>Same shape as search: rules and protocol.</td><td class="num">future</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>What the numbers say</h2>
+  <div class="stats">
+    <div class="stat"><b class="num">4,745</b><span>Python lines in the first cut today</span></div>
+    <div class="stat"><b class="num">≈ 65%</b><span>of that logic moves into the core</span></div>
+    <div class="stat"><b class="num">≈ 1,500</b><span>lines of Python skin left (models, namespaces, sync twin, transport)</span></div>
+    <div class="stat"><b class="num">≈ 4–5k</b><span>Rust lines for the core, written once</span></div>
+  </div>
+  <p>The skin is smaller in the other languages. TypeScript and Go have no sync twin to write and no pydantic layer to keep, so each lands near 800 lines plus tests. Swift and Kotlin come almost for free from UniFFI, which is the main reason mobile SDKs pick this path.</p>
+  <p class="note">The 65% is logic, not effort. Writing the core is a rewrite of what exists, and the Rust side gains an FFI crate, a trait for transport, and a release matrix of native wheels. Expect the first core to cost about as much as the Python first cut did, before any skin is written.</p>
+
+  <h2>One call across the boundary</h2>
+  <figure>
+    <svg viewBox="0 0 900 470" role="img" aria-label="A plan.execute() call in Python enters the core, which runs pre-flight, asks the skin's transport to send HTTP requests to the Hub and the Spaces, classifies the replies, and returns a Results record that the skin wraps in pydantic.">
+      <defs>
+        <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+        <marker id="bc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="corelabel"/></marker>
+      </defs>
+      <!-- lanes -->
+      <rect x="20" y="40" width="270" height="410" class="lane"/>
+      <rect x="315" y="40" width="270" height="410" class="corebox"/>
+      <rect x="610" y="40" width="270" height="410" class="lane"/>
+      <text x="155" y="28" text-anchor="middle" class="t">Python skin</text>
+      <text x="450" y="28" text-anchor="middle" class="t corelabel">Rust core</text>
+      <text x="745" y="28" text-anchor="middle" class="t">Hub and Spaces</text>
+      <!-- 1 -->
+      <text x="32" y="66" class="m">await plan.execute()</text>
+      <line x1="200" y1="62" x2="313" y2="62" stroke="currentColor" marker-end="url(#b)"/>
+      <text x="327" y="66" class="m">execute(plan record)</text>
+      <!-- 2 preflight -->
+      <text x="327" y="98">pre-flight: resolve sources,</text>
+      <text x="327" y="114">pick wallets to read</text>
+      <!-- 3 transport call back -->
+      <line x1="315" y1="134" x2="202" y2="134" class="cb" stroke-dasharray="5 4" marker-end="url(#bc)"/>
+      <text x="327" y="150" class="m corelabel">Transport.send(GET balance)</text>
+      <text x="32" y="138" class="m">httpx.AsyncClient</text>
+      <line x1="150" y1="158" x2="608" y2="158" stroke="currentColor" marker-end="url(#b)"/>
+      <text x="622" y="174" class="m">GET credits_url</text>
+      <line x1="608" y1="186" x2="152" y2="186" stroke="currentColor" marker-end="url(#b)"/>
+      <line x1="200" y1="204" x2="313" y2="204" class="cb" stroke-dasharray="5 4" marker-end="url(#bc)"/>
+      <text x="32" y="208" class="m">bytes, status, headers</text>
+      <!-- 4 rules -->
+      <text x="327" y="236">rules: verdict per row,</text>
+      <text x="327" y="252">actions, budget check</text>
+      <!-- 5 send queries -->
+      <line x1="315" y1="272" x2="202" y2="272" class="cb" stroke-dasharray="5 4" marker-end="url(#bc)"/>
+      <text x="327" y="288" class="m corelabel">Transport.send(POST query) × n</text>
+      <text x="32" y="276" class="m">semaphore in core, I/O here</text>
+      <line x1="150" y1="298" x2="608" y2="298" stroke="currentColor" marker-end="url(#b)"/>
+      <text x="622" y="314" class="m">POST /endpoints/{slug}/query</text>
+      <line x1="608" y1="326" x2="152" y2="326" stroke="currentColor" marker-end="url(#b)"/>
+      <text x="622" y="342" class="m">200 · 402 · 403 · 5xx</text>
+      <line x1="200" y1="346" x2="313" y2="346" class="cb" stroke-dasharray="5 4" marker-end="url(#bc)"/>
+      <!-- 6 classify -->
+      <text x="327" y="376">classify each reply,</text>
+      <text x="327" y="392">pay MPP 402 via Hub, record spend</text>
+      <!-- 7 return -->
+      <line x1="313" y1="416" x2="202" y2="416" stroke="currentColor" marker-end="url(#b)"/>
+      <text x="327" y="434" class="m">Results record (rows, actions)</text>
+      <text x="32" y="420" class="m">Results.model_validate(...)</text>
+      <text x="32" y="440" class="m">→ pydantic Results to the app</text>
+    </svg>
+    <figcaption>Every byte on the wire still leaves through the skin's own HTTP client, so respx mocks, proxies and custom clients keep working. The core decides what to send and what the replies mean. One search with three sources crosses the boundary about eight times, which is cheap next to the network round trips.</figcaption>
+  </figure>
+
+  <h2>The one decision inside the decision</h2>
+  <p>Where the HTTP client lives changes the user-facing cost more than anything else. Two ways to cut it.</p>
+  <div class="variants">
+    <div class="variant pick">
+      <h3>Transport outside the core</h3>
+      <p>The core defines an async <code>Transport</code> trait and the skin implements it with its native client. UniFFI supports foreign-implemented async traits for Python, Swift and Kotlin.</p>
+      <ul>
+        <li>Users keep <code>Options.http_client</code>, proxies, TLS settings and respx or nock mocks.</li>
+        <li>The sync twin passes a blocking client; the core runs it on its own thread. No private event loop in Python.</li>
+        <li>Cost: each request crosses the boundary twice, and the core cannot stream bodies without more trait surface.</li>
+        <li>Go and TypeScript bindings need the same callback support; for wasm that means a JS <code>fetch</code> shim, which is routine.</li>
+      </ul>
+    </div>
+    <div class="variant">
+      <h3>Transport inside the core</h3>
+      <p>The core ships reqwest and tokio and talks to the network itself. This is what Matrix and Bitwarden do.</p>
+      <ul>
+        <li>Fewer boundary crossings and streaming comes naturally later.</li>
+        <li>Users lose their own client. Mocking means a core-level fake server, so the testing package moves into Rust too.</li>
+        <li>TLS roots, proxies and corporate certificates become a Rust configuration problem reported through Python.</li>
+        <li>The wasm build cannot use reqwest's native stack and needs a fetch backend anyway, so the "one transport" promise only holds off the web.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>How a binding talks to the core</h2>
+  <p>No server, no sockets, no JSON over a wire. The binding and the core run in the same process, and a call into the core is an ordinary machine-level function call into a shared library. Latency is nanoseconds.</p>
+
+  <h3>What the core compiles to</h3>
+  <p>Cargo builds the Rust core into a native shared library: <code>libsyfthub.so</code> on Linux, <code>.dylib</code> on macOS, <code>.dll</code> on Windows. The library exports plain C functions, because C's calling convention is the one thing every language already knows how to call. Rust stays hidden behind that surface. For the browser the same crate compiles to a <code>.wasm</code> module that the JavaScript engine runs in its own linear memory.</p>
+
+  <h3>How each language loads it</h3>
+  <ul class="plain">
+    <li><strong>Python</strong> opens the library with <code>ctypes</code> at import time. The library ships inside the wheel, so <code>pip install</code> is all the user does.</li>
+    <li><strong>Node</strong> loads it as a native addon through N-API, the way <code>better-sqlite3</code> or <code>esbuild</code> do.</li>
+    <li><strong>Go</strong> links it at build time through cgo, so the Go binary contains the core.</li>
+    <li><strong>Swift and Kotlin</strong> link it as a static library in the app bundle, Kotlin through JNA.</li>
+  </ul>
+
+  <figure>
+    <svg viewBox="0 0 900 250" role="img" aria-label="One call from Python into the core: the generated binding packs the plan into a byte buffer, calls a C function in the shared library on the same thread, Rust unpacks it, does the work, packs the reply, and the binding unpacks it into a Python record.">
+      <defs>
+        <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>
+      </defs>
+      <rect x="20" y="30" width="260" height="190" class="lane"/>
+      <rect x="320" y="30" width="260" height="190" class="box"/>
+      <rect x="620" y="30" width="260" height="190" class="corebox"/>
+      <text x="150" y="20" text-anchor="middle" class="t">Python, your code</text>
+      <text x="450" y="20" text-anchor="middle" class="t">generated binding</text>
+      <text x="750" y="20" text-anchor="middle" class="t corelabel">libsyfthub.so, Rust</text>
+      <text x="32" y="62" class="m">pre = hub.preflight(plan)</text>
+      <line x1="230" y1="58" x2="318" y2="58" stroke="currentColor" marker-end="url(#c)"/>
+      <text x="332" y="62" class="m">lower(plan) → bytes</text>
+      <text x="332" y="86" class="m">C call, same thread:</text>
+      <text x="332" y="104" class="m">fn_hub_preflight(handle, buf)</text>
+      <line x1="540" y1="100" x2="618" y2="100" stroke="currentColor" marker-end="url(#c)"/>
+      <text x="632" y="104" class="m">unpack SearchPlan</text>
+      <text x="632" y="128">run the rules</text>
+      <text x="632" y="150" class="m">pack Preflight → bytes</text>
+      <text x="632" y="170" class="m">status: ok | error code</text>
+      <line x1="618" y1="166" x2="540" y2="166" stroke="currentColor" marker-end="url(#c)"/>
+      <text x="332" y="170" class="m">check status → raise?</text>
+      <text x="332" y="192" class="m">lift(bytes) → Preflight</text>
+      <line x1="318" y1="188" x2="230" y2="188" stroke="currentColor" marker-end="url(#c)"/>
+      <text x="32" y="192" class="m">pre.rows, pre.actions</text>
+      <text x="32" y="240" class="m dim">a Hub object never crosses: Python holds an integer handle to Rust memory and passes it back on every call</text>
+    </svg>
+    <figcaption>One call, start to finish. The byte buffer is a compact binary layout generated from the same interface description on both sides, so the two cannot disagree about field order.</figcaption>
+  </figure>
+
+  <h3>What crosses the boundary</h3>
+  <p>C understands integers, floats and pointers, so the generator writes the glue for everything else.</p>
+  <ul class="plain">
+    <li><strong>Scalars</strong> pass as themselves.</li>
+    <li><strong>Strings and records</strong> such as a <code>SearchPlan</code> are packed into a length-prefixed byte buffer by the binding, unpacked in Rust, and the reply comes back the same way. UniFFI calls this a <code>RustBuffer</code>. It is binary, not JSON.</li>
+    <li><strong>Objects with behaviour</strong> such as a <code>Hub</code> session never cross. The binding gets an opaque handle, an integer pointing at Rust memory, and every method passes that handle back in. The Python class is a thin shell around the handle with a finalizer that tells Rust to free it.</li>
+    <li><strong>Errors</strong> come back in a status struct beside the return value. The generated Python turns a non-zero status into the matching exception class.</li>
+  </ul>
+
+  <p>The generated glue for one method, simplified, next to the Rust that produces it:</p>
+<pre class="mono" style="background: var(--surface); padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.45;"># generated by UniFFI
+def preflight(hub: Hub, plan: SearchPlan) -> Preflight:
+    buf = _lower_SearchPlan(plan)                 # pack fields into bytes
+    status = RustCallStatus()
+    out = _lib.uniffi_syfthub_fn_method_hub_preflight(hub._handle, buf, byref(status))
+    _check(status)                                # raise the SyftHubError subclass if set
+    return _lift_Preflight(out)                   # unpack bytes into the Python record
+
+// what you actually write
+#[uniffi::export]
+impl Hub {
+    pub async fn preflight(&amp;self, plan: SearchPlan) -> Result&lt;Preflight, SyftHubError&gt; { ... }
+}</pre>
+
+  <h3>Async without a server</h3>
+  <p>The Rust function returns a future. The binding hands Rust a completion callback and immediately returns a Python awaitable. Rust's runtime drives the future on its own threads, and when it finishes it calls the callback, which resolves the Python future on the caller's event loop. In Swift and Kotlin the same mechanism surfaces as <code>async throws</code> and <code>suspend</code>. The sync twin is the same export called through a blocking wrapper.</p>
+
+  <h3>The core calling back into the skin</h3>
+  <p>This is what the transport-outside variant relies on. The binding builds a small table of C function pointers that trampoline into Python methods and registers it with Rust once. When the core needs an HTTP request it calls <code>send</code> through that table, Python runs httpx, and the response bytes go back through a buffer. Python's GIL is released while Rust runs and reacquired for the callback, so other Python threads keep going.</p>
+
+  <h3>Memory rule</h3>
+  <p>Two allocators coexist, so whoever allocated a buffer frees it. Rust allocates its reply buffers and exports a free function that the binding calls after unpacking. Handles are freed when the Python object is garbage collected. The generator writes all of this, which is the main reason to use one rather than hand-rolling ctypes.</p>
+
+  <h3>The other model, for contrast</h3>
+  <p>Tailscale's <code>tailscaled</code>, Docker's daemon and language servers run a separate process and talk over a socket. That buys isolation and crash containment at the cost of a process to manage, a protocol to version, and real latency per call. For an SDK that a notebook imports, in-process linking is the right shape.</p>
+
+  <h2>What stays open</h2>
+  <ul class="plain">
+    <li><strong>Pydantic is a wrapper, not the source of truth.</strong> UniFFI emits dataclasses. Keeping the pydantic rule means a generated-to-pydantic layer with a conformance test that both agree.</li>
+    <li><strong>Go binding currency.</strong> The community Go generator targets UniFFI 0.25 while upstream is at 0.32, so the Go skin either pins the core's UniFFI version or waits.</li>
+    <li><strong>Debuggability.</strong> A hung search becomes a Rust trace for a Python user. The core needs structured, per-row timing in the <code>Results</code> record to compensate.</li>
+    <li><strong>Sequencing.</strong> Finish the Python first cut and extract its rules into JSON conformance vectors first. Those vectors are the core's acceptance tests on day one, so nothing in the Python work is thrown away.</li>
+  </ul>
+</main>

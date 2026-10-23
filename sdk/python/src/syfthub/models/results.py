@@ -65,6 +65,7 @@ class SourceResult(Frozen):
     reason: Reason | None = None
     status_code: int = 0
     documents: tuple[Document, ...] = ()
+    metadata_fields: tuple[str, ...] = ()
     summary: str | None = None
     cost: Money | None = None
     charges: tuple[ChargeEntry, ...] = ()
@@ -102,6 +103,15 @@ class SourceResult(Frozen):
     @property
     def chunks(self) -> tuple[Document, ...]:
         return tuple(d for d in self.documents if not d.is_summary)
+
+    @classmethod
+    def metadata_fields_of(cls, body: dict[str, Any]) -> tuple[str, ...]:
+        """``references.provider_info.metadata_fields`` of a Space response; empty when the
+        Space did not say (older Spaces, model sources)."""
+        refs = body.get("references")
+        info = refs.get("provider_info") if isinstance(refs, dict) else None
+        raw = info.get("metadata_fields") if isinstance(info, dict) else None
+        return tuple(f for f in raw if isinstance(f, str)) if isinstance(raw, list) else ()
 
     @property
     def summaries(self) -> tuple[Document, ...]:
