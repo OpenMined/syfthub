@@ -1,6 +1,6 @@
 [project]
 name = "syfthub-sdk"
-version = "2.0.0a2"
+version = "2.0.0b1"
 description = "Python SDK for SyftHub: search across Syft Space sources with pre-flight, wallets and budgets"
 readme = "README.md"
 license = { text = "Apache-2.0" }
