@@ -65,6 +65,8 @@ class FakeSpace(BaseModel):
         default_factory=lambda: [{"name": "starter", "amount": 1}]
     )
     replies: dict[str, Reply] = Field(default_factory=dict)
+    # slug -> the metadata keys its documents may carry, as ``add_source`` declared them
+    metadata_fields: dict[str, list[str]] = Field(default_factory=dict)
     invoices: list[dict[str, Any]] = Field(default_factory=list)
     accept_tokens: bool = True
     _charged: int = PrivateAttr(default=0)
@@ -281,6 +283,8 @@ class FakeSpace(BaseModel):
             "references": {"documents": documents},
             "policy_metadata": {"outcome": "success", "entries": entries},
         }
+        if slug in self.metadata_fields:
+            body["references"]["provider_info"] = {"metadata_fields": self.metadata_fields[slug]}
         if cost is not None:
             body["cost"], body["currency"] = cost, self.currency
         return httpx.Response(200, json=body)
@@ -348,10 +352,15 @@ class FakeHub(BaseModel):
         tags: list[str] | None = None,
         description: str = "",
         name: str | None = None,
+        metadata_fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Register a source. ``price`` adds a prepaid policy on the owner's Space wallet;
-        ``mpp_price`` adds an MPP policy and makes the Space challenge every query."""
+        ``mpp_price`` adds an MPP policy and makes the Space challenge every query.
+        ``metadata_fields`` is what the publisher declared: the Hub body gets ``query_schema``
+        and the Space's replies name them in ``provider_info``; None leaves both unsaid."""
         space = self.space(owner)
+        if metadata_fields is not None:
+            space.metadata_fields[slug] = list(metadata_fields)
         pols = list(policies or [])
         if price is not None:
             pols.append(space.policy(price, unit=unit, rail=rail))
@@ -377,6 +386,9 @@ class FakeHub(BaseModel):
             "stars_count": 0,
             "policies": pols,
             "connect": [{"type": "http", "enabled": True, "config": {"url": space.origin}}],
+            "query_schema": (
+                {"metadata_fields": list(metadata_fields)} if metadata_fields is not None else None
+            ),
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
             "health_status": "healthy",
