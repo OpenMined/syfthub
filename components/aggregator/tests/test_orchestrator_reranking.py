@@ -144,7 +144,7 @@ async def test_rerank_documents_success() -> None:
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=retrieval_results,
-            top_k=3,
+            context_limit=50,
         )
 
     assert result is not None
@@ -157,6 +157,47 @@ async def test_rerank_documents_success() -> None:
 
     assert context_dict == {1: "Bob doc 1.", 2: "Alice doc 1.", 3: "Alice doc 2."}
     assert source_index_map == {1: "bob/data", 2: "alice/docs", 3: "alice/docs"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("context_limit", "expected_top_k"),
+    [
+        (50, 3),  # limit above the pool: the whole pool (2 + 1 docs) is kept
+        (2, 2),  # limit below the pool: the caller's cap wins
+    ],
+)
+async def test_rerank_documents_top_k_is_pool_capped_by_context_limit(
+    context_limit: int, expected_top_k: int
+) -> None:
+    """The library's top_k is min(pool size, context_limit), never the per-source top_k."""
+    orchestrator = _make_orchestrator()
+    retrieval_results = _make_retrieval_results()
+
+    mock_instance = MagicMock()
+    mock_instance.perform_aggregation.return_value = {
+        "central_re_embedding": {"reranked_nodes": []}
+    }
+
+    with patch(AGGREGATE_PATH, return_value=mock_instance) as mock_cls:
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
+        await orchestrator._rerank_documents(
+            query="test query",
+            retrieval_results=retrieval_results,
+            context_limit=context_limit,
+        )
+
+    assert mock_instance.perform_aggregation.call_args.kwargs["top_k"] == expected_top_k
+
+
+def test_chat_request_context_limit_defaults_to_fifty() -> None:
+    """context_limit is independent of top_k and defaults high enough to keep a typical pool."""
+    from aggregator.schemas.requests import ChatRequest, EndpointRef
+
+    request = ChatRequest(prompt="q", model=EndpointRef(url="http://model", slug="m"))
+
+    assert request.top_k == 5
+    assert request.context_limit == 50
 
 
 @pytest.mark.asyncio
@@ -173,7 +214,7 @@ async def test_rerank_documents_failure_returns_none() -> None:
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=retrieval_results,
-            top_k=5,
+            context_limit=50,
         )
 
     assert result is None
@@ -202,7 +243,7 @@ async def test_rerank_documents_empty_input_returns_none() -> None:
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=empty_results,
-            top_k=5,
+            context_limit=50,
         )
 
     assert result is None

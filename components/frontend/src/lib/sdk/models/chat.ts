@@ -260,6 +260,12 @@ export interface ChatOptions {
   dataSources?: (string | EndpointRef)[];
   /** Number of documents to retrieve per source (default: 5) */
   topK?: number;
+  /**
+   * Maximum reranked documents, across all sources, that go into the prompt
+   * (default: 50). Independent of topK: retrieved documents are already paid
+   * for, so the default keeps the whole pool for typical requests.
+   */
+  contextLimit?: number;
   /** Maximum tokens to generate (default: 1024) */
   maxTokens?: number;
   /** Generation temperature (default: 0.7) */

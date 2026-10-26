@@ -395,6 +395,7 @@ export class ChatResource {
       userToken,
       {
         topK: options.topK,
+        contextLimit: options.contextLimit,
         maxTokens: options.maxTokens,
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
@@ -445,6 +446,7 @@ export class ChatResource {
     userToken: string | null,
     options: {
       topK?: number;
+      contextLimit?: number;
       maxTokens?: number;
       temperature?: number;
       similarityThreshold?: number;
@@ -478,6 +480,11 @@ export class ChatResource {
       similarity_threshold: options.similarityThreshold ?? 0.5,
       stream: options.stream ?? false
     };
+
+    // Omitted when unset so the aggregator's own default applies.
+    if (options.contextLimit !== undefined) {
+      body.context_limit = options.contextLimit;
+    }
 
     // Include user token for MPP payment flow
     if (userToken) {
