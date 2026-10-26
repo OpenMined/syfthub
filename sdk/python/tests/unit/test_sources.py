@@ -201,3 +201,33 @@ def test_query_url_and_reachability() -> None:
     assert not tunnelled.reachable and tunnelled.space_url == "tunneling:alice"
     body["connect"] = []
     assert Source.from_hub(body).query_url is None and not Source.from_hub(body).reachable
+
+
+def test_query_schema_declared_by_the_publisher() -> None:
+    src = Source.from_hub(
+        hub_body("bob", "feed", query_schema={"metadata_fields": ["title", "url", "published"]})
+    )
+    assert src.metadata_fields == ("title", "url", "published")
+    assert src.query_schema is not None and src.raw["query_schema"] == {
+        "metadata_fields": ["title", "url", "published"]
+    }
+
+
+def test_query_schema_absent_means_no_metadata_fields(free_source: Source) -> None:
+    """An older Space, or a model source: the Hub relays ``null``."""
+    assert free_source.query_schema is None
+    assert free_source.metadata_fields == ()
+
+
+def test_query_schema_with_no_public_keys_is_declared_but_empty() -> None:
+    src = Source.from_hub(hub_body("bob", "feed", query_schema={"metadata_fields": []}))
+    assert src.query_schema is not None
+    assert src.metadata_fields == ()
+
+
+def test_query_schema_keeps_unknown_keys_in_raw_only() -> None:
+    src = Source.from_hub(
+        hub_body("bob", "feed", query_schema={"metadata_fields": ["title"], "filters": {"a": 1}})
+    )
+    assert src.metadata_fields == ("title",)
+    assert src.raw["query_schema"]["filters"] == {"a": 1}

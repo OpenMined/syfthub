@@ -59,6 +59,13 @@ class Connection(Frozen):
         return value if isinstance(value, str) and value else None
 
 
+class QuerySchema(Frozen):
+    """``EndpointPublicResponse.query_schema``: what a query may carry, as the publisher
+    declared it. ``metadata_fields`` are the keys a document's ``metadata`` can hold."""
+
+    metadata_fields: tuple[str, ...] = ()
+
+
 class Price(Frozen):
     """One payment policy's price: an amount per request or per document."""
 
@@ -259,6 +266,7 @@ class Source(Frozen):
     stars_count: int = 0
     policies: tuple[Policy, ...] = ()
     connect: tuple[Connection, ...] = ()
+    query_schema: QuerySchema | None = None
     readme: str = ""
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -281,6 +289,12 @@ class Source(Frozen):
     def free(self) -> bool:
         pricing = self.pricing
         return pricing is None or pricing.free
+
+    @property
+    def metadata_fields(self) -> tuple[str, ...]:
+        """The keys a document's ``metadata`` may carry; empty when the publisher declared
+        none, or nothing at all (``query_schema`` is then None)."""
+        return self.query_schema.metadata_fields if self.query_schema else ()
 
     @property
     def connection(self) -> Connection | None:

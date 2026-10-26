@@ -18,6 +18,7 @@ def hub_body(
     policies: list[dict[str, Any]] | None = None,
     tags: list[str] | None = None,
     description: str = "",
+    query_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": slug.replace("-", " ").title(),
@@ -34,6 +35,7 @@ def hub_body(
         "connect": [
             {"type": "http", "enabled": True, "config": {"url": f"https://{owner}.space.test"}}
         ],
+        "query_schema": query_schema,
         "created_at": "2026-10-01T00:00:00Z",
         "updated_at": "2026-10-02T00:00:00Z",
         "health_status": "healthy",
