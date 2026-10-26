@@ -200,6 +200,12 @@ export interface Connection {
   config: Record<string, unknown>;
 }
 
+/** What a query against the endpoint may carry, as declared by its publisher. */
+export interface QuerySchema {
+  /** Metadata keys a search response may carry per document */
+  metadata_fields: string[];
+}
+
 // Endpoint schemas
 export interface EndpointBase {
   name: string;
@@ -211,6 +217,7 @@ export interface EndpointBase {
   tags: string[];
   policies: Policy[];
   connect: Connection[];
+  query_schema?: QuerySchema | null;
 }
 
 export interface EndpointCreate extends EndpointBase {
@@ -228,6 +235,7 @@ export interface EndpointUpdate {
   tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
+  query_schema?: QuerySchema | null;
 }
 
 export interface Endpoint extends EndpointBase {
@@ -256,6 +264,7 @@ export interface EndpointPublicResponse {
   stars_count: number;
   policies: Policy[];
   connect: Connection[];
+  query_schema?: QuerySchema | null;
   created_at: string;
   updated_at: string;
   owner_username?: string; // Username of the endpoint owner (if exposed by backend)

@@ -108,7 +108,11 @@ def _summary_text(body: dict[str, Any]) -> str | None:
 def _documents(source: Source, body: dict[str, Any]) -> tuple[tuple[Document, ...], str | None]:
     refs = body.get("references")
     raw = refs.get("documents") if isinstance(refs, dict) else None
-    documents = [Document.from_space(source.path, d) for d in raw or () if isinstance(d, dict)]
+    documents = [
+        Document.from_space(source.path, d, base_url=source.space_url)
+        for d in raw or ()
+        if isinstance(d, dict)
+    ]
     summary = _summary_text(body)
     if summary:
         documents.append(Document.summary(source.path, summary))
@@ -192,6 +196,7 @@ def _returned(r: _Reply) -> SourceResult:
     return r.row(
         outcome=Outcome.RETURNED,
         documents=documents,
+        metadata_fields=SourceResult.metadata_fields_of(r.body),
         summary=summary,
         cost=_cost(r.body, currency) or (r.charge.amount if r.charge else None),
         paid_from=r.wallet.key if r.wallet is not None and charged else None,

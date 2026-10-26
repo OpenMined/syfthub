@@ -119,3 +119,20 @@ async def test_caps_are_per_currency_and_an_uncapped_currency_is_not_budgeted(
         (over,) = pre.actions
         assert over.estimate == Money.of(5000, "IDR") and over.paths == ("budi/idr",)
         assert hub.budget.remaining == {"USD": Money.of(1), "IDR": Money.of(1000, "IDR")}
+
+
+async def test_metadata_fields_declared_on_the_hub_and_named_by_the_space() -> None:
+    f = FakeHub()
+    f.add_source("alice", "feed", metadata_fields=["title", "url"])
+    f.add_source("alice", "plain")
+    f.space("alice").reply("feed", documents=[{"content": "x", "metadata": {"title": "T"}}])
+    f.space("alice").reply("plain", documents=[{"content": "y"}])
+    async with f.hub() as hub:
+        feed = await hub.sources.get("alice/feed")
+        plain = await hub.sources.get("alice/plain")
+        assert feed.metadata_fields == ("title", "url") and plain.metadata_fields == ()
+        assert plain.query_schema is None
+        results = await hub.search("q", ["alice/feed", "alice/plain"]).execute()
+    assert results["alice/feed"].metadata_fields == ("title", "url")
+    assert results["alice/feed"].chunks[0].metadata == {"title": "T"}
+    assert results["alice/plain"].metadata_fields == ()

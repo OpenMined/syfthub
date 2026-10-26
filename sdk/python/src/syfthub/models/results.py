@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
+from urllib.parse import urljoin
 
 from pydantic import Field
 
@@ -29,9 +30,12 @@ class Document(Frozen):
     score: float | None = Field(default=None, alias="similarity_score")
     metadata: dict[str, Any] = Field(default_factory=dict)
     source: str = ""
+    # The Space origin this document came from; None for a tunnelled source. Relative links
+    # in ``metadata`` resolve against it.
+    base_url: str | None = None
 
     @classmethod
-    def from_space(cls, source: str, d: dict[str, Any]) -> Document:
+    def from_space(cls, source: str, d: dict[str, Any], *, base_url: str | None = None) -> Document:
         """One ``references.documents[]`` item; tolerant of missing or null fields."""
         metadata = d.get("metadata")
         return cls(
@@ -40,6 +44,7 @@ class Document(Frozen):
             similarity_score=_float(d.get("similarity_score", d.get("score"))),
             metadata=metadata if isinstance(metadata, dict) else {},
             source=source,
+            base_url=base_url,
         )
 
     @classmethod
@@ -56,6 +61,16 @@ class Document(Frozen):
     def is_summary(self) -> bool:
         return self.score is None
 
+    @property
+    def image_urls(self) -> tuple[str, ...]:
+        """``metadata["image_urls"]`` as absolute URLs. The Space sends them relative to its
+        own origin; ``metadata`` keeps them that way. Empty without a base (a tunnelled
+        source) or without the key."""
+        raw = self.metadata.get("image_urls")
+        if not self.base_url or not isinstance(raw, list):
+            return ()
+        return tuple(urljoin(self.base_url, u) for u in raw if isinstance(u, str) and u)
+
 
 class SourceResult(Frozen):
     """One row of ``Results``: its own billing and served-by record."""
@@ -65,6 +80,7 @@ class SourceResult(Frozen):
     reason: Reason | None = None
     status_code: int = 0
     documents: tuple[Document, ...] = ()
+    metadata_fields: tuple[str, ...] = ()
     summary: str | None = None
     cost: Money | None = None
     charges: tuple[ChargeEntry, ...] = ()
@@ -102,6 +118,15 @@ class SourceResult(Frozen):
     @property
     def chunks(self) -> tuple[Document, ...]:
         return tuple(d for d in self.documents if not d.is_summary)
+
+    @classmethod
+    def metadata_fields_of(cls, body: dict[str, Any]) -> tuple[str, ...]:
+        """``references.provider_info.metadata_fields`` of a Space response; empty when the
+        Space did not say (older Spaces, model sources)."""
+        refs = body.get("references")
+        info = refs.get("provider_info") if isinstance(refs, dict) else None
+        raw = info.get("metadata_fields") if isinstance(info, dict) else None
+        return tuple(f for f in raw if isinstance(f, str)) if isinstance(raw, list) else ()
 
     @property
     def summaries(self) -> tuple[Document, ...]:

@@ -173,6 +173,24 @@ class Connection(BaseModel):
     )
 
 
+class QuerySchema(BaseModel):
+    """What a query against this endpoint may carry, as declared by the publisher.
+
+    The Hub stores and relays it; the space that serves the endpoint is the
+    authority. ``metadata_fields`` names the per-document metadata keys a
+    search response can include.
+    """
+
+    metadata_fields: List[str] = Field(
+        default_factory=list,
+        description="Metadata keys a search response may carry per document",
+    )
+
+    # Unknown keys are dropped, not rejected: a space may publish a newer
+    # query_schema before this Hub learns its keys, and a sync is atomic.
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
 # Reserved slugs that cannot be used for endpoints
 RESERVED_SLUGS = {
     "api",
@@ -339,6 +357,10 @@ class EndpointBase(BaseModel):
         default_factory=list,
         description="List of connection methods available for this endpoint",
     )
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
+    )
 
 
 class EndpointCreate(EndpointBase):
@@ -410,6 +432,10 @@ class EndpointUpdate(BaseModel):
     connect: Optional[List[Connection]] = Field(
         None, description="List of connection methods available for this endpoint"
     )
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
+    )
 
 
 class EndpointAdminUpdate(BaseModel):
@@ -440,6 +466,10 @@ class Endpoint(BaseModel):
     tags: List[str] = Field(..., description="List of tags for categorization")
     policies: List[Policy] = Field(..., description="List of policies")
     connect: List[Connection] = Field(..., description="List of connection methods")
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
+    )
 
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
@@ -503,6 +533,10 @@ class EndpointResponse(BaseModel):
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
     )
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
+    )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
@@ -544,6 +578,10 @@ class EndpointPublicResponse(BaseModel):
     )
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
+    )
+    query_schema: Optional[QuerySchema] = Field(
+        None,
+        description="What a query against this endpoint may carry; None when the publisher declared nothing",
     )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")

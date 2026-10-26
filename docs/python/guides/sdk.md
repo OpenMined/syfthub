@@ -124,6 +124,7 @@ source.pricing         # Pricing | None: rail, price, unit, currency, bundles
 source.free            # True when there is no payment policy
 source.reachable       # False when the publisher has not connected a Space
 source.access(email)   # Access(allowed, rule) from the access policy, predicted client-side
+source.metadata_fields # the keys a document's metadata may carry, as the publisher declared them
 ```
 
 `SourceList` is a tuple-like view: `listing.paths`, `listing["erin/trials"]`, `listing[0]`, and
@@ -237,6 +238,11 @@ results.retryable      # rows worth re-sending: timeouts, 5xx, rate limits, a ho
 results.cost           # {"USD": Money(...)} actually charged
 results.actions        # TopUp actions raised by a 402 at execute time
 results["erin/trials"] # one SourceResult
+
+row = results["erin/trials"]
+row.metadata_fields    # the metadata keys this response declared, from the Space itself
+row.chunks[0].metadata # the dict on each Document: those keys, and only those; read with .get
+row.chunks[0].image_urls  # metadata["image_urls"] made absolute against the Space's origin
 ```
 
 Requests fan out in parallel, bounded by `Options.concurrency`, one request per source. A 401 from
@@ -412,7 +418,7 @@ dependency, so your tests exercise the real SDK end to end.
 from syfthub.testing import FakeHub
 
 fake = FakeHub()
-fake.add_source("alice", "notes", description="parental leave policy")
+fake.add_source("alice", "notes", description="parental leave policy", metadata_fields=["title"])
 fake.add_source("erin", "trials", price=0.05)                 # prepaid, 0.05 USD per request
 fake.add_source("kim", "metered", mpp_price=0.02)             # MPP
 fake.space("alice").reply("notes", documents=[{"content": "16 weeks", "score": 0.8}])
