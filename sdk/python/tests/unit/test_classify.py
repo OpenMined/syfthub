@@ -218,3 +218,15 @@ def test_metadata_fields_keep_only_strings(free_source: Source) -> None:
     body = {"references": {"documents": [], "provider_info": {"metadata_fields": ["a", 1]}}}
     row = classify(free_source, response(200, body))
     assert row.metadata_fields == ("a",)
+
+
+def test_documents_carry_the_space_origin_for_relative_links(free_source: Source) -> None:
+    body = {
+        "references": {
+            "documents": [{"content": "x", "metadata": {"image_urls": ["/api/v1/d/i.png"]}}]
+        }
+    }
+    row = classify(free_source, response(200, body))
+    doc = row.documents[0]
+    assert doc.base_url == free_source.space_url == "https://alice.space.test"
+    assert doc.image_urls == ("https://alice.space.test/api/v1/d/i.png",)

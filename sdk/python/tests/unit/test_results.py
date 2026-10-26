@@ -171,3 +171,38 @@ def test_charge_entry_from_space_body() -> None:
     )
     assert not rejected.charged and rejected.reason_code == "INSUFFICIENT_BALANCE"
     assert RateLimit(reset_seconds=30).to_dict()["reset_seconds"] == 30
+
+
+def test_image_urls_resolve_against_the_space_origin() -> None:
+    d = Document.from_space(
+        "alice/docs",
+        {"content": "x", "metadata": {"image_urls": ["/api/v1/datasets/1/images/d/a.png"]}},
+        base_url="https://alice.space.test",
+    )
+    assert d.image_urls == ("https://alice.space.test/api/v1/datasets/1/images/d/a.png",)
+    assert d.metadata["image_urls"] == ["/api/v1/datasets/1/images/d/a.png"]  # untouched
+    assert d.to_dict()["metadata"]["image_urls"] == ["/api/v1/datasets/1/images/d/a.png"]
+
+
+def test_image_urls_keep_absolute_entries_and_drop_junk() -> None:
+    d = Document.from_space(
+        "alice/docs",
+        {"content": "x", "metadata": {"image_urls": ["https://cdn.test/a.png", "", 3, "/b.png"]}},
+        base_url="https://alice.space.test/",
+    )
+    assert d.image_urls == ("https://cdn.test/a.png", "https://alice.space.test/b.png")
+
+
+def test_image_urls_empty_without_a_base_or_the_key() -> None:
+    body = {"content": "x", "metadata": {"image_urls": ["/a.png"]}}
+    assert Document.from_space("bob/tunnelled", body).image_urls == ()
+    assert Document.from_space("bob/x", body, base_url=None).image_urls == ()
+    assert (
+        Document.from_space("bob/x", {"content": "x"}, base_url="https://b.test").image_urls == ()
+    )
+    assert (
+        Document.from_space(
+            "bob/x", {"metadata": {"image_urls": "/a.png"}}, base_url="https://b.test"
+        ).image_urls
+        == ()
+    )

@@ -242,6 +242,7 @@ results["erin/trials"] # one SourceResult
 row = results["erin/trials"]
 row.metadata_fields    # the metadata keys this response declared, from the Space itself
 row.chunks[0].metadata # the dict on each Document: those keys, and only those; read with .get
+row.chunks[0].image_urls  # metadata["image_urls"] made absolute against the Space's origin
 ```
 
 Requests fan out in parallel, bounded by `Options.concurrency`, one request per source. A 401 from
