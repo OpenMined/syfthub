@@ -53,6 +53,21 @@ _UPTIME_UPSERT_SQL = """
 """
 
 
+class SyncDiff:
+    """What one sync did, for the service to commit and index."""
+
+    def __init__(self) -> None:
+        self.created: List[Endpoint] = []
+        self.updated: List[Endpoint] = []
+        # (endpoint id, rag_file_id) of rows the sync removed.
+        self.deleted: List[tuple[int, Optional[str]]] = []
+
+    @property
+    def served(self) -> List[Endpoint]:
+        """Everything the satellite serves after the sync."""
+        return [*self.created, *self.updated]
+
+
 class EndpointRepository(BaseRepository[EndpointModel]):
     """Repository for endpoint database operations."""
 
@@ -858,9 +873,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def delete_endpoints_for_space(self, user_id: int, space_id: Optional[int]) -> int:
         """Delete the user's endpoints served by one satellite.
 
-        Sync is destructive by design — "here is everything I serve" — but
-        it must mean everything *this space* serves, or one space's sync wipes
-        another's catalogue.
+        Kept for callers that really want a wipe. Sync no longer uses it: it
+        diffs against what the space reports (see ``sync_endpoints_for_space``).
 
         Does NOT commit; the caller owns the transaction.
 
@@ -878,80 +892,86 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self.session.execute(delete(self.model).where(where))
         return deleted_count
 
-    def get_rag_file_ids_for_space(
-        self, user_id: int, space_id: Optional[int]
-    ) -> List[tuple[int, str]]:
-        """Search-index document ids for one satellite's endpoints.
-
-        Sync removes these from Meilisearch before deleting rows, and only re-indexes what it then
-        creates — so an unscoped sweep would drop another space's endpoints out
-        of search permanently, with their rows still in the database.
-
-        Returns:
-            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
-        """
-        try:
-            stmt = select(self.model.id, self.model.rag_file_id).where(
-                and_(
-                    self._space_filter(user_id, space_id),
-                    self.model.rag_file_id.isnot(None),
-                )
-            )
-            return [(row[0], row[1]) for row in self.session.execute(stmt).all()]
-        except SQLAlchemyError:
-            return []
-
-    def bulk_create_endpoints(
+    def sync_endpoints_for_space(
         self,
         endpoints_data: List[dict],
         user_id: int,
-        space_id: Optional[int] = None,
-    ) -> List[Endpoint]:
-        """Create multiple endpoints in a single transaction (for sync operation).
+        space_id: Optional[int],
+    ) -> SyncDiff:
+        """Make one satellite's catalogue match what it reports, keeping rows.
 
-        This method does NOT commit the transaction - caller must commit.
-        This allows atomic operations when combined with other database changes.
+        The space's list is the truth. For each reported slug: update the Hub's
+        row with everything the space sent, or create one if there is none.
+        Then delete the rows this satellite served that the space no longer
+        reports. Rows keep their id, so stars, uptime history, collective
+        membership and health state survive a restart; the old delete-and-
+        recreate lost all of them through the cascade on ``endpoints.id``.
 
-        Args:
-            endpoints_data: List of dicts with endpoint data (pre-validated)
-                Each dict should have: name, slug, description, type, visibility,
-                version, readme, tags, contributors, policies, connect,
-                query_schema (optional)
-            user_id: The user ID who owns these endpoints
-            space_id: The satellite serving them, or None when the account has
-                registered none
+        The slug lookup is per user, not per satellite: slugs are unique per
+        user, so a matching unattached row (pre-satellite) or one served from
+        another of the user's satellites is taken over by the syncing space
+        rather than colliding on the unique index.
 
-        Returns:
-            List of created Endpoint objects
+        Only the columns in ``endpoints_data`` are written (the validated
+        payload: name, slug, description, type, visibility, version, readme,
+        tags, contributors, policies, connect, query_schema). Hub-owned state
+        is untouched, and an archived endpoint stays private, as it would on
+        publish.
+
+        Does NOT commit; the caller owns the transaction.
         """
-        created_endpoints = []
+        slugs = [data["slug"] for data in endpoints_data]
+        by_slug: dict[str, EndpointModel] = {}
+        if slugs:
+            rows = self.session.scalars(
+                select(self.model).where(
+                    and_(
+                        self.model.user_id == user_id,
+                        self.model.slug.in_(slugs),  # type: ignore[attr-defined]
+                    )
+                )
+            ).all()
+            by_slug = {row.slug: row for row in rows}
 
+        created: List[EndpointModel] = []
+        updated: List[EndpointModel] = []
         for data in endpoints_data:
-            endpoint_model = EndpointModel(
-                user_id=user_id,
-                name=data["name"],
-                slug=data["slug"].lower(),
-                description=data.get("description", ""),
-                type=data["type"],
-                visibility=data.get("visibility", "public"),
-                version=data.get("version", "0.1.0"),
-                readme=data.get("readme", ""),
-                tags=data.get("tags", []),
-                contributors=data.get("contributors", []),
-                policies=data.get("policies", []),
-                connect=data.get("connect", []),
-                query_schema=data.get("query_schema"),
-                is_active=True,
-                space_id=space_id,
-            )
-            self.session.add(endpoint_model)
-            created_endpoints.append(endpoint_model)
+            row = by_slug.get(data["slug"])
+            if row is None:
+                row = EndpointModel(
+                    user_id=user_id, is_active=True, space_id=space_id, **data
+                )
+                self.session.add(row)
+                created.append(row)
+            else:
+                for field, value in data.items():
+                    setattr(row, field, value)
+                if row.archived:
+                    row.visibility = "private"
+                row.space_id = space_id
+                updated.append(row)
 
-        # Flush to get IDs assigned (but don't commit)
+        stale = self.session.scalars(
+            select(self.model).where(
+                and_(
+                    self._space_filter(user_id, space_id),
+                    self.model.slug.not_in(slugs),  # type: ignore[attr-defined]
+                )
+            )
+        ).all()
+
+        diff = SyncDiff()
+        for row in stale:
+            gone = Endpoint.model_validate(row)
+            diff.deleted.append((gone.id, getattr(row, "rag_file_id", None)))
+            self.session.delete(row)
+
+        # Flush so created rows get ids and deletes cascade, without committing.
         self.session.flush()
 
-        # Convert to schema objects
-        return [Endpoint.model_validate(model) for model in created_endpoints]
+        diff.created = [Endpoint.model_validate(row) for row in created]
+        diff.updated = [Endpoint.model_validate(row) for row in updated]
+        return diff
 
     def slug_exists_for_user(
         self, user_id: int, slug: str, exclude_endpoint_id: Optional[int] = None

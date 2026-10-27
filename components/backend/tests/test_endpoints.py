@@ -2257,8 +2257,8 @@ def test_sync_endpoints_max_batch_size(client: TestClient, user1_token: str) -> 
     assert response.status_code == 422  # Pydantic validation error
 
 
-def test_sync_endpoints_stars_reset(client: TestClient, user1_token: str) -> None:
-    """Test that stars are reset when endpoints are recreated."""
+def test_sync_endpoints_keeps_stars(client: TestClient, user1_token: str) -> None:
+    """Test that a re-sync keeps the endpoint, and so its stars."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create an endpoint
@@ -2300,9 +2300,10 @@ def test_sync_endpoints_stars_reset(client: TestClient, user1_token: str) -> Non
     response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
     assert response.status_code == 200
 
-    # Stars should be reset to 0
+    # Same slug, same endpoint: stars survive the sync
     data = response.json()
-    assert data["endpoints"][0]["stars_count"] == 0
+    assert data["endpoints"][0]["stars_count"] == 50
+    assert data["updated"] == 1
 
 
 # ---- Xendit Policy Tests ----

@@ -653,12 +653,24 @@ class SyncEndpointsRequest(BaseModel):
 
 
 class SyncEndpointsResponse(BaseModel):
-    """Response schema for sync operation."""
+    """Response schema for sync operation.
 
-    synced: int = Field(..., ge=0, description="Number of endpoints created")
-    deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
+    ``synced`` is everything the satellite serves after the sync, which is
+    ``created + updated``. Existing endpoints keep their ids.
+    """
+
+    synced: int = Field(
+        ..., ge=0, description="Number of endpoints the satellite now serves"
+    )
+    created: int = Field(0, ge=0, description="Endpoints that did not exist before")
+    updated: int = Field(
+        0, ge=0, description="Existing endpoints refreshed from the payload"
+    )
+    deleted: int = Field(
+        ..., ge=0, description="Endpoints the satellite no longer reports"
+    )
     endpoints: List[EndpointResponse] = Field(
-        ..., description="Created endpoints with full details"
+        ..., description="Every endpoint the satellite now serves, with full details"
     )
 
     model_config = {"from_attributes": True}
