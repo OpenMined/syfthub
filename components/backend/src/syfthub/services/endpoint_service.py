@@ -1531,17 +1531,21 @@ class EndpointService(BaseService):
         # --- Satellite origin ---
         # Replaces the account-wide users.domain write. BaseUrl also validates
         # and canonicalises, which the old scheme://netloc extraction did not.
-        self.satellite_service.record_heartbeat(
+        satellite = self.satellite_service.record_heartbeat(
             user_id=current_user.id,
             reported_url=url,
             satellite_id=satellite_id,
         )
 
         # --- Bulk slug match (single query, no is_active filter) ---
+        # Scoped to the reporting satellite: a second space on the account
+        # must not overwrite the health of a same-named endpoint it does not
+        # serve.
         slugs = [item.slug for item in endpoints_health]
         matched_endpoints = self.endpoint_repository.get_endpoints_by_slugs_for_health(
             user_id=current_user.id,
             slugs=slugs,
+            satellite_id=satellite.id,
         )
 
         # Build slug -> endpoint model mapping
@@ -1661,7 +1665,10 @@ class EndpointService(BaseService):
         buckets: list[UptimeBucket] = []
         for s in samples:
             total = s.total_checks or 0
-            healthy = s.healthy_checks or 0
+            reported_healthy = s.healthy_checks or 0
+            # What the chart draws: cycles in which the endpoint was listed
+            # active, i.e. the same consecutive-failure rule as the badge.
+            healthy = s.active_checks or 0
             uptime_pct = (100.0 * healthy / total) if total > 0 else 0.0
             # bucket_start is NOT NULL in the schema; assert narrows the type
             # so mypy stops treating it as Optional[datetime].
@@ -1672,6 +1679,7 @@ class EndpointService(BaseService):
                     bucket_start=bucket_start,
                     samples=total,
                     healthy_samples=healthy,
+                    reported_healthy_samples=reported_healthy,
                     uptime_pct=round(uptime_pct, 2),
                 )
             )

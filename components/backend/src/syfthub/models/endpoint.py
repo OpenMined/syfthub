@@ -211,7 +211,14 @@ class EndpointUptimeSampleModel(Base):
         DateTime(timezone=True), nullable=False
     )
     total_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Cycles in which the client's own report said "healthy" (raw signal).
     healthy_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Cycles in which the Hub listed the endpoint as active, i.e. after the
+    # consecutive-failure rule. This is what the uptime chart draws; a single
+    # missed report changes healthy_checks but not active_checks.
+    active_checks: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     __table_args__ = (
         PrimaryKeyConstraint("endpoint_id", "bucket_start"),

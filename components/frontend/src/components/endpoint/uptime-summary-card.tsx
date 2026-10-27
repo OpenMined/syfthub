@@ -20,44 +20,56 @@ function classifyUptimeTone(uptimePct: number | null): string {
   return 'text-red-600 dark:text-red-500';
 }
 
+interface TileProperties {
+  label: string;
+  children: React.ReactNode;
+  detail?: string;
+  tone?: string;
+}
+
+function Tile({ label, children, detail, tone = 'text-foreground' }: Readonly<TileProperties>) {
+  return (
+    <div className='border-border bg-card min-w-0 rounded-xl border p-5'>
+      <p className='font-inter text-muted-foreground mb-1 text-xs tracking-wide uppercase'>
+        {label}
+      </p>
+      <p className={`font-rubik text-3xl font-medium tabular-nums ${tone}`}>{children}</p>
+      {detail && (
+        <p className='font-inter text-muted-foreground mt-1 text-xs tabular-nums'>{detail}</p>
+      )}
+    </div>
+  );
+}
+
 export function UptimeSummaryCard({
   summary,
   windowLabel = '30-day'
 }: Readonly<UptimeSummaryCardProperties>) {
-  const uptimeTone = classifyUptimeTone(summary.uptime_pct);
   return (
-    <section className='border-border bg-card rounded-xl border p-6'>
-      <div className='grid grid-cols-1 gap-6 sm:grid-cols-3'>
-        <div>
-          <p className='font-inter text-muted-foreground mb-1 text-xs tracking-wide uppercase'>
-            {windowLabel} uptime
-          </p>
-          <p className={`font-rubik text-3xl font-medium tabular-nums ${uptimeTone}`}>
-            {formatPct(summary.uptime_pct)}
-            {summary.uptime_pct !== null && (
-              <span className='text-muted-foreground ml-0.5 text-xl'>%</span>
-            )}
-          </p>
-        </div>
-
-        <div>
-          <p className='font-inter text-muted-foreground mb-1 text-xs tracking-wide uppercase'>
-            Total downtime
-          </p>
-          <p className='font-rubik text-foreground text-3xl font-medium tabular-nums'>
-            {formatDuration(summary.downtime_seconds)}
-          </p>
-        </div>
-
-        <div>
-          <p className='font-inter text-muted-foreground mb-1 text-xs tracking-wide uppercase'>
-            Incidents
-          </p>
-          <p className='font-rubik text-foreground text-3xl font-medium tabular-nums'>
-            {summary.incident_count}
-          </p>
-        </div>
-      </div>
-    </section>
+    <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
+      <Tile
+        label={`${windowLabel} uptime`}
+        tone={classifyUptimeTone(summary.uptime_pct)}
+        detail={
+          summary.total_samples > 0
+            ? `${summary.total_healthy.toLocaleString()} of ${summary.total_samples.toLocaleString()} checks`
+            : undefined
+        }
+      >
+        {formatPct(summary.uptime_pct)}
+        {summary.uptime_pct !== null && (
+          <span className='text-muted-foreground ml-0.5 text-xl'>%</span>
+        )}
+      </Tile>
+      <Tile label='Total downtime' detail='time the Hub listed it down'>
+        {formatDuration(summary.downtime_seconds)}
+      </Tile>
+      <Tile label='Unhealthy checks' detail='monitor cycles that found it down'>
+        {summary.total_unhealthy.toLocaleString()}
+      </Tile>
+      <Tile label='Incidents' detail='runs of 30 min below 90% uptime'>
+        {summary.incident_count}
+      </Tile>
+    </div>
   );
 }

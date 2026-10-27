@@ -38,6 +38,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_UPTIME_UPSERT_SQL = """
+    INSERT INTO endpoint_uptime_samples (
+        endpoint_id, bucket_start,
+        total_checks, healthy_checks, active_checks
+    )
+    VALUES (:eid, :bucket, 1, :h, :a)
+    ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
+        total_checks   = endpoint_uptime_samples.total_checks + 1,
+        healthy_checks = endpoint_uptime_samples.healthy_checks
+                         + EXCLUDED.healthy_checks,
+        active_checks  = endpoint_uptime_samples.active_checks
+                         + EXCLUDED.active_checks
+"""
+
+
 class EndpointRepository(BaseRepository[EndpointModel]):
     """Repository for endpoint database operations."""
 
@@ -103,6 +118,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             query_schema=row.query_schema,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            # getattr: window-function rows may not carry every model column.
+            health_status=getattr(row, "health_status", None),
+            health_checked_at=getattr(row, "health_checked_at", None),
         )
 
     def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
@@ -1147,16 +1165,23 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self,
         user_id: int,
         slugs: list[str],
+        satellite_id: Optional[int] = None,
     ) -> list[EndpointModel]:
         """Get endpoints matching slugs for health reporting.
 
-        Looks up endpoints by slug, owned by the given user.
+        Looks up endpoints by slug, owned by the given user and, when
+        ``satellite_id`` is given, served by that satellite. The narrowing
+        matters once an account runs several spaces: without it a report
+        from one space overwrites the health of a same-named endpoint on
+        another.
         Does NOT filter by is_active — health reports should work for all
         endpoints so the health monitor can re-activate them.
 
         Args:
             user_id: The user ID to match user-owned endpoints
             slugs: List of endpoint slugs to look up
+            satellite_id: Internal id of the reporting satellite; None
+                matches the account's endpoints regardless of satellite.
 
         Returns:
             List of matching EndpointModel objects
@@ -1164,12 +1189,13 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         try:
             normalized_slugs = [s.lower() for s in slugs]
 
-            stmt = select(self.model).where(
-                and_(
-                    self.model.slug.in_(normalized_slugs),
-                    self.model.user_id == user_id,
-                )
-            )
+            conditions = [
+                self.model.slug.in_(normalized_slugs),
+                self.model.user_id == user_id,
+            ]
+            if satellite_id is not None:
+                conditions.append(self.model.space_id == satellite_id)
+            stmt = select(self.model).where(and_(*conditions))
             result = self.session.execute(stmt)
             return list(result.scalars().all())
         except SQLAlchemyError as e:
@@ -1246,11 +1272,52 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     # ENDPOINT UPTIME / TELEMETRY METHODS
     # ===========================================
 
+    def upsert_uptime_samples(
+        self,
+        samples: list[tuple[int, datetime, bool, bool]],
+    ) -> None:
+        """Upsert one cycle's ticks for many endpoints in a single round trip.
+
+        Each tuple is ``(endpoint_id, bucket_start, reported_healthy,
+        is_active)``. On Postgres this is one ``executemany`` of the
+        ``INSERT … ON CONFLICT`` statement; other dialects fall back to the
+        per-row path. Does NOT commit — the caller manages the transaction.
+        """
+        if not samples:
+            return
+        dialect = self.session.bind.dialect.name if self.session.bind else ""
+        if dialect != "postgresql":
+            for endpoint_id, bucket_start, is_healthy, is_active in samples:
+                self.upsert_uptime_sample(
+                    endpoint_id=endpoint_id,
+                    bucket_start=bucket_start,
+                    is_healthy=is_healthy,
+                    is_active=is_active,
+                )
+            return
+        try:
+            self.session.execute(
+                text(_UPTIME_UPSERT_SQL),
+                [
+                    {
+                        "eid": endpoint_id,
+                        "bucket": bucket_start,
+                        "h": 1 if is_healthy else 0,
+                        "a": 1 if is_active else 0,
+                    }
+                    for endpoint_id, bucket_start, is_healthy, is_active in samples
+                ],
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to upsert {len(samples)} uptime sample(s): {e}")
+            raise
+
     def upsert_uptime_sample(
         self,
         endpoint_id: int,
         bucket_start: datetime,
         is_healthy: bool,
+        is_active: Optional[bool] = None,
     ) -> None:
         """Upsert one health-monitor tick into the bucketed uptime table.
 
@@ -1262,28 +1329,24 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoint_id: Endpoint receiving the sample.
             bucket_start: Truncated UTC bucket boundary
                 (``floor(epoch / bucket_seconds) * bucket_seconds``).
-            is_healthy: Result of the monitor's tier evaluation.
+            is_healthy: What the client's report said (raw signal).
+            is_active: What the Hub concluded after the consecutive-failure
+                rule; defaults to ``is_healthy`` for callers without one.
         """
         healthy = 1 if is_healthy else 0
+        active = healthy if is_active is None else (1 if is_active else 0)
         dialect = self.session.bind.dialect.name if self.session.bind else ""
 
         try:
             if dialect == "postgresql":
                 self.session.execute(
-                    text(
-                        """
-                        INSERT INTO endpoint_uptime_samples (
-                            endpoint_id, bucket_start,
-                            total_checks, healthy_checks
-                        )
-                        VALUES (:eid, :bucket, 1, :h)
-                        ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
-                            total_checks   = endpoint_uptime_samples.total_checks + 1,
-                            healthy_checks = endpoint_uptime_samples.healthy_checks
-                                             + EXCLUDED.healthy_checks
-                        """
-                    ),
-                    {"eid": endpoint_id, "bucket": bucket_start, "h": healthy},
+                    text(_UPTIME_UPSERT_SQL),
+                    {
+                        "eid": endpoint_id,
+                        "bucket": bucket_start,
+                        "h": healthy,
+                        "a": active,
+                    },
                 )
                 return
 
@@ -1303,6 +1366,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     bucket_start=bucket_start,
                     total_checks=1,
                     healthy_checks=healthy,
+                    active_checks=active,
                 )
                 self.session.add(sample)
                 # Flush so successive calls within the same transaction see
@@ -1313,6 +1377,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             existing.total_checks += 1
             existing.healthy_checks += healthy
+            existing.active_checks += active
         except SQLAlchemyError as e:
             logger.error(
                 f"Failed to upsert uptime sample for endpoint {endpoint_id} "

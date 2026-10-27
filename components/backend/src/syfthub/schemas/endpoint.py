@@ -888,13 +888,28 @@ class UptimeBucket(BaseModel):
         ..., ge=0, description="Number of health monitor cycles in this bucket"
     )
     healthy_samples: int = Field(
-        ..., ge=0, description="Number of those cycles that observed a healthy state"
+        ...,
+        ge=0,
+        description=(
+            "Number of those cycles in which the Hub listed the endpoint as "
+            "active, i.e. after the consecutive-failure rule that also drives "
+            "is_active. This is what the uptime chart draws."
+        ),
+    )
+    reported_healthy_samples: int = Field(
+        0,
+        ge=0,
+        description=(
+            "Number of those cycles in which the client's own report said "
+            "'healthy' and was still fresh, before smoothing. Diagnostic: a gap "
+            "between this and healthy_samples means short blips."
+        ),
     )
     uptime_pct: float = Field(
         ...,
         ge=0.0,
         le=100.0,
-        description="Percentage of cycles in which the endpoint was healthy",
+        description="healthy_samples / samples, as a percentage",
     )
 
 

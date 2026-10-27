@@ -28,11 +28,10 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Optional
 
 from sqlalchemy import case, select, text, update
 from sqlalchemy.sql import label
-from sqlalchemy.sql.expression import literal
 
 from syfthub.database.connection import db_manager
 from syfthub.models.endpoint import EndpointModel
@@ -50,6 +49,15 @@ logger = logging.getLogger(__name__)
 # Ensures only one worker runs the health check cycle at a time in
 # multi-worker deployments (e.g., uvicorn --workers 4).
 HEALTH_MONITOR_LOCK_ID = 839201
+
+# Endpoints per bulk UPDATE. Keeps the IN list bounded on large catalogues.
+_UPDATE_CHUNK = 500
+
+
+def _chunks(items: list[int], size: int) -> Iterator[list[int]]:
+    """Yield ``items`` in consecutive slices of at most ``size``."""
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
 
 
 @dataclass
@@ -246,6 +254,7 @@ class EndpointHealthMonitor:
     def _check_endpoint_health(
         self,
         endpoint: EndpointHealthInfo,
+        now: Optional[datetime] = None,
     ) -> tuple[int, bool]:
         """Determine if an endpoint is healthy from client-reported health.
 
@@ -255,11 +264,15 @@ class EndpointHealthMonitor:
 
         Args:
             endpoint: The endpoint information to evaluate
+            now: The instant the endpoint's health fields were read. The
+                cycle passes one clock for its whole snapshot; defaults to
+                the current time for ad-hoc callers.
 
         Returns:
             Tuple of (endpoint_id, is_healthy)
         """
-        now = datetime.now(timezone.utc)
+        if now is None:
+            now = datetime.now(timezone.utc)
 
         # No serving satellite means no origin, so nothing can reach it.
         if not endpoint.base_url:
@@ -275,68 +288,78 @@ class EndpointHealthMonitor:
         logger.debug(f"Endpoint {endpoint.id}: no fresh health signal (unhealthy)")
         return (endpoint.id, False)
 
-    def _update_endpoint_health_status(
-        self, session: Session, endpoint_id: int, is_healthy: bool
-    ) -> tuple[bool, int] | None:
-        """Atomically update endpoint health status with failure tracking.
+    def _update_health_statuses(
+        self, session: Session, verdicts: dict[int, bool]
+    ) -> dict[int, tuple[bool, int]]:
+        """Apply one cycle's verdicts to every endpoint in two bulk UPDATEs.
 
-        Uses a single atomic UPDATE with CASE expressions to:
-        1. Reset consecutive_failure_count to 0 if healthy
-        2. Increment consecutive_failure_count if unhealthy
-        3. Set is_active=True if healthy
-        4. Set is_active=False only if failure count reaches threshold
+        Healthy endpoints reset ``consecutive_failure_count`` and become
+        active; unhealthy ones increment it and are deactivated once the
+        count reaches ``failure_threshold``. Both statements run in one
+        transaction, so a cycle costs one commit instead of one per endpoint,
+        which is what let the production cycle drift from 30 s to over a
+        minute.
 
-        This is multi-worker safe because all state is managed in the database
-        atomically, not in memory.
+        Multi-worker safe: all state lives in the database. The CASE for
+        ``is_active`` compares ``count + 1`` because the increment happens
+        in the same statement.
 
         Args:
             session: Database session to use for the update
-            endpoint_id: ID of the endpoint to update
-            is_healthy: Whether the endpoint is currently healthy
+            verdicts: ``{endpoint_id: is_healthy}`` for this cycle
 
         Returns:
-            Tuple of (new_is_active, new_failure_count) if successful,
-            None if the endpoint was not found
+            ``{endpoint_id: (new_is_active, new_failure_count)}`` for every
+            row the UPDATEs touched. Endpoints deleted between the snapshot
+            and the update are simply absent. Empty when the database
+            rejected the transaction (it is rolled back).
         """
+        healthy_ids = [eid for eid, ok in verdicts.items() if ok]
+        unhealthy_ids = [eid for eid, ok in verdicts.items() if not ok]
+        returning = (
+            EndpointModel.id,
+            EndpointModel.is_active,
+            EndpointModel.consecutive_failure_count,
+        )
+        results: dict[int, tuple[bool, int]] = {}
         try:
-            # Build atomic UPDATE with CASE expressions
-            # Note: The CASE for is_active checks (count + 1) >= threshold because
-            # the increment happens in the same statement
-            stmt = (
-                update(EndpointModel)
-                .where(EndpointModel.id == endpoint_id)
-                .values(
-                    consecutive_failure_count=case(
-                        (literal(is_healthy), 0),
-                        else_=EndpointModel.consecutive_failure_count + 1,  # type: ignore[operator]
-                    ),
-                    is_active=case(
-                        (literal(is_healthy), True),
-                        (
-                            EndpointModel.consecutive_failure_count + 1  # type: ignore[operator]
-                            >= self.failure_threshold,
-                            False,
+            for chunk in _chunks(healthy_ids, _UPDATE_CHUNK):
+                stmt = (
+                    update(EndpointModel)
+                    .where(EndpointModel.id.in_(chunk))  # type: ignore[attr-defined]
+                    .values(consecutive_failure_count=0, is_active=True)
+                    .returning(*returning)
+                    .execution_options(synchronize_session=False)
+                )
+                for row in session.execute(stmt):
+                    results[int(row[0])] = (bool(row[1]), int(row[2]))
+            for chunk in _chunks(unhealthy_ids, _UPDATE_CHUNK):
+                stmt = (
+                    update(EndpointModel)
+                    .where(EndpointModel.id.in_(chunk))  # type: ignore[attr-defined]
+                    .values(
+                        consecutive_failure_count=EndpointModel.consecutive_failure_count  # type: ignore[operator]
+                        + 1,
+                        is_active=case(
+                            (
+                                EndpointModel.consecutive_failure_count + 1  # type: ignore[operator]
+                                >= self.failure_threshold,
+                                False,
+                            ),
+                            else_=EndpointModel.is_active,
                         ),
-                        else_=EndpointModel.is_active,
-                    ),
+                    )
+                    .returning(*returning)
+                    .execution_options(synchronize_session=False)
                 )
-                .returning(
-                    EndpointModel.is_active, EndpointModel.consecutive_failure_count
-                )
-            )
-            result = session.execute(stmt)
-            row = result.fetchone()
+                for row in session.execute(stmt):
+                    results[int(row[0])] = (bool(row[1]), int(row[2]))
             session.commit()
-
-            if row:
-                is_active: bool = row[0]  # type: ignore[assignment]
-                failure_count: int = row[1]  # type: ignore[assignment]
-                return (is_active, failure_count)
-            return None
+            return results
         except Exception as e:
-            logger.error(f"Failed to update endpoint {endpoint_id} health status: {e}")
+            logger.error(f"Failed to update endpoint health statuses: {e}")
             session.rollback()
-            return None
+            return {}
 
     def _current_bucket_start(self, now: datetime) -> datetime:
         """Return the UTC bucket boundary that ``now`` falls into."""
@@ -344,32 +367,40 @@ class EndpointHealthMonitor:
         floored = (epoch // self.bucket_seconds) * self.bucket_seconds
         return datetime.fromtimestamp(floored, tz=timezone.utc)
 
-    def _emit_uptime_sample(
+    def _emit_uptime_samples(
         self,
         session: Session,
-        endpoint_id: int,
-        is_healthy: bool,
+        samples: list[tuple[int, bool, bool]],
         now: datetime,
     ) -> None:
-        """Persist one uptime sample for this cycle, swallowing errors.
+        """Persist this cycle's uptime samples in one transaction, swallowing errors.
 
-        The sample is bucketed by ``self.bucket_seconds`` so a single bucket
+        Each tuple is ``(endpoint_id, reported_healthy, is_active)``: what the
+        client reported, and what the Hub concluded after the consecutive-
+        failure rule. The chart draws the latter, so one missed report does
+        not paint a day red; the former is kept for diagnosis.
+
+        Samples are bucketed by ``self.bucket_seconds`` so a single bucket
         accumulates many monitor cycles (e.g. 60 cycles per 30-minute bucket
         at the default 30s interval).
         """
         from syfthub.repositories.endpoint import EndpointRepository
 
+        if not samples:
+            return
+        bucket_start = self._current_bucket_start(now)
         try:
             repo = EndpointRepository(session)
-            repo.upsert_uptime_sample(
-                endpoint_id=endpoint_id,
-                bucket_start=self._current_bucket_start(now),
-                is_healthy=is_healthy,
+            repo.upsert_uptime_samples(
+                [
+                    (endpoint_id, bucket_start, is_healthy, is_active)
+                    for endpoint_id, is_healthy, is_active in samples
+                ]
             )
+            session.commit()
         except Exception as e:  # pragma: no cover - defensive
-            logger.warning(
-                f"Failed to record uptime sample for endpoint {endpoint_id}: {e}"
-            )
+            logger.warning(f"Failed to record {len(samples)} uptime sample(s): {e}")
+            session.rollback()
 
     def _maybe_run_uptime_retention(self, session: Session, now: datetime) -> None:
         """Delete uptime samples older than the configured retention window.
@@ -427,9 +458,17 @@ class EndpointHealthMonitor:
                 )
                 return
 
+            # One clock for the whole cycle, taken before the snapshot: every
+            # endpoint is judged against the moment its health fields were
+            # read. Taking a fresh ``now`` per endpoint used to age the
+            # snapshot by however long the cycle had already run, so on a
+            # slow cycle endpoints late in the list looked stale although
+            # newer reports had already landed.
+            now = datetime.now(timezone.utc)
+
             # Once per UTC day, sweep old uptime samples. Lock-holder only,
             # so this runs from a single worker process per day.
-            self._maybe_run_uptime_retention(session, datetime.now(timezone.utc))
+            self._maybe_run_uptime_retention(session, now)
 
             # Get all endpoints that can be health checked
             endpoints = self._get_endpoints_for_health_check(session)
@@ -444,37 +483,30 @@ class EndpointHealthMonitor:
             old_status_map = {ep.id: ep.is_active for ep in endpoints}
 
             # Evaluate each endpoint's health (no I/O — purely signal-based)
-            now = datetime.now(timezone.utc)
-            state_changes = 0
+            verdicts: dict[int, bool] = {}
             for endpoint in endpoints:
-                endpoint_id, is_healthy = self._check_endpoint_health(endpoint)
+                endpoint_id, is_healthy = self._check_endpoint_health(endpoint, now)
+                verdicts[endpoint_id] = is_healthy
 
-                # Get the old status for comparison
+            # Two bulk statements, one commit: failure counts and is_active.
+            # Endpoints deleted since the snapshot are absent from the result.
+            results = self._update_health_statuses(session, verdicts)
+
+            # One uptime sample per endpoint per cycle, in its own transaction
+            # so a telemetry error cannot undo the status update above.
+            self._emit_uptime_samples(
+                session,
+                [
+                    (endpoint_id, verdicts[endpoint_id], new_is_active)
+                    for endpoint_id, (new_is_active, _) in results.items()
+                ],
+                now,
+            )
+
+            state_changes = 0
+            for endpoint_id, (new_is_active, failure_count) in results.items():
+                is_healthy = verdicts[endpoint_id]
                 old_is_active = old_status_map.get(endpoint_id, True)
-
-                # Atomically update failure count and status in database
-                update_result = self._update_endpoint_health_status(
-                    session, endpoint_id, is_healthy
-                )
-
-                if update_result is None:
-                    # Endpoint was deleted between query and update
-                    continue
-
-                # Record one uptime sample per cycle. Use a fresh session
-                # transaction (the failure-counter update above already
-                # committed) so an error here cannot poison the next loop.
-                self._emit_uptime_sample(session, endpoint_id, is_healthy, now)
-                try:
-                    session.commit()
-                except Exception as e:  # pragma: no cover - defensive
-                    logger.warning(
-                        f"Failed to commit uptime sample for endpoint "
-                        f"{endpoint_id}: {e}"
-                    )
-                    session.rollback()
-
-                new_is_active, failure_count = update_result
 
                 # Log state changes
                 if old_is_active != new_is_active:

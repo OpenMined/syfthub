@@ -500,6 +500,31 @@ class TestCheckEndpointHealth:
         assert endpoint_id == 1
         assert is_healthy is False
 
+    def test_explicit_now_is_the_clock(self, monitor):
+        """The cycle's clock, not wall time, decides freshness."""
+        checked_at = datetime(2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test-endpoint",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api", "config": {"url": "/test"}}],
+            base_url="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            health_status="healthy",
+            health_checked_at=checked_at,
+            health_ttl_seconds=60,
+        )
+
+        # Long expired on the wall clock, but fresh at the snapshot instant.
+        assert monitor._check_endpoint_health(
+            endpoint, now=checked_at + timedelta(seconds=30)
+        ) == (1, True)
+        assert monitor._check_endpoint_health(
+            endpoint, now=checked_at + timedelta(seconds=90)
+        ) == (1, False)
+
 
 class TestCheckPerEndpointHealth:
     """Tests for _check_per_endpoint_health tier method."""
@@ -582,8 +607,8 @@ class TestCheckPerEndpointHealth:
         assert monitor._check_per_endpoint_health(endpoint, now) is False
 
 
-class TestUpdateEndpointHealthStatus:
-    """Tests for _update_endpoint_health_status method (atomic DB update)."""
+class TestUpdateHealthStatuses:
+    """Tests for _update_health_statuses (bulk, one commit per cycle)."""
 
     @pytest.fixture
     def monitor(self):
@@ -594,67 +619,122 @@ class TestUpdateEndpointHealthStatus:
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
-    def test_update_healthy_endpoint(self, monitor):
-        """Test updating endpoint to healthy state."""
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        # RETURNING returns (is_active=True, consecutive_failure_count=0)
-        mock_result.fetchone.return_value = (True, 0)
-        mock_session.execute.return_value = mock_result
+    @pytest.fixture
+    def endpoints(self, test_session):
+        """Three persisted endpoints with distinct slugs."""
+        from syfthub.models.endpoint import EndpointModel
+        from syfthub.models.user import UserModel
+        from tests.test_utils import get_test_user_model_data
 
-        result = monitor._update_endpoint_health_status(mock_session, 1, True)
+        user = UserModel(**get_test_user_model_data())
+        test_session.add(user)
+        test_session.commit()
+        rows = [
+            EndpointModel(
+                user_id=user.id,
+                name=f"Endpoint {i}",
+                slug=f"endpoint-{i}",
+                description="",
+                type="model",
+                visibility="public",
+                is_active=True,
+                contributors=[user.id],
+                version="0.1.0",
+                readme="",
+                stars_count=0,
+                policies=[],
+            )
+            for i in range(3)
+        ]
+        test_session.add_all(rows)
+        test_session.commit()
+        return rows
 
-        assert result == (True, 0)
-        mock_session.execute.assert_called_once()
-        mock_session.commit.assert_called_once()
+    @staticmethod
+    def _state(test_session, endpoint_id):
+        from syfthub.models.endpoint import EndpointModel
 
-    def test_update_unhealthy_below_threshold(self, monitor):
-        """Test updating endpoint to unhealthy but below failure threshold."""
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        # Failure count is 1, below threshold of 3, so is_active stays True
-        mock_result.fetchone.return_value = (True, 1)
-        mock_session.execute.return_value = mock_result
+        test_session.expire_all()
+        row = test_session.get(EndpointModel, endpoint_id)
+        return (row.is_active, row.consecutive_failure_count)
 
-        result = monitor._update_endpoint_health_status(mock_session, 1, False)
+    def test_healthy_resets_and_activates(self, monitor, test_session, endpoints):
+        a = endpoints[0]
+        a.is_active = False
+        a.consecutive_failure_count = 5
+        test_session.commit()
 
-        assert result == (True, 1)
-        mock_session.commit.assert_called_once()
+        result = monitor._update_health_statuses(test_session, {a.id: True})
 
-    def test_update_unhealthy_reaches_threshold(self, monitor):
-        """Test updating endpoint to unhealthy when reaching failure threshold."""
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        # Failure count reaches 3 (threshold), so is_active becomes False
-        mock_result.fetchone.return_value = (False, 3)
-        mock_session.execute.return_value = mock_result
+        assert result == {a.id: (True, 0)}
+        assert self._state(test_session, a.id) == (True, 0)
 
-        result = monitor._update_endpoint_health_status(mock_session, 1, False)
+    def test_unhealthy_increments_below_threshold(
+        self, monitor, test_session, endpoints
+    ):
+        a = endpoints[0]
 
-        assert result == (False, 3)
-        mock_session.commit.assert_called_once()
+        assert monitor._update_health_statuses(test_session, {a.id: False}) == {
+            a.id: (True, 1)
+        }
+        assert monitor._update_health_statuses(test_session, {a.id: False}) == {
+            a.id: (True, 2)
+        }
+        assert self._state(test_session, a.id) == (True, 2)
 
-    def test_update_endpoint_not_found(self, monitor):
-        """Test status update when endpoint not found."""
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
-        mock_session.execute.return_value = mock_result
+    def test_unhealthy_deactivates_at_threshold(self, monitor, test_session, endpoints):
+        a = endpoints[0]
+        a.consecutive_failure_count = 2
+        test_session.commit()
 
-        result = monitor._update_endpoint_health_status(mock_session, 999, False)
+        result = monitor._update_health_statuses(test_session, {a.id: False})
 
-        assert result is None
-        mock_session.commit.assert_called_once()
+        assert result == {a.id: (False, 3)}
+        assert self._state(test_session, a.id) == (False, 3)
 
-    def test_update_database_error(self, monitor):
-        """Test status update with database error."""
+    def test_mixed_verdicts_in_one_call(self, monitor, test_session, endpoints):
+        a, b, c = endpoints
+        b.consecutive_failure_count = 2
+        test_session.commit()
+
+        result = monitor._update_health_statuses(
+            test_session, {a.id: True, b.id: False, c.id: False}
+        )
+
+        assert result == {a.id: (True, 0), b.id: (False, 3), c.id: (True, 1)}
+
+    def test_missing_endpoint_is_absent_from_result(
+        self, monitor, test_session, endpoints
+    ):
+        a = endpoints[0]
+
+        result = monitor._update_health_statuses(
+            test_session, {999_999: False, a.id: True}
+        )
+
+        assert result == {a.id: (True, 0)}
+
+    def test_database_error_rolls_back_and_returns_empty(self, monitor):
         mock_session = MagicMock()
         mock_session.execute.side_effect = Exception("Database error")
 
-        result = monitor._update_endpoint_health_status(mock_session, 1, False)
+        result = monitor._update_health_statuses(mock_session, {1: False})
 
-        assert result is None
+        assert result == {}
         mock_session.rollback.assert_called_once()
+        mock_session.commit.assert_not_called()
+
+    def test_one_commit_and_bounded_statements_for_many_endpoints(self, monitor):
+        mock_session = MagicMock()
+        mock_session.execute.return_value = []
+
+        monitor._update_health_statuses(
+            mock_session, {i: i % 2 == 0 for i in range(1200)}
+        )
+
+        # 600 healthy + 600 unhealthy ids, 500 per statement: 2 + 2 UPDATEs.
+        assert mock_session.execute.call_count == 4
+        mock_session.commit.assert_called_once()
 
 
 class TestRunHealthCheckCycle:
@@ -749,15 +829,19 @@ class TestRunHealthCheckCycle:
             patch.object(monitor, "_check_endpoint_health", return_value=(1, True)),
             patch.object(
                 monitor,
-                "_update_endpoint_health_status",
-                return_value=(True, 0),  # Still active, no failures
+                "_update_health_statuses",
+                return_value={1: (True, 0)},  # Still active, no failures
             ),
+            patch.object(monitor, "_emit_uptime_samples") as mock_emit,
         ):
             mock_db_manager.get_session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
             mock_session.close.assert_called_once()
+            # One sample per endpoint: (id, reported_healthy, is_active)
+            samples = mock_emit.call_args.args[1]
+            assert samples == [(1, True, True)]
 
     @pytest.mark.asyncio
     async def test_cycle_with_state_changes(self, monitor):
@@ -785,17 +869,69 @@ class TestRunHealthCheckCycle:
             patch.object(monitor, "_check_endpoint_health", return_value=(1, False)),
             patch.object(
                 monitor,
-                "_update_endpoint_health_status",
-                return_value=(False, 3),  # Now inactive after 3 failures
+                "_update_health_statuses",
+                return_value={1: (False, 3)},  # Now inactive after 3 failures
             ),
+            patch.object(monitor, "_emit_uptime_samples") as mock_emit,
         ):
             mock_db_manager.get_session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
-            monitor._update_endpoint_health_status.assert_called_once_with(
-                mock_session, 1, False
+            monitor._update_health_statuses.assert_called_once_with(
+                mock_session, {1: False}
             )
+            # The sample records the smoothed verdict, not just the report.
+            assert mock_emit.call_args.args[1] == [(1, False, False)]
+
+    @pytest.mark.asyncio
+    async def test_cycle_judges_every_endpoint_against_one_clock(self, monitor):
+        """One ``now`` for the whole snapshot.
+
+        A fresh clock per endpoint aged the snapshot by however long the
+        cycle had already run, so endpoints late in a slow cycle looked
+        stale although newer reports had landed.
+        """
+        mock_session = MagicMock()
+        endpoints = [
+            EndpointHealthInfo(
+                id=i,
+                slug=f"ep-{i}",
+                endpoint_type="model",
+                is_active=True,
+                connect=[{"type": "rest_api", "config": {"url": "/test"}}],
+                base_url="https://example.com",
+                owner_id=10,
+                owner_type="user",
+            )
+            for i in (1, 2, 3)
+        ]
+
+        with (
+            patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
+            patch.object(
+                monitor, "_get_endpoints_for_health_check", return_value=endpoints
+            ),
+            patch.object(
+                monitor,
+                "_check_endpoint_health",
+                side_effect=lambda ep, _now: (ep.id, True),
+            ) as mock_check,
+            patch.object(
+                monitor,
+                "_update_health_statuses",
+                return_value={1: (True, 0), 2: (True, 0), 3: (True, 0)},
+            ),
+            patch.object(monitor, "_emit_uptime_samples") as mock_emit,
+        ):
+            mock_db_manager.get_session.return_value = mock_session
+
+            await monitor.run_health_check_cycle()
+
+        clocks = {call.args[1] for call in mock_check.call_args_list}
+        assert len(clocks) == 1, "every endpoint must be judged at the same instant"
+        assert mock_emit.call_args.args[2] == clocks.pop()
 
 
 class TestHealthMonitorLifecycle:
@@ -961,28 +1097,24 @@ class TestUptimeSampleEmission:
         now = datetime(2026, 5, 13, 13, 0, 0, tzinfo=timezone.utc)
         assert monitor._current_bucket_start(now) == now
 
-    def test_emit_uptime_sample_calls_repository(self, monitor):
+    def test_emit_uptime_samples_writes_one_batch(self, monitor):
         mock_session = MagicMock()
         now = datetime(2026, 5, 13, 12, 5, 0, tzinfo=timezone.utc)
         with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
             repo = MagicMock()
             RepoCls.return_value = repo
-            monitor._emit_uptime_sample(
+            monitor._emit_uptime_samples(
                 mock_session,
-                endpoint_id=42,
-                is_healthy=True,
+                [(42, True, True), (43, False, True)],  # 43: a blip, still active
                 now=now,
             )
-        repo.upsert_uptime_sample.assert_called_once()
-        kwargs = repo.upsert_uptime_sample.call_args.kwargs
-        assert kwargs["endpoint_id"] == 42
-        assert kwargs["is_healthy"] is True
-        # bucket boundary
-        assert kwargs["bucket_start"] == datetime(
-            2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc
+        bucket = datetime(2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc)
+        repo.upsert_uptime_samples.assert_called_once_with(
+            [(42, bucket, True, True), (43, bucket, False, True)]
         )
+        mock_session.commit.assert_called_once()
 
-    def test_emit_uptime_sample_swallows_errors(self, monitor):
+    def test_emit_uptime_samples_swallows_errors(self, monitor):
         mock_session = MagicMock()
         now = datetime(2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc)
         with patch(
@@ -990,12 +1122,15 @@ class TestUptimeSampleEmission:
             side_effect=RuntimeError("boom"),
         ):
             # Must not raise — emission is best-effort.
-            monitor._emit_uptime_sample(
-                mock_session,
-                endpoint_id=1,
-                is_healthy=False,
-                now=now,
+            monitor._emit_uptime_samples(mock_session, [(1, False, False)], now=now)
+        mock_session.rollback.assert_called_once()
+
+    def test_emit_uptime_samples_skips_empty_cycle(self, monitor):
+        with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
+            monitor._emit_uptime_samples(
+                MagicMock(), [], now=datetime(2026, 5, 13, tzinfo=timezone.utc)
             )
+        RepoCls.assert_not_called()
 
     def test_retention_runs_at_most_once_per_day(self, monitor):
         mock_session = MagicMock()

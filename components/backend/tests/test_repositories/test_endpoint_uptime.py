@@ -167,3 +167,43 @@ class TestBulkUpdateHealthStatus:
         refreshed = test_session.get(EndpointModel, endpoint.id)
         assert refreshed.health_status == "healthy"
         assert refreshed.health_ttl_seconds == 300
+
+
+class TestUpsertUptimeSamplesBatch:
+    """The per-cycle batch path and the active/reported split."""
+
+    @staticmethod
+    def _bucket():
+        return datetime.now(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        ) - timedelta(days=1)
+
+    def test_counts_reported_and_active_separately(self, test_session, endpoint):
+        repo = EndpointRepository(test_session)
+        bucket = self._bucket()
+
+        repo.upsert_uptime_samples(
+            [
+                (endpoint.id, bucket, True, True),
+                (endpoint.id, bucket, False, True),  # blip: reported down, still active
+                (endpoint.id, bucket, False, False),
+            ]
+        )
+        test_session.commit()
+
+        s = repo.get_uptime_samples(endpoint_id=endpoint.id, window_hours=24 * 30)[0]
+        assert (s.total_checks, s.healthy_checks, s.active_checks) == (3, 1, 2)
+
+    def test_empty_batch_is_a_noop(self, test_session):
+        EndpointRepository(test_session).upsert_uptime_samples([])
+
+    def test_single_upsert_defaults_active_to_reported(self, test_session, endpoint):
+        repo = EndpointRepository(test_session)
+        bucket = self._bucket()
+
+        repo.upsert_uptime_sample(endpoint.id, bucket, True)
+        repo.upsert_uptime_sample(endpoint.id, bucket, False)
+        test_session.commit()
+
+        s = repo.get_uptime_samples(endpoint_id=endpoint.id, window_hours=24 * 30)[0]
+        assert (s.total_checks, s.healthy_checks, s.active_checks) == (2, 1, 1)

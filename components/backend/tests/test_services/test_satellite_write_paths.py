@@ -231,6 +231,37 @@ class TestHealthNoLongerFlipFlops:
             )
 
 
+class TestHealthIsScopedToTheReportingSpace:
+    """A report only touches endpoints the reporting satellite serves."""
+
+    def _attach(self, services, owner, satellite, slug):
+        ep_service, _ = services
+        ep_service.sync_user_endpoints(
+            [_endpoint(slug)], owner, satellite_id=satellite.id
+        )
+
+    def test_another_space_cannot_overwrite_a_served_endpoint(
+        self, services, owner, test_session
+    ):
+        """Space B reporting A's slug is ignored, not applied to A's endpoint."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        b = _register(sat_service, owner.id, "https://b.example.com")
+        self._attach(services, owner, a, "my-endpoint")
+
+        from_b = ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://b.example.com", satellite_id=b.id)
+        )
+        assert (from_b.updated, from_b.ignored) == (0, 1)
+        assert test_session.query(EndpointModel).one().health_status is None
+
+        from_a = ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://a.example.com", satellite_id=a.id)
+        )
+        assert (from_a.updated, from_a.ignored) == (1, 0)
+        assert test_session.query(EndpointModel).one().health_status == "healthy"
+
+
 class TestSyncNoLongerClobbers:
     """The second live bug: sync deleted every endpoint the account owned."""
 
