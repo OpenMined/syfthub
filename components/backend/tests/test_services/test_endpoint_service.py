@@ -1148,7 +1148,7 @@ class TestReportEndpointHealth:
         items = [
             EndpointHealthItem(
                 slug="my-endpoint",
-                status=EndpointHealthStatus.HEALTHY,
+                status=EndpointHealthStatus.UNHEALTHY,
                 checked_at=now,
             )
         ]
@@ -1158,13 +1158,17 @@ class TestReportEndpointHealth:
                 endpoint_service.endpoint_repository,
                 "get_endpoints_by_slugs_for_health",
                 return_value=[MagicMock(slug="my-endpoint", id=1)],
-            ),
+            ) as mock_lookup,
             patch.object(
                 endpoint_service.endpoint_repository,
                 "bulk_update_health_status",
                 return_value=1,
+            ) as mock_update,
+            patch.object(
+                endpoint_service.satellite_service,
+                "record_heartbeat",
+                return_value=MagicMock(id=7),
             ),
-            patch.object(endpoint_service.satellite_service, "record_heartbeat"),
         ):
             result = endpoint_service.report_endpoint_health(
                 endpoints_health=items,
@@ -1175,6 +1179,16 @@ class TestReportEndpointHealth:
 
         assert result.updated == 1
         assert result.ignored == 0
+        # Scoped to the satellite the heartbeat resolved, not the whole account.
+        assert mock_lookup.call_args.kwargs["satellite_id"] == 7
+        assert mock_update.call_args.args[0] == [
+            {
+                "endpoint_id": 1,
+                "health_status": "unhealthy",
+                "health_checked_at": now,
+                "health_ttl_seconds": 300,
+            }
+        ]
 
     def test_report_health_unmatched_slugs(self, endpoint_service, sample_user):
         """Test reporting health for slugs that don't match any endpoints."""
@@ -1331,6 +1345,7 @@ class TestGetEndpointUptime:
         s.bucket_start = kwargs["bucket_start"]
         s.total_checks = kwargs.get("total_checks", 0)
         s.healthy_checks = kwargs.get("healthy_checks", 0)
+        s.active_checks = kwargs.get("active_checks", s.healthy_checks)
         return s
 
     def test_uptime_user_owned_happy_path(self, endpoint_service, sample_user):
@@ -1446,6 +1461,48 @@ class TestGetEndpointUptime:
                 current_user=None,
             )
         assert result.buckets == []
+
+    def test_uptime_draws_active_not_reported(self, endpoint_service, sample_user):
+        """uptime_pct follows the smoothed series; the raw one rides along."""
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="blippy", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        bucket = datetime(2026, 5, 13, 12, 30, tzinfo=timezone.utc)
+        # The space reported unhealthy 7 times, but never 3 in a row, so the
+        # hub kept the endpoint listed for all 60 cycles.
+        samples = [
+            self._sample(
+                bucket_start=bucket,
+                total_checks=60,
+                healthy_checks=53,
+                active_checks=60,
+            )
+        ]
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=samples,
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="blippy",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        b = result.buckets[0]
+        assert (b.healthy_samples, b.reported_healthy_samples) == (60, 53)
+        assert b.uptime_pct == 100.0
 
     def test_uptime_partial_health(self, endpoint_service, sample_user):
         owner = MagicMock(id=1, username="testuser")

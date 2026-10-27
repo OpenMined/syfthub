@@ -857,7 +857,7 @@ Semantic search endpoints using Meilisearch.
 
 ### `POST /endpoints/sync`
 
-**Destructive** atomic sync — deletes all user endpoints and recreates from the provided list.
+Atomic sync of everything one Space serves. The Hub diffs the list against the endpoints it holds for that satellite, by slug: known endpoints are updated in place and keep their id, stars and uptime history; new ones are created; endpoints no longer in the list are deleted. Other satellites on the account are not touched.
 
 **Auth:** Hub token required.
 
@@ -875,6 +875,8 @@ Semantic search endpoints using Meilisearch.
 ```json
 {
   "synced": 2,
+  "created": 1,
+  "updated": 1,
   "deleted": 5,
   "endpoints": [ "..." ]
 }

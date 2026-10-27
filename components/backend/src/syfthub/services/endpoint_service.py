@@ -1360,27 +1360,31 @@ class EndpointService(BaseService):
         current_user: User,
         satellite_id: Optional[uuid.UUID] = None,
     ) -> SyncEndpointsResponse:
-        """Synchronize user's endpoints with provided list.
+        """Make a satellite's catalogue match the list it reports.
 
-        This operation is ATOMIC: either all endpoints are synced, or none are.
-        It replaces the endpoints served by ONE satellite — not the account's
-        entire catalogue, which is what it used to do and which meant one space
-        syncing wiped another's endpoints.
+        One satellite at a time: the account's other spaces are untouched.
+
+        This used to delete every endpoint the space served and re-create the
+        batch, so each restart handed every endpoint a new id and the cascade
+        dropped its stars, uptime history, collective membership and health
+        state. Now it is a diff keyed by slug (a space cannot rename one):
+        reported endpoints are updated in place or created, and only the ones
+        the space no longer reports are deleted.
 
         Flow:
-        1. Validate all endpoints in the batch (no DB changes)
-        2. If validation fails, return 400 with ALL errors
-        3. Delete all existing user endpoints
-        4. Create all new endpoints
-        5. Commit transaction
-        6. Return sync results
+        1. Validate the batch (no DB changes); 400 with every error on failure
+        2. Resolve the satellite
+        3. Update, create and delete as one transaction
+        4. Fix up the search index (best effort)
 
         Args:
-            endpoints_data: List of endpoint specifications to sync
+            endpoints_data: Everything the space serves right now
             current_user: The authenticated user performing the sync
+            satellite_id: Which of the user's satellites is reporting
 
         Returns:
-            SyncEndpointsResponse with sync results
+            SyncEndpointsResponse with per-outcome counts and every endpoint
+            the satellite now serves
 
         Raises:
             HTTPException: 400 if validation fails, 500 if database error
@@ -1416,70 +1420,13 @@ class EndpointService(BaseService):
         )
         space_id = satellite.id if satellite else None
 
-        # Phase 2: Remove old endpoints from the search index (best effort,
-        # before the DB delete). Scoped the same way as the delete below: an
-        # unscoped sweep would drop another space's endpoints out of Meilisearch
-        # permanently, since Phase 4 only re-indexes what this sync creates.
-        if self.rag_service.is_available:
-            old_rag_files = self.endpoint_repository.get_rag_file_ids_for_space(
-                current_user.id, space_id
-            )
-            for endpoint_id, file_id in old_rag_files:
-                try:
-                    self.rag_service.remove_endpoint(file_id)
-                    logger.debug(f"Removed endpoint {endpoint_id} from RAG during sync")
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to remove endpoint {endpoint_id} from RAG during sync: {e}"
-                    )
-
-        # Phase 3: Atomic database operation
+        # Phase 2: Atomic database operation
         try:
-            # Delete only the endpoints this satellite serves
-            deleted_count = self.endpoint_repository.delete_endpoints_for_space(
-                current_user.id, space_id
+            diff = self.endpoint_repository.sync_endpoints_for_space(
+                validated_endpoints, current_user.id, space_id
             )
-
-            # Create all new endpoints, attached to the resolved satellite
-            if validated_endpoints:
-                created_endpoints = self.endpoint_repository.bulk_create_endpoints(
-                    validated_endpoints, current_user.id, space_id=space_id
-                )
-            else:
-                created_endpoints = []
-
-            # Commit the transaction (delete + creates)
             self.session.commit()
-
-            logger.info(
-                f"Sync completed for user {current_user.id}: "
-                f"deleted={deleted_count}, created={len(created_endpoints)}"
-            )
-
-            # Phase 4: Ingest new public endpoints to RAG (best effort, after commit)
-            if self.rag_service.is_available:
-                for endpoint in created_endpoints:
-                    if endpoint.visibility == EndpointVisibility.PUBLIC:
-                        self._ingest_to_rag(endpoint.id)
-
-            # Everything in this batch is served by the satellite we resolved,
-            # so one origin covers the whole response.
-            origin = satellite.base_url.value if satellite else None
-            response_endpoints = [
-                self._to_response_with_urls(
-                    ep, base_url=origin, current_user=current_user
-                )
-                for ep in created_endpoints
-            ]
-
-            return SyncEndpointsResponse(
-                synced=len(created_endpoints),
-                deleted=deleted_count,
-                endpoints=response_endpoints,
-            )
-
         except Exception as e:
-            # Rollback on any error
             self.session.rollback()
             logger.error(
                 f"Sync failed for user {current_user.id}: {e}",
@@ -1492,6 +1439,48 @@ class EndpointService(BaseService):
                     "message": "Failed to sync endpoints. Transaction rolled back.",
                 },
             ) from e
+
+        logger.info(
+            f"Sync completed for user {current_user.id}: "
+            f"created={len(diff.created)}, updated={len(diff.updated)}, "
+            f"deleted={len(diff.deleted)}"
+        )
+
+        # Phase 3: Search index, after the commit so a failed sync leaves it
+        # alone. Deleted rows come out; every served row is re-indexed if
+        # public (Meilisearch upserts by id) or removed if not.
+        if self.rag_service.is_available:
+            for endpoint_id, file_id in diff.deleted:
+                if not file_id:
+                    continue
+                try:
+                    self.rag_service.remove_endpoint(file_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to remove endpoint {endpoint_id} from RAG during sync: {e}"
+                    )
+            for endpoint in diff.served:
+                if endpoint.visibility == EndpointVisibility.PUBLIC:
+                    self._ingest_to_rag(endpoint.id)
+                else:
+                    self._remove_from_rag(endpoint.id)
+
+        # Everything in this batch is served by the satellite we resolved,
+        # so one origin covers the whole response.
+        origin = satellite.base_url.value if satellite else None
+        served = diff.served
+        response_endpoints = [
+            self._to_response_with_urls(ep, base_url=origin, current_user=current_user)
+            for ep in served
+        ]
+
+        return SyncEndpointsResponse(
+            synced=len(served),
+            created=len(diff.created),
+            updated=len(diff.updated),
+            deleted=len(diff.deleted),
+            endpoints=response_endpoints,
+        )
 
     # ===========================================
     # ENDPOINT HEALTH REPORTING
@@ -1531,17 +1520,21 @@ class EndpointService(BaseService):
         # --- Satellite origin ---
         # Replaces the account-wide users.domain write. BaseUrl also validates
         # and canonicalises, which the old scheme://netloc extraction did not.
-        self.satellite_service.record_heartbeat(
+        satellite = self.satellite_service.record_heartbeat(
             user_id=current_user.id,
             reported_url=url,
             satellite_id=satellite_id,
         )
 
         # --- Bulk slug match (single query, no is_active filter) ---
+        # Scoped to the reporting satellite: a second space on the account
+        # must not overwrite the health of a same-named endpoint it does not
+        # serve.
         slugs = [item.slug for item in endpoints_health]
         matched_endpoints = self.endpoint_repository.get_endpoints_by_slugs_for_health(
             user_id=current_user.id,
             slugs=slugs,
+            satellite_id=satellite.id,
         )
 
         # Build slug -> endpoint model mapping
@@ -1661,7 +1654,10 @@ class EndpointService(BaseService):
         buckets: list[UptimeBucket] = []
         for s in samples:
             total = s.total_checks or 0
-            healthy = s.healthy_checks or 0
+            reported_healthy = s.healthy_checks or 0
+            # What the chart draws: cycles in which the endpoint was listed
+            # active, i.e. the same consecutive-failure rule as the badge.
+            healthy = s.active_checks or 0
             uptime_pct = (100.0 * healthy / total) if total > 0 else 0.0
             # bucket_start is NOT NULL in the schema; assert narrows the type
             # so mypy stops treating it as Optional[datetime].
@@ -1672,6 +1668,7 @@ class EndpointService(BaseService):
                     bucket_start=bucket_start,
                     samples=total,
                     healthy_samples=healthy,
+                    reported_healthy_samples=reported_healthy,
                     uptime_pct=round(uptime_pct, 2),
                 )
             )

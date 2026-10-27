@@ -417,14 +417,17 @@ def search_endpoints(
     description="""
 Synchronize user's endpoints with the provided list.
 
-**This is a DESTRUCTIVE operation** that:
-1. Deletes ALL existing endpoints owned by the current user
-2. Creates ALL endpoints from the provided list
-3. Is ATOMIC: either all endpoints sync successfully, or none do
+The list is everything the reporting satellite serves. The Hub diffs it
+against what it has for that satellite, by slug:
+1. Endpoints already known are updated in place and keep their id, stars,
+   uptime history and collective membership
+2. Endpoints not seen before are created
+3. Endpoints the satellite no longer reports are deleted, along with their
+   history
+4. The whole diff is ATOMIC: either it all applies, or none of it does
 
 **Important Notes:**
-- Stars on existing endpoints will be lost (reset to 0)
-- Endpoint IDs will change (new IDs assigned)
+- Other satellites owned by the same account are not touched
 - Maximum 100 endpoints per sync request
 
 **Validation:**

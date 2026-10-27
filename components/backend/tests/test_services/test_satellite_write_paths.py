@@ -231,6 +231,37 @@ class TestHealthNoLongerFlipFlops:
             )
 
 
+class TestHealthIsScopedToTheReportingSpace:
+    """A report only touches endpoints the reporting satellite serves."""
+
+    def _attach(self, services, owner, satellite, slug):
+        ep_service, _ = services
+        ep_service.sync_user_endpoints(
+            [_endpoint(slug)], owner, satellite_id=satellite.id
+        )
+
+    def test_another_space_cannot_overwrite_a_served_endpoint(
+        self, services, owner, test_session
+    ):
+        """Space B reporting A's slug is ignored, not applied to A's endpoint."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        b = _register(sat_service, owner.id, "https://b.example.com")
+        self._attach(services, owner, a, "my-endpoint")
+
+        from_b = ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://b.example.com", satellite_id=b.id)
+        )
+        assert (from_b.updated, from_b.ignored) == (0, 1)
+        assert test_session.query(EndpointModel).one().health_status is None
+
+        from_a = ep_service.report_endpoint_health(
+            current_user=owner, **_health("https://a.example.com", satellite_id=a.id)
+        )
+        assert (from_a.updated, from_a.ignored) == (1, 0)
+        assert test_session.query(EndpointModel).one().health_status == "healthy"
+
+
 class TestSyncNoLongerClobbers:
     """The second live bug: sync deleted every endpoint the account owned."""
 
@@ -510,3 +541,224 @@ class TestLegacyDomainMirror:
         by_id = {s.id: s.base_url for s in sat_service.list_satellites(owner.id)}
         assert by_id[a.id] == "https://a.example.com"
         assert by_id[b.id] == "https://b-moved.example.com"
+
+
+class TestSyncKeepsExistingEndpoints:
+    """The space's list is the truth; the Hub's rows are kept, not replaced.
+
+    Every restart re-syncs. Deleting and re-creating gave each endpoint a new
+    id, and the cascade on ``endpoints.id`` took its stars, uptime history,
+    collective membership and health state with it. A space cannot rename an
+    endpoint, so the slug is a stable key.
+    """
+
+    def _rows(self, test_session):
+        test_session.expire_all()
+        return {
+            r.slug: r
+            for r in test_session.query(EndpointModel).order_by(EndpointModel.slug)
+        }
+
+    def test_resync_keeps_the_id_and_its_history(self, services, owner, test_session):
+        """The same slug reported again is the same endpoint, history intact."""
+        from datetime import datetime, timezone
+
+        from syfthub.models.endpoint import EndpointUptimeSampleModel
+
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        first = ep_service.sync_user_endpoints(
+            [_endpoint("news")], owner, satellite_id=a.id
+        )
+        original_id = first.endpoints[0].id
+
+        row = test_session.get(EndpointModel, original_id)
+        row.stars_count = 7
+        row.health_status = "healthy"
+        row.consecutive_failure_count = 2
+        test_session.add(
+            EndpointUptimeSampleModel(
+                endpoint_id=original_id,
+                bucket_start=datetime(2026, 10, 27, 6, 0, tzinfo=timezone.utc),
+                total_checks=60,
+                healthy_checks=58,
+                active_checks=60,
+            )
+        )
+        test_session.commit()
+
+        second = ep_service.sync_user_endpoints(
+            [_endpoint("news")], owner, satellite_id=a.id
+        )
+
+        assert second.endpoints[0].id == original_id
+        assert (second.created, second.updated, second.deleted) == (0, 1, 0)
+        assert second.synced == 1
+        survivor = self._rows(test_session)["news"]
+        assert survivor.stars_count == 7
+        assert survivor.health_status == "healthy"
+        assert survivor.consecutive_failure_count == 2
+        assert test_session.query(EndpointUptimeSampleModel).count() == 1
+
+    def test_resync_updates_catalogue_fields_in_place(
+        self, services, owner, test_session
+    ):
+        """Changed name, description, policies land on the existing row."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        first = ep_service.sync_user_endpoints(
+            [_endpoint("news")], owner, satellite_id=a.id
+        )
+
+        edited = _endpoint("news")
+        edited.name = "World news"
+        edited.description = "Fresh every hour"
+        result = ep_service.sync_user_endpoints([edited], owner, satellite_id=a.id)
+
+        row = self._rows(test_session)["news"]
+        assert row.id == first.endpoints[0].id
+        assert (row.name, row.description) == ("World news", "Fresh every hour")
+        assert (result.created, result.updated) == (0, 1)
+
+    def test_unreported_endpoints_are_deleted_with_their_history(
+        self, services, owner, test_session
+    ):
+        """Dropping an endpoint on the space drops it, and only it, on the Hub."""
+        from datetime import datetime, timezone
+
+        from syfthub.models.endpoint import EndpointUptimeSampleModel
+
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        first = ep_service.sync_user_endpoints(
+            [_endpoint("keep"), _endpoint("drop")], owner, satellite_id=a.id
+        )
+        ids = {ep.slug: ep.id for ep in first.endpoints}
+        for slug in ("keep", "drop"):
+            test_session.add(
+                EndpointUptimeSampleModel(
+                    endpoint_id=ids[slug],
+                    bucket_start=datetime(2026, 10, 27, 6, 0, tzinfo=timezone.utc),
+                    total_checks=1,
+                    healthy_checks=1,
+                    active_checks=1,
+                )
+            )
+        test_session.commit()
+
+        result = ep_service.sync_user_endpoints(
+            [_endpoint("keep")], owner, satellite_id=a.id
+        )
+
+        assert (result.synced, result.deleted) == (1, 1)
+        rows = self._rows(test_session)
+        assert list(rows) == ["keep"]
+        assert rows["keep"].id == ids["keep"]
+        samples = test_session.query(EndpointUptimeSampleModel).all()
+        assert [s.endpoint_id for s in samples] == [ids["keep"]]
+
+    def test_new_endpoints_are_created_beside_existing_ones(
+        self, services, owner, test_session
+    ):
+        """Adding an endpoint on the space creates just that one."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        first = ep_service.sync_user_endpoints(
+            [_endpoint("old")], owner, satellite_id=a.id
+        )
+
+        result = ep_service.sync_user_endpoints(
+            [_endpoint("old"), _endpoint("new")], owner, satellite_id=a.id
+        )
+
+        assert (result.created, result.updated, result.deleted) == (1, 1, 0)
+        rows = self._rows(test_session)
+        assert rows["old"].id == first.endpoints[0].id
+        assert rows["new"].id != rows["old"].id
+
+    def test_unattached_rows_are_adopted_not_replaced(
+        self, services, owner, test_session
+    ):
+        """A pre-satellite row with the slug keeps its id and joins the space."""
+        ep_service, sat_service = services
+        created = ep_service.create_endpoint(
+            _endpoint("legacy"), owner.id, current_user=owner
+        )
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        ref = sat_service.satellite_repository.get_by_public_id(owner.id, a.id)
+
+        result = ep_service.sync_user_endpoints(
+            [_endpoint("legacy")], owner, satellite_id=a.id
+        )
+
+        row = self._rows(test_session)["legacy"]
+        assert row.id == created.id
+        assert row.space_id == ref.id
+        assert (result.updated, result.deleted) == (1, 0)
+
+    def test_a_slug_served_elsewhere_moves_to_the_syncing_space(
+        self, services, owner, test_session
+    ):
+        """Slugs are unique per user, so the reporting space takes the row over."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        b = _register(sat_service, owner.id, "https://b.example.com")
+        ref_b = sat_service.satellite_repository.get_by_public_id(owner.id, b.id)
+        first = ep_service.sync_user_endpoints(
+            [_endpoint("moved")], owner, satellite_id=a.id
+        )
+
+        result = ep_service.sync_user_endpoints(
+            [_endpoint("moved")], owner, satellite_id=b.id
+        )
+
+        row = self._rows(test_session)["moved"]
+        assert row.id == first.endpoints[0].id
+        assert row.space_id == ref_b.id
+        assert (result.updated, result.deleted) == (1, 0)
+
+    def test_archived_endpoint_stays_private_and_archived(
+        self, services, owner, test_session
+    ):
+        """Archiving is the Hub's call; a re-sync saying public must not undo it."""
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        ep_service.sync_user_endpoints([_endpoint("news")], owner, satellite_id=a.id)
+        row = self._rows(test_session)["news"]
+        row.archived = True
+        row.visibility = "private"
+        test_session.commit()
+
+        ep_service.sync_user_endpoints([_endpoint("news")], owner, satellite_id=a.id)
+
+        row = self._rows(test_session)["news"]
+        assert row.archived is True
+        assert row.visibility == "private"
+
+    def test_search_index_drops_deleted_and_reindexes_served(
+        self, services, owner, test_session
+    ):
+        """Deleted rows leave the index; every served public row is upserted."""
+        from unittest.mock import MagicMock
+
+        ep_service, sat_service = services
+        a = _register(sat_service, owner.id, "https://a.example.com")
+        ep_service.sync_user_endpoints(
+            [_endpoint("same"), _endpoint("gone")], owner, satellite_id=a.id
+        )
+        rows = self._rows(test_session)
+        rows["gone"].rag_file_id = str(rows["gone"].id)
+        test_session.commit()
+
+        rag = MagicMock()
+        rag.is_available = True
+        rag.ingest_endpoint.side_effect = lambda model: str(model.id)
+        ep_service.rag_service = rag
+
+        ep_service.sync_user_endpoints(
+            [_endpoint("same"), _endpoint("added")], owner, satellite_id=a.id
+        )
+
+        rag.remove_endpoint.assert_called_once_with(str(rows["gone"].id))
+        ingested = sorted(m.args[0].slug for m in rag.ingest_endpoint.call_args_list)
+        assert ingested == ["added", "same"]

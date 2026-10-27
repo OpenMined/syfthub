@@ -653,12 +653,24 @@ class SyncEndpointsRequest(BaseModel):
 
 
 class SyncEndpointsResponse(BaseModel):
-    """Response schema for sync operation."""
+    """Response schema for sync operation.
 
-    synced: int = Field(..., ge=0, description="Number of endpoints created")
-    deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
+    ``synced`` is everything the satellite serves after the sync, which is
+    ``created + updated``. Existing endpoints keep their ids.
+    """
+
+    synced: int = Field(
+        ..., ge=0, description="Number of endpoints the satellite now serves"
+    )
+    created: int = Field(0, ge=0, description="Endpoints that did not exist before")
+    updated: int = Field(
+        0, ge=0, description="Existing endpoints refreshed from the payload"
+    )
+    deleted: int = Field(
+        ..., ge=0, description="Endpoints the satellite no longer reports"
+    )
     endpoints: List[EndpointResponse] = Field(
-        ..., description="Created endpoints with full details"
+        ..., description="Every endpoint the satellite now serves, with full details"
     )
 
     model_config = {"from_attributes": True}
@@ -888,13 +900,28 @@ class UptimeBucket(BaseModel):
         ..., ge=0, description="Number of health monitor cycles in this bucket"
     )
     healthy_samples: int = Field(
-        ..., ge=0, description="Number of those cycles that observed a healthy state"
+        ...,
+        ge=0,
+        description=(
+            "Number of those cycles in which the Hub listed the endpoint as "
+            "active, i.e. after the consecutive-failure rule that also drives "
+            "is_active. This is what the uptime chart draws."
+        ),
+    )
+    reported_healthy_samples: int = Field(
+        0,
+        ge=0,
+        description=(
+            "Number of those cycles in which the client's own report said "
+            "'healthy' and was still fresh, before smoothing. Diagnostic: a gap "
+            "between this and healthy_samples means short blips."
+        ),
     )
     uptime_pct: float = Field(
         ...,
         ge=0.0,
         le=100.0,
-        description="Percentage of cycles in which the endpoint was healthy",
+        description="healthy_samples / samples, as a percentage",
     )
 
 

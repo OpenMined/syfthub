@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -157,6 +158,59 @@ class DatabaseManager:
     def get_session(self) -> Session:
         """Get a new database session."""
         return self.session_factory()
+
+    @contextlib.contextmanager
+    def locked_session(self, lock_id: int) -> Iterator[Optional[Session]]:
+        """A session for one background job cycle, under a Postgres advisory lock.
+
+        Yields ``None`` when another holder has the lock, so the caller skips
+        the cycle. On databases other than Postgres there is one worker and no
+        lock, so a plain session is yielded.
+
+        Session-level advisory locks belong to the *connection*. Closing a
+        Session only returns its connection to the pool, with a ROLLBACK, and
+        a rollback does not release them. Taking the lock through a pooled
+        session therefore parked it on whichever connection happened to run
+        the ``pg_try_advisory_lock``, for the life of the process; every later
+        cycle that drew a different connection from the pool found the lock
+        "held by another worker" and skipped. The monitor then ran only when
+        the pool happened to hand that one connection back, which is why
+        cycles came every few minutes rather than every 30 seconds.
+
+        So the cycle runs on one dedicated connection, the session's commits
+        happen on that connection, and the lock is released explicitly before
+        the connection goes back to the pool.
+        """
+        if self.engine.dialect.name != "postgresql":
+            session = self.session_factory()
+            try:
+                yield session
+            finally:
+                session.close()
+            return
+
+        with self.engine.connect() as conn:
+            acquired = conn.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": lock_id}
+            ).scalar()
+            conn.commit()
+            if not acquired:
+                yield None
+                return
+
+            session = self.session_factory(bind=conn)
+            try:
+                yield session
+            finally:
+                session.close()
+                try:
+                    conn.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": lock_id},
+                    )
+                    conn.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to release advisory lock {lock_id}: {e}")
 
     def reset_database(self) -> None:
         """Reset the database by dropping and recreating all tables."""

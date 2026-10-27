@@ -38,6 +38,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_UPTIME_UPSERT_SQL = """
+    INSERT INTO endpoint_uptime_samples (
+        endpoint_id, bucket_start,
+        total_checks, healthy_checks, active_checks
+    )
+    VALUES (:eid, :bucket, 1, :h, :a)
+    ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
+        total_checks   = endpoint_uptime_samples.total_checks + 1,
+        healthy_checks = endpoint_uptime_samples.healthy_checks
+                         + EXCLUDED.healthy_checks,
+        active_checks  = endpoint_uptime_samples.active_checks
+                         + EXCLUDED.active_checks
+"""
+
+
+class SyncDiff:
+    """What one sync did, for the service to commit and index."""
+
+    def __init__(self) -> None:
+        self.created: List[Endpoint] = []
+        self.updated: List[Endpoint] = []
+        # (endpoint id, rag_file_id) of rows the sync removed.
+        self.deleted: List[tuple[int, Optional[str]]] = []
+
+    @property
+    def served(self) -> List[Endpoint]:
+        """Everything the satellite serves after the sync."""
+        return [*self.created, *self.updated]
+
+
 class EndpointRepository(BaseRepository[EndpointModel]):
     """Repository for endpoint database operations."""
 
@@ -103,6 +133,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             query_schema=row.query_schema,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            # getattr: window-function rows may not carry every model column.
+            health_status=getattr(row, "health_status", None),
+            health_checked_at=getattr(row, "health_checked_at", None),
         )
 
     def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
@@ -840,9 +873,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def delete_endpoints_for_space(self, user_id: int, space_id: Optional[int]) -> int:
         """Delete the user's endpoints served by one satellite.
 
-        Sync is destructive by design — "here is everything I serve" — but
-        it must mean everything *this space* serves, or one space's sync wipes
-        another's catalogue.
+        Kept for callers that really want a wipe. Sync no longer uses it: it
+        diffs against what the space reports (see ``sync_endpoints_for_space``).
 
         Does NOT commit; the caller owns the transaction.
 
@@ -860,80 +892,86 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self.session.execute(delete(self.model).where(where))
         return deleted_count
 
-    def get_rag_file_ids_for_space(
-        self, user_id: int, space_id: Optional[int]
-    ) -> List[tuple[int, str]]:
-        """Search-index document ids for one satellite's endpoints.
-
-        Sync removes these from Meilisearch before deleting rows, and only re-indexes what it then
-        creates — so an unscoped sweep would drop another space's endpoints out
-        of search permanently, with their rows still in the database.
-
-        Returns:
-            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
-        """
-        try:
-            stmt = select(self.model.id, self.model.rag_file_id).where(
-                and_(
-                    self._space_filter(user_id, space_id),
-                    self.model.rag_file_id.isnot(None),
-                )
-            )
-            return [(row[0], row[1]) for row in self.session.execute(stmt).all()]
-        except SQLAlchemyError:
-            return []
-
-    def bulk_create_endpoints(
+    def sync_endpoints_for_space(
         self,
         endpoints_data: List[dict],
         user_id: int,
-        space_id: Optional[int] = None,
-    ) -> List[Endpoint]:
-        """Create multiple endpoints in a single transaction (for sync operation).
+        space_id: Optional[int],
+    ) -> SyncDiff:
+        """Make one satellite's catalogue match what it reports, keeping rows.
 
-        This method does NOT commit the transaction - caller must commit.
-        This allows atomic operations when combined with other database changes.
+        The space's list is the truth. For each reported slug: update the Hub's
+        row with everything the space sent, or create one if there is none.
+        Then delete the rows this satellite served that the space no longer
+        reports. Rows keep their id, so stars, uptime history, collective
+        membership and health state survive a restart; the old delete-and-
+        recreate lost all of them through the cascade on ``endpoints.id``.
 
-        Args:
-            endpoints_data: List of dicts with endpoint data (pre-validated)
-                Each dict should have: name, slug, description, type, visibility,
-                version, readme, tags, contributors, policies, connect,
-                query_schema (optional)
-            user_id: The user ID who owns these endpoints
-            space_id: The satellite serving them, or None when the account has
-                registered none
+        The slug lookup is per user, not per satellite: slugs are unique per
+        user, so a matching unattached row (pre-satellite) or one served from
+        another of the user's satellites is taken over by the syncing space
+        rather than colliding on the unique index.
 
-        Returns:
-            List of created Endpoint objects
+        Only the columns in ``endpoints_data`` are written (the validated
+        payload: name, slug, description, type, visibility, version, readme,
+        tags, contributors, policies, connect, query_schema). Hub-owned state
+        is untouched, and an archived endpoint stays private, as it would on
+        publish.
+
+        Does NOT commit; the caller owns the transaction.
         """
-        created_endpoints = []
+        slugs = [data["slug"] for data in endpoints_data]
+        by_slug: dict[str, EndpointModel] = {}
+        if slugs:
+            rows = self.session.scalars(
+                select(self.model).where(
+                    and_(
+                        self.model.user_id == user_id,
+                        self.model.slug.in_(slugs),  # type: ignore[attr-defined]
+                    )
+                )
+            ).all()
+            by_slug = {row.slug: row for row in rows}
 
+        created: List[EndpointModel] = []
+        updated: List[EndpointModel] = []
         for data in endpoints_data:
-            endpoint_model = EndpointModel(
-                user_id=user_id,
-                name=data["name"],
-                slug=data["slug"].lower(),
-                description=data.get("description", ""),
-                type=data["type"],
-                visibility=data.get("visibility", "public"),
-                version=data.get("version", "0.1.0"),
-                readme=data.get("readme", ""),
-                tags=data.get("tags", []),
-                contributors=data.get("contributors", []),
-                policies=data.get("policies", []),
-                connect=data.get("connect", []),
-                query_schema=data.get("query_schema"),
-                is_active=True,
-                space_id=space_id,
-            )
-            self.session.add(endpoint_model)
-            created_endpoints.append(endpoint_model)
+            row = by_slug.get(data["slug"])
+            if row is None:
+                row = EndpointModel(
+                    user_id=user_id, is_active=True, space_id=space_id, **data
+                )
+                self.session.add(row)
+                created.append(row)
+            else:
+                for field, value in data.items():
+                    setattr(row, field, value)
+                if row.archived:
+                    row.visibility = "private"
+                row.space_id = space_id
+                updated.append(row)
 
-        # Flush to get IDs assigned (but don't commit)
+        stale = self.session.scalars(
+            select(self.model).where(
+                and_(
+                    self._space_filter(user_id, space_id),
+                    self.model.slug.not_in(slugs),  # type: ignore[attr-defined]
+                )
+            )
+        ).all()
+
+        diff = SyncDiff()
+        for row in stale:
+            gone = Endpoint.model_validate(row)
+            diff.deleted.append((gone.id, getattr(row, "rag_file_id", None)))
+            self.session.delete(row)
+
+        # Flush so created rows get ids and deletes cascade, without committing.
         self.session.flush()
 
-        # Convert to schema objects
-        return [Endpoint.model_validate(model) for model in created_endpoints]
+        diff.created = [Endpoint.model_validate(row) for row in created]
+        diff.updated = [Endpoint.model_validate(row) for row in updated]
+        return diff
 
     def slug_exists_for_user(
         self, user_id: int, slug: str, exclude_endpoint_id: Optional[int] = None
@@ -1147,16 +1185,23 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self,
         user_id: int,
         slugs: list[str],
+        satellite_id: Optional[int] = None,
     ) -> list[EndpointModel]:
         """Get endpoints matching slugs for health reporting.
 
-        Looks up endpoints by slug, owned by the given user.
+        Looks up endpoints by slug, owned by the given user and, when
+        ``satellite_id`` is given, served by that satellite. The narrowing
+        matters once an account runs several spaces: without it a report
+        from one space overwrites the health of a same-named endpoint on
+        another.
         Does NOT filter by is_active — health reports should work for all
         endpoints so the health monitor can re-activate them.
 
         Args:
             user_id: The user ID to match user-owned endpoints
             slugs: List of endpoint slugs to look up
+            satellite_id: Internal id of the reporting satellite; None
+                matches the account's endpoints regardless of satellite.
 
         Returns:
             List of matching EndpointModel objects
@@ -1164,12 +1209,13 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         try:
             normalized_slugs = [s.lower() for s in slugs]
 
-            stmt = select(self.model).where(
-                and_(
-                    self.model.slug.in_(normalized_slugs),
-                    self.model.user_id == user_id,
-                )
-            )
+            conditions = [
+                self.model.slug.in_(normalized_slugs),
+                self.model.user_id == user_id,
+            ]
+            if satellite_id is not None:
+                conditions.append(self.model.space_id == satellite_id)
+            stmt = select(self.model).where(and_(*conditions))
             result = self.session.execute(stmt)
             return list(result.scalars().all())
         except SQLAlchemyError as e:
@@ -1246,11 +1292,52 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     # ENDPOINT UPTIME / TELEMETRY METHODS
     # ===========================================
 
+    def upsert_uptime_samples(
+        self,
+        samples: list[tuple[int, datetime, bool, bool]],
+    ) -> None:
+        """Upsert one cycle's ticks for many endpoints in a single round trip.
+
+        Each tuple is ``(endpoint_id, bucket_start, reported_healthy,
+        is_active)``. On Postgres this is one ``executemany`` of the
+        ``INSERT … ON CONFLICT`` statement; other dialects fall back to the
+        per-row path. Does NOT commit — the caller manages the transaction.
+        """
+        if not samples:
+            return
+        dialect = self.session.bind.dialect.name if self.session.bind else ""
+        if dialect != "postgresql":
+            for endpoint_id, bucket_start, is_healthy, is_active in samples:
+                self.upsert_uptime_sample(
+                    endpoint_id=endpoint_id,
+                    bucket_start=bucket_start,
+                    is_healthy=is_healthy,
+                    is_active=is_active,
+                )
+            return
+        try:
+            self.session.execute(
+                text(_UPTIME_UPSERT_SQL),
+                [
+                    {
+                        "eid": endpoint_id,
+                        "bucket": bucket_start,
+                        "h": 1 if is_healthy else 0,
+                        "a": 1 if is_active else 0,
+                    }
+                    for endpoint_id, bucket_start, is_healthy, is_active in samples
+                ],
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to upsert {len(samples)} uptime sample(s): {e}")
+            raise
+
     def upsert_uptime_sample(
         self,
         endpoint_id: int,
         bucket_start: datetime,
         is_healthy: bool,
+        is_active: Optional[bool] = None,
     ) -> None:
         """Upsert one health-monitor tick into the bucketed uptime table.
 
@@ -1262,28 +1349,24 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoint_id: Endpoint receiving the sample.
             bucket_start: Truncated UTC bucket boundary
                 (``floor(epoch / bucket_seconds) * bucket_seconds``).
-            is_healthy: Result of the monitor's tier evaluation.
+            is_healthy: What the client's report said (raw signal).
+            is_active: What the Hub concluded after the consecutive-failure
+                rule; defaults to ``is_healthy`` for callers without one.
         """
         healthy = 1 if is_healthy else 0
+        active = healthy if is_active is None else (1 if is_active else 0)
         dialect = self.session.bind.dialect.name if self.session.bind else ""
 
         try:
             if dialect == "postgresql":
                 self.session.execute(
-                    text(
-                        """
-                        INSERT INTO endpoint_uptime_samples (
-                            endpoint_id, bucket_start,
-                            total_checks, healthy_checks
-                        )
-                        VALUES (:eid, :bucket, 1, :h)
-                        ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
-                            total_checks   = endpoint_uptime_samples.total_checks + 1,
-                            healthy_checks = endpoint_uptime_samples.healthy_checks
-                                             + EXCLUDED.healthy_checks
-                        """
-                    ),
-                    {"eid": endpoint_id, "bucket": bucket_start, "h": healthy},
+                    text(_UPTIME_UPSERT_SQL),
+                    {
+                        "eid": endpoint_id,
+                        "bucket": bucket_start,
+                        "h": healthy,
+                        "a": active,
+                    },
                 )
                 return
 
@@ -1303,6 +1386,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     bucket_start=bucket_start,
                     total_checks=1,
                     healthy_checks=healthy,
+                    active_checks=active,
                 )
                 self.session.add(sample)
                 # Flush so successive calls within the same transaction see
@@ -1313,6 +1397,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             existing.total_checks += 1
             existing.healthy_checks += healthy
+            existing.active_checks += active
         except SQLAlchemyError as e:
             logger.error(
                 f"Failed to upsert uptime sample for endpoint {endpoint_id} "
