@@ -8,7 +8,7 @@
 
 Discover, share, and run AI models and data sources — like GitHub, but for endpoints.
 
-[![CI](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml/badge.svg)](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml)
+[![CI](https://github.com/OpenMined/syfthub/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenMined/syfthub/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 [Documentation](docs/index.md) · [Python SDK](sdk/python) · [Contributing](CONTRIBUTING.md)
