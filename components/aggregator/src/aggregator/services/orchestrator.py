@@ -186,12 +186,18 @@ class Orchestrator:
         self,
         query: str,
         retrieval_results: list[RetrievalResult],
-        top_k: int,
+        context_limit: int,
     ) -> tuple[list[Document], dict[int, str], dict[int, str]] | None:
         """Rerank documents using CENTRAL_REEMBEDDING.
 
         Re-embeds all retrieved documents into a uniform embedding space so
         cross-source scores are directly comparable.
+
+        ``context_limit`` caps how many documents go on to the prompt; it is
+        independent of ``ChatRequest.top_k``, the per-source retrieval limit.
+        Every document a source returned has already been paid for (per-
+        document policies settle on the Space for the count returned), so the
+        default limit is sized to keep the whole pool in the common case.
 
         Returns:
             Tuple of (reranked_documents, context_dict, source_index_map)
@@ -201,6 +207,13 @@ class Orchestrator:
         if not retrieved_nodes:
             return None
 
+        pool_size = sum(len(node["sources"]) for node in retrieved_nodes.values())
+        keep = min(pool_size, context_limit)
+        if keep < pool_size:
+            logger.info(
+                f"context_limit={context_limit} keeps {keep} of {pool_size} retrieved documents"
+            )
+
         rerank_start = time.perf_counter()
         try:
             aggregator = Aggregate()
@@ -209,7 +222,7 @@ class Orchestrator:
                 query=query,
                 retrieved_nodes=retrieved_nodes,
                 method=Aggregate.CENTRAL_REEMBEDDING,
-                top_k=top_k,
+                top_k=keep,
                 model_name="BAAI/bge-base-en-v1.5",
                 device="cpu",
             )
@@ -432,7 +445,7 @@ class Orchestrator:
             rerank_result = await self._rerank_documents(
                 query=request.prompt,
                 retrieval_results=context.retrieval_results,
-                top_k=request.top_k,
+                context_limit=request.context_limit,
             )
             if rerank_result is not None:
                 reranked_docs, context_dict, source_index_map = rerank_result
@@ -650,7 +663,7 @@ class Orchestrator:
             rerank_result = await self._rerank_documents(
                 query=request.prompt,
                 retrieval_results=retrieval_results,
-                top_k=request.top_k,
+                context_limit=request.context_limit,
             )
             rerank_time_ms = int((time.perf_counter() - rerank_start) * 1000)
             if rerank_result is not None:

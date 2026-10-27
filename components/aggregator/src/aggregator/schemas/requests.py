@@ -85,7 +85,20 @@ class ChatRequest(BaseModel):
         default=5,
         ge=1,
         le=20,
-        description="Number of documents to retrieve per source (maps to 'limit' in SyftAI-Space)",
+        description=(
+            "Number of documents to retrieve per source (maps to 'limit' in SyftAI-Space). "
+            "Not a cap on the prompt; see context_limit."
+        ),
+    )
+    context_limit: int = Field(
+        default=50,
+        ge=1,
+        le=200,
+        description=(
+            "Maximum number of reranked documents, across all sources, that go into the prompt. "
+            "Retrieved documents are already paid for, so the default is large enough to keep "
+            "the whole pool for typical requests (e.g. 10 sources x top_k 5)."
+        ),
     )
     stream: bool = Field(default=False, description="Enable streaming response")
     # LLM parameters passed to SyftAI-Space
