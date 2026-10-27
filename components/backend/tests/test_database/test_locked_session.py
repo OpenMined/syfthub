@@ -61,8 +61,11 @@ class TestLockedSession:
         manager, conn = _manager("postgresql", acquired=True)
         session = manager.session_factory.return_value
 
-        with pytest.raises(RuntimeError), manager.locked_session(42):
+        def blow_up() -> None:
             raise RuntimeError("cycle blew up")
+
+        with pytest.raises(RuntimeError), manager.locked_session(42):
+            blow_up()
 
         session.close.assert_called_once()
         statements = [_sql(c) for c in conn.execute.call_args_list]
