@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from syfthub.jobs.otp_cleanup import OTPCleanupJob
+from syfthub.jobs.otp_cleanup import OTP_CLEANUP_LOCK_ID, OTPCleanupJob
 
 
 @pytest.fixture
@@ -38,53 +38,19 @@ class TestOTPCleanupJobInit:
         assert job.retention_hours == 48
 
 
-class TestTryAcquireLock:
-    def test_returns_true_for_non_postgresql(self, job):
-        mock_session = MagicMock()
-        mock_session.bind.dialect.name = "sqlite"
-        assert job._try_acquire_lock(mock_session) is True
-
-    def test_returns_true_when_lock_acquired_postgresql(self, job):
-        mock_session = MagicMock()
-        mock_session.bind.dialect.name = "postgresql"
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = True
-        mock_session.execute.return_value = mock_result
-
-        assert job._try_acquire_lock(mock_session) is True
-
-    def test_returns_false_when_lock_not_acquired_postgresql(self, job):
-        mock_session = MagicMock()
-        mock_session.bind.dialect.name = "postgresql"
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = False
-        mock_session.execute.return_value = mock_result
-
-        assert job._try_acquire_lock(mock_session) is False
-
-    def test_returns_false_on_exception_postgresql(self, job):
-        mock_session = MagicMock()
-        mock_session.bind.dialect.name = "postgresql"
-        mock_session.execute.side_effect = Exception("DB error")
-
-        assert job._try_acquire_lock(mock_session) is False
-
-    def test_returns_true_when_bind_is_none(self, job):
-        mock_session = MagicMock()
-        mock_session.bind = None
-        assert job._try_acquire_lock(mock_session) is True
-
-
 class TestRunCleanupCycle:
     @pytest.mark.asyncio
     async def test_skips_when_lock_not_acquired(self, job):
-        mock_session = MagicMock()
+        mock_repo = MagicMock()
 
-        with patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db:
-            mock_db.get_session.return_value = mock_session
-            with patch.object(job, "_try_acquire_lock", return_value=False):
-                await job.run_cleanup_cycle()
-                mock_session.close.assert_called_once()
+        with (
+            patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db,
+            patch("syfthub.jobs.otp_cleanup.OTPRepository", return_value=mock_repo),
+        ):
+            mock_db.locked_session.return_value.__enter__.return_value = None
+            await job.run_cleanup_cycle()
+            mock_repo.delete_expired_used.assert_not_called()
+            mock_db.locked_session.assert_called_once_with(OTP_CLEANUP_LOCK_ID)
 
     @pytest.mark.asyncio
     async def test_runs_cleanup_when_lock_acquired(self, job):
@@ -94,13 +60,11 @@ class TestRunCleanupCycle:
 
         with (
             patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db,
-            patch.object(job, "_try_acquire_lock", return_value=True),
             patch("syfthub.jobs.otp_cleanup.OTPRepository", return_value=mock_repo),
         ):
-            mock_db.get_session.return_value = mock_session
+            mock_db.locked_session.return_value.__enter__.return_value = mock_session
             await job.run_cleanup_cycle()
             mock_repo.delete_expired_used.assert_called_once_with(24)
-            mock_session.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_logs_when_no_records_deleted(self, job):
@@ -110,24 +74,23 @@ class TestRunCleanupCycle:
 
         with (
             patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db,
-            patch.object(job, "_try_acquire_lock", return_value=True),
             patch("syfthub.jobs.otp_cleanup.OTPRepository", return_value=mock_repo),
         ):
-            mock_db.get_session.return_value = mock_session
+            mock_db.locked_session.return_value.__enter__.return_value = mock_session
             await job.run_cleanup_cycle()
-            mock_session.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handles_exception_during_cleanup(self, job):
         mock_session = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.delete_expired_used.side_effect = Exception("repo error")
 
-        with patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db:
-            mock_db.get_session.return_value = mock_session
-            with patch.object(
-                job, "_try_acquire_lock", side_effect=Exception("repo error")
-            ):
-                await job.run_cleanup_cycle()
-                mock_session.close.assert_called_once()
+        with (
+            patch("syfthub.jobs.otp_cleanup.db_manager") as mock_db,
+            patch("syfthub.jobs.otp_cleanup.OTPRepository", return_value=mock_repo),
+        ):
+            mock_db.locked_session.return_value.__enter__.return_value = mock_session
+            await job.run_cleanup_cycle()  # swallowed and logged, not raised
 
 
 class TestStart:

@@ -16,7 +16,7 @@ Multi-worker safety:
     starts its own health monitor loop. A PostgreSQL advisory lock
     (pg_try_advisory_lock) ensures only one worker executes the health
     check cycle at any given time. Workers that cannot acquire the lock
-    skip the cycle gracefully. The lock is automatically released when
+    skip the cycle gracefully. The lock is released explicitly when
     the database session closes, including on worker crashes.
 """
 
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Iterator, Optional
 
-from sqlalchemy import case, select, text, update
+from sqlalchemy import case, select, update
 from sqlalchemy.sql import label
 
 from syfthub.database.connection import db_manager
@@ -117,37 +117,6 @@ class EndpointHealthMonitor:
         self._last_retention_sweep_date: Optional[str] = None
         # Note: Consecutive failure tracking is stored in the database
         # (endpoints.consecutive_failure_count) for multi-worker safety
-
-    def _try_acquire_cycle_lock(self, session: Session) -> bool:
-        """Try to acquire a PostgreSQL advisory lock for this health check cycle.
-
-        Uses pg_try_advisory_lock to ensure only one worker runs the health
-        check at a time in multi-worker deployments. The lock is automatically
-        released when the session is closed.
-
-        For non-PostgreSQL databases (e.g., SQLite in development), always
-        returns True since dev environments run a single worker.
-
-        Args:
-            session: Database session to use for lock acquisition
-
-        Returns:
-            True if the lock was acquired (or not needed), False otherwise
-        """
-        dialect = session.bind.dialect.name if session.bind else ""
-        if dialect != "postgresql":
-            return True
-
-        try:
-            result = session.execute(
-                text("SELECT pg_try_advisory_lock(:lock_id)"),
-                {"lock_id": HEALTH_MONITOR_LOCK_ID},
-            )
-            acquired = result.scalar()
-            return bool(acquired)
-        except Exception as e:
-            logger.warning(f"Failed to acquire advisory lock: {e}")
-            return False
 
     def _get_endpoints_for_health_check(
         self, session: Session
@@ -448,11 +417,11 @@ class EndpointHealthMonitor:
         3. Atomically updates is_active status and failure counts in the database
            (multi-worker safe - no in-memory state)
         """
-        session = db_manager.get_session()
-        try:
-            # Acquire advisory lock to prevent multiple workers from running
-            # the health check cycle simultaneously (prevents flapping)
-            if not self._try_acquire_cycle_lock(session):
+        # The advisory lock keeps one worker per cycle across the deployment
+        # (prevents flapping). It lives on this connection for the whole
+        # cycle and is released on exit; see ``DatabaseManager.locked_session``.
+        with db_manager.locked_session(HEALTH_MONITOR_LOCK_ID) as session:
+            if session is None:
                 logger.debug(
                     "Skipping health check cycle - another worker holds the lock"
                 )
@@ -531,9 +500,6 @@ class EndpointHealthMonitor:
 
             if state_changes > 0:
                 logger.info(f"Updated {state_changes} endpoint(s) status")
-
-        finally:
-            session.close()
 
     async def start(self) -> None:
         """Start the health monitoring background loop.

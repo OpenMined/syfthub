@@ -5,8 +5,9 @@ configured retention period, preventing unbounded growth of the otp_codes table.
 
 Multi-worker safety:
     Uses a PostgreSQL advisory lock (pg_try_advisory_lock) to ensure only
-    one worker runs the cleanup cycle at a time. The lock is automatically
-    released when the database session closes.
+    one worker runs the cleanup cycle at a time. The lock is held on one
+    dedicated connection for the cycle and released on exit (see
+    ``DatabaseManager.locked_session``).
 """
 
 from __future__ import annotations
@@ -17,14 +18,10 @@ import logging
 import time
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import text
-
 from syfthub.database.connection import db_manager
 from syfthub.repositories.otp import OTPRepository
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
-
     from syfthub.core.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -41,22 +38,6 @@ class OTPCleanupJob:
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
 
-    def _try_acquire_lock(self, session: Session) -> bool:
-        """Try to acquire PostgreSQL advisory lock for cleanup exclusion."""
-        dialect = session.bind.dialect.name if session.bind else ""
-        if dialect != "postgresql":
-            return True
-
-        try:
-            result = session.execute(
-                text("SELECT pg_try_advisory_lock(:lock_id)"),
-                {"lock_id": OTP_CLEANUP_LOCK_ID},
-            )
-            return bool(result.scalar())
-        except Exception as e:
-            logger.warning(f"Failed to acquire OTP cleanup lock: {e}")
-            return False
-
     async def run_cleanup_cycle(self) -> None:
         """Run a single cleanup cycle, offloaded to a worker thread.
 
@@ -67,20 +48,18 @@ class OTPCleanupJob:
 
     def _run_cleanup_cycle_sync(self) -> None:
         """Run a single cleanup cycle (blocking DB work)."""
-        session = db_manager.get_session()
         try:
-            if not self._try_acquire_lock(session):
-                logger.debug("OTP cleanup lock held by another worker, skipping")
-                return
+            with db_manager.locked_session(OTP_CLEANUP_LOCK_ID) as session:
+                if session is None:
+                    logger.debug("OTP cleanup lock held by another worker, skipping")
+                    return
 
-            repo = OTPRepository(session)
-            deleted = repo.delete_expired_used(self.retention_hours)
-            if deleted > 0:
-                logger.info(f"OTP cleanup: deleted {deleted} stale record(s)")
+                repo = OTPRepository(session)
+                deleted = repo.delete_expired_used(self.retention_hours)
+                if deleted > 0:
+                    logger.info(f"OTP cleanup: deleted {deleted} stale record(s)")
         except Exception as e:
             logger.error(f"OTP cleanup cycle failed: {e}", exc_info=True)
-        finally:
-            session.close()
 
     async def start(self) -> None:
         """Start the cleanup background loop."""
