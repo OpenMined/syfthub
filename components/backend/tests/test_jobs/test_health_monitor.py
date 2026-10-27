@@ -860,7 +860,8 @@ class TestRunHealthCheckCycle:
 
         clocks = {call.args[1] for call in mock_check.call_args_list}
         assert len(clocks) == 1, "every endpoint must be judged at the same instant"
-        assert mock_emit.call_args.args[2] == clocks.pop()
+        clock = next(iter(clocks))
+        assert mock_emit.call_args.args[2] == clock
 
 
 class TestHealthMonitorLifecycle:

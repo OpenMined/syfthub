@@ -25,6 +25,7 @@ Object.defineProperty(globalThis, 'matchMedia', {
 
 // Mock ResizeObserver (used by Radix UI and @floating-ui — must be a class, not arrow fn)
 class MockResizeObserver {
+  constructor(readonly callback?: ResizeObserverCallback) {}
   observe = vi.fn();
   unobserve = vi.fn();
   disconnect = vi.fn();
