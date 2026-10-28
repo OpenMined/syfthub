@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Optional
 from sqlalchemy import case, select, update
 from sqlalchemy.sql import label
 
-from syfthub.database.connection import db_manager
+from syfthub.database.connection import JobLock, db_manager
 from syfthub.models.endpoint import EndpointModel
 from syfthub.models.satellite import SatelliteModel
 from syfthub.models.user import UserModel
@@ -112,6 +112,8 @@ class EndpointHealthMonitor:
         self.uptime_retention_days = retention if isinstance(retention, int) else 90
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
+        # Leader lock, created on the first cycle and released by stop().
+        self._lock: Optional[JobLock] = None
         # Tracks the most recent date we ran the uptime retention sweep so we
         # do it at most once per UTC day across cycles.
         self._last_retention_sweep_date: Optional[str] = None
@@ -417,16 +419,18 @@ class EndpointHealthMonitor:
         3. Atomically updates is_active status and failure counts in the database
            (multi-worker safe - no in-memory state)
         """
-        # The advisory lock keeps one worker per cycle across the deployment
-        # (prevents flapping). It lives on this connection for the whole
-        # cycle and is released on exit; see ``DatabaseManager.locked_session``.
-        with db_manager.locked_session(HEALTH_MONITOR_LOCK_ID) as session:
-            if session is None:
-                logger.debug(
-                    "Skipping health check cycle - another worker holds the lock"
-                )
-                return
+        # One worker per deployment runs this job: the first to take the
+        # advisory lock keeps it across cycles (see ``JobLock``), so the
+        # interval holds with several uvicorn workers instead of each of
+        # them recording its own sample every 30 s.
+        if self._lock is None:
+            self._lock = db_manager.job_lock(HEALTH_MONITOR_LOCK_ID)
+        if not self._lock.acquire():
+            logger.debug("Skipping health check cycle - another worker holds the lock")
+            return
 
+        session = self._lock.session()
+        try:
             # One clock for the whole cycle, taken before the snapshot: every
             # endpoint is judged against the moment its health fields were
             # read. Taking a fresh ``now`` per endpoint used to age the
@@ -500,6 +504,8 @@ class EndpointHealthMonitor:
 
             if state_changes > 0:
                 logger.info(f"Updated {state_changes} endpoint(s) status")
+        finally:
+            session.close()
 
     async def start(self) -> None:
         """Start the health monitoring background loop.
@@ -553,3 +559,7 @@ class EndpointHealthMonitor:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+
+        if self._lock is not None:
+            lock, self._lock = self._lock, None
+            await asyncio.to_thread(lock.release)
