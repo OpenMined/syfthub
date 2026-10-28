@@ -685,15 +685,13 @@ class TestRunHealthCheckCycle:
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
             patch.object(monitor, "_get_endpoints_for_health_check") as mock_get,
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = None
+            mock_db_manager.job_lock.return_value.acquire.return_value = False
 
             await monitor.run_health_check_cycle()
 
             # Should not query endpoints since lock was not acquired
             mock_get.assert_not_called()
-            mock_db_manager.locked_session.assert_called_once_with(
-                HEALTH_MONITOR_LOCK_ID
-            )
+            mock_db_manager.job_lock.assert_called_once_with(HEALTH_MONITOR_LOCK_ID)
 
     @pytest.mark.asyncio
     async def test_cycle_proceeds_when_lock_acquired(self, monitor):
@@ -706,9 +704,8 @@ class TestRunHealthCheckCycle:
                 monitor, "_get_endpoints_for_health_check", return_value=[]
             ) as mock_get,
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = (
-                mock_session
-            )
+            mock_db_manager.job_lock.return_value.acquire.return_value = True
+            mock_db_manager.job_lock.return_value.session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
@@ -724,9 +721,8 @@ class TestRunHealthCheckCycle:
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
             patch.object(monitor, "_get_endpoints_for_health_check", return_value=[]),
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = (
-                mock_session
-            )
+            mock_db_manager.job_lock.return_value.acquire.return_value = True
+            mock_db_manager.job_lock.return_value.session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
@@ -760,9 +756,8 @@ class TestRunHealthCheckCycle:
             ),
             patch.object(monitor, "_emit_uptime_samples") as mock_emit,
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = (
-                mock_session
-            )
+            mock_db_manager.job_lock.return_value.acquire.return_value = True
+            mock_db_manager.job_lock.return_value.session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
@@ -800,9 +795,8 @@ class TestRunHealthCheckCycle:
             ),
             patch.object(monitor, "_emit_uptime_samples") as mock_emit,
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = (
-                mock_session
-            )
+            mock_db_manager.job_lock.return_value.acquire.return_value = True
+            mock_db_manager.job_lock.return_value.session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
@@ -852,9 +846,8 @@ class TestRunHealthCheckCycle:
             ),
             patch.object(monitor, "_emit_uptime_samples") as mock_emit,
         ):
-            mock_db_manager.locked_session.return_value.__enter__.return_value = (
-                mock_session
-            )
+            mock_db_manager.job_lock.return_value.acquire.return_value = True
+            mock_db_manager.job_lock.return_value.session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
@@ -908,6 +901,28 @@ class TestHealthMonitorLifecycle:
 
         assert monitor._running is False
         assert cycle_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_lock_is_kept_across_cycles_and_released_on_stop(self, monitor):
+        """One JobLock per monitor: acquired each cycle, released once on stop."""
+        with (
+            patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_get_endpoints_for_health_check", return_value=[]),
+        ):
+            lock = mock_db_manager.job_lock.return_value
+            lock.acquire.return_value = True
+
+            await monitor.run_health_check_cycle()
+            await monitor.run_health_check_cycle()
+
+            mock_db_manager.job_lock.assert_called_once_with(HEALTH_MONITOR_LOCK_ID)
+            assert lock.acquire.call_count == 2
+            lock.release.assert_not_called()
+
+            await monitor.stop()
+
+            lock.release.assert_called_once()
+            assert monitor._lock is None
 
     @pytest.mark.asyncio
     async def test_stop_when_not_running(self, monitor):

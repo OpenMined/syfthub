@@ -6,13 +6,16 @@ import contextlib
 import logging
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from syfthub.core.config import settings
 from syfthub.models import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection, Engine
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +142,108 @@ def get_db_session() -> Generator[Session, None, None]:
         db.close()
 
 
+class JobLock:
+    """A Postgres advisory lock one worker keeps across job cycles.
+
+    Several uvicorn workers each run the same periodic job. Taking the lock
+    per cycle only serialises them: with a 30 s interval and four workers,
+    three or four cycles still run every 30 s, just not at the same instant.
+    The job needs *one* run per interval across the deployment, so the lock
+    is held for as long as the holder lives. The first worker to acquire it
+    becomes the leader and keeps running cycles; the others try again each
+    interval and take over if the leader's connection goes away, which is
+    also what releases a session-level advisory lock.
+
+    The leader pins one connection out of the pool for the life of the
+    process. Followers open one only while trying.
+    """
+
+    def __init__(
+        self, engine: Engine, session_factory: sessionmaker[Session], lock_id: int
+    ) -> None:
+        self._engine = engine
+        self._session_factory = session_factory
+        self._lock_id = lock_id
+        self._conn: Optional[Connection] = None
+        self._held = False
+
+    @property
+    def held(self) -> bool:
+        return self._held
+
+    def acquire(self) -> bool:
+        """True when this worker holds the lock, acquiring it if it is free.
+
+        A held lock is re-checked with a round trip on the pinned connection,
+        so a connection the server dropped is noticed here, not mid-cycle.
+        Non-Postgres databases run one worker and always acquire.
+        """
+        if self._engine.dialect.name != "postgresql":
+            return True
+
+        if self._held and self._conn is not None:
+            try:
+                self._conn.execute(text("SELECT 1"))
+                self._conn.commit()
+                return True
+            except Exception as e:
+                logger.warning(
+                    f"Advisory lock {self._lock_id} connection lost, re-acquiring: {e}"
+                )
+                self._drop_connection()
+
+        try:
+            conn = self._engine.connect()
+        except Exception as e:
+            logger.warning(f"Could not open a connection for lock {self._lock_id}: {e}")
+            return False
+        try:
+            acquired = bool(
+                conn.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_id)"),
+                    {"lock_id": self._lock_id},
+                ).scalar()
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to try advisory lock {self._lock_id}: {e}")
+            conn.close()
+            return False
+
+        if not acquired:
+            conn.close()
+            return False
+        self._conn = conn
+        self._held = True
+        return True
+
+    def session(self) -> Session:
+        """A session for one cycle, on the pinned connection when leading."""
+        if self._conn is not None:
+            return self._session_factory(bind=self._conn)
+        return self._session_factory()
+
+    def release(self) -> None:
+        """Give the lock up and return the connection. Safe to call when not held."""
+        if self._conn is not None and self._held:
+            try:
+                self._conn.execute(
+                    text("SELECT pg_advisory_unlock(:lock_id)"),
+                    {"lock_id": self._lock_id},
+                )
+                self._conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to release advisory lock {self._lock_id}: {e}")
+        self._drop_connection()
+
+    def _drop_connection(self) -> None:
+        self._held = False
+        if self._conn is not None:
+            with contextlib.suppress(Exception):
+                self._conn.close()
+            self._conn = None
+
+
 class DatabaseManager:
     """Database manager for handling database operations."""
 
@@ -159,13 +264,19 @@ class DatabaseManager:
         """Get a new database session."""
         return self.session_factory()
 
+    def job_lock(self, lock_id: int) -> JobLock:
+        """A leader lock for a periodic job; see ``JobLock``."""
+        return JobLock(self.engine, self.session_factory, lock_id)
+
     @contextlib.contextmanager
     def locked_session(self, lock_id: int) -> Iterator[Optional[Session]]:
         """A session for one background job cycle, under a Postgres advisory lock.
 
         Yields ``None`` when another holder has the lock, so the caller skips
         the cycle. On databases other than Postgres there is one worker and no
-        lock, so a plain session is yielded.
+        lock, so a plain session is yielded. Use this for jobs where an extra
+        run is harmless (a cleanup); a job that must run once per interval
+        across workers uses ``job_lock`` instead.
 
         Session-level advisory locks belong to the *connection*. Closing a
         Session only returns its connection to the pool, with a ROLLBACK, and
