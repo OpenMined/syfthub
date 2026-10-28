@@ -1,6 +1,6 @@
 [project]
 name = "syfthub-sdk"
-version = "2.0.0b1"
+version = "2.0.0b2"
 description = "Python SDK for SyftHub: search across Syft Space sources with pre-flight, wallets and budgets"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "httpx>=0.27",
+    "httpx>=0.27,<1",
     "pydantic>=2.7",
 ]
 
