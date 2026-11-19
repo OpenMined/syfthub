@@ -27,7 +27,7 @@ const SUGAR: Record<string, string> = {
 };
 const METHOD: Record<string, string> = {
   in: 'in_',
-  nin: 'not_in',
+  nin: 'nin',
   contains_any: 'contains_any',
   contains_all: 'contains_all'
 };
