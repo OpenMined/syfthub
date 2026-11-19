@@ -173,12 +173,14 @@ from syfthub import F
 source = await hub.sources.get("nasa/news")
 source.filter_schema.fields          # {"published": FieldFilterSpec(type="datetime", ops=(...)), ...}
 
-recent = F("published") >= "2026-10-01"          # ==, !=, >, >=, <, <= ; in_, not_in
+recent = F("published") >= "2026-10-01"          # or .gte(...); eq ne gt gte lt lte in_ nin
 moon = F("tags").contains_any(["moon", "artemis"])  # contains_any, contains_all for list fields
+october = F("published").in_range("2026-10-01", "2026-10-31")  # gte & lte, both ends included
 plan = hub.search("Artemis launches", [source.where(recent & moon), "esa/news"])
 ```
 
-`&` and `|` make groups; `F.all(...)` and `F.any(...)` do the same for a list, and
+Every operator a schema lists is a method of the same name, so what `filter_schema` prints is
+what you type. `&` and `|` make groups; `F.all(...)` and `F.any(...)` do the same for a list, and
 `F(name).op("gte", value)` takes the operator as a string for conditions that arrive from a form
 or a model. Datetimes go out as ISO 8601 with a zone; a naive `datetime` is taken as UTC.
 

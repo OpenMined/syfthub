@@ -38,6 +38,13 @@ SCHEMA = FilterSchema(
         (F("a") <= 1, "lte", 1),
         (F("a").in_(["x", "y"]), "in", ["x", "y"]),
         (F("a").not_in(("x",)), "nin", ["x"]),
+        (F("a").eq(1), "eq", 1),
+        (F("a").ne(1), "ne", 1),
+        (F("a").gt(1), "gt", 1),
+        (F("a").gte(1), "gte", 1),
+        (F("a").lt(1), "lt", 1),
+        (F("a").lte(1), "lte", 1),
+        (F("a").nin(["x"]), "nin", ["x"]),
         (F("a").contains_any({"x"}), "contains_any", ["x"]),
         (F("a").contains_all(["x", "y"]), "contains_all", ["x", "y"]),
         (F("a").op("gte", "2026-01-01"), "gte", "2026-01-01"),
@@ -45,6 +52,17 @@ SCHEMA = FilterSchema(
 )
 def test_every_operator_builds_one_condition(condition: Condition, op: str, value: object) -> None:
     assert condition.to_wire() == {"type": "condition", "field": "a", "op": op, "value": value}
+
+
+def test_in_range_is_a_closed_range_on_the_wire() -> None:
+    assert F("n").in_range(1, 5).to_wire() == {
+        "type": "group",
+        "op": "and",
+        "operands": [
+            {"type": "condition", "field": "n", "op": "gte", "value": 1},
+            {"type": "condition", "field": "n", "op": "lte", "value": 5},
+        ],
+    }
 
 
 def test_and_or_make_groups_and_same_op_groups_flatten() -> None:

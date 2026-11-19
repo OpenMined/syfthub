@@ -1,8 +1,19 @@
 """Query filters: the ``F`` builder, the wire tree, and the schema a source publishes.
 
-A filter is a tree of conditions and groups, the same shape the Space accepts in a query's
-``filters``. ``F`` builds it; ``FilterSchema.validate`` runs the Space's own checks before the
-request is sent, so a filter that passes here is not refused there.
+A filter narrows a search by document metadata: only this author, only after this date, only
+chunks tagged with one of these. It is a tree of conditions and groups, the same shape the Space
+accepts in a query's ``filters``. ``F`` builds it; ``FilterSchema.validate`` runs the Space's own
+checks before the request is sent, so a filter that passes here is not refused there.
+
+The usual path::
+
+    from syfthub import F
+
+    source = await hub.sources.get("nasa/news")
+    source.filter_schema.fields              # what you may filter on, with types and operators
+    recent = F("published") >= "2026-10-01"
+    moon = F("tags").contains_any(["moon", "artemis"])
+    plan = hub.search("Artemis launches", [source.where(recent & moon)])
 """
 
 from __future__ import annotations
@@ -38,12 +49,31 @@ class _Node(Frozen):
         return _join("or", self, other)
 
     def to_wire(self) -> dict[str, Any]:
-        """The ``{type, ...}`` tree a query sends as ``filters``."""
+        """The ``{type, ...}`` tree a query sends as ``filters``.
+
+        Example:
+            >>> (F("published") >= "2026-01-01").to_wire()
+            {'type': 'condition', 'field': 'published', 'op': 'gte', 'value': '2026-01-01'}
+        """
         return self.to_dict()
 
 
 class Condition(_Node):
-    """``field op value``. Build one with ``F``."""
+    """One test on one field: ``field op value``.
+
+    Build it with ``F``; ``&`` and ``|`` combine it with others into a ``Group``.
+
+    ``op`` is a wire name (``eq``, ``gte``, ``contains_any``, ...), ``value`` a JSON scalar or,
+    for the list operators, a list. A ``Condition`` is immutable and hashable, so it can be a
+    dict key or sit in a set, and it round-trips through ``to_dict`` / ``from_dict``.
+
+    Example:
+        >>> c = F("author") == "Joe Rogan"
+        >>> c.field, c.op, c.value
+        ('author', 'eq', 'Joe Rogan')
+        >>> Condition.from_dict(c.to_dict()) == c
+        True
+    """
 
     type: Literal["condition"] = "condition"
     field: str
@@ -52,7 +82,19 @@ class Condition(_Node):
 
 
 class Group(_Node):
-    """Conditions or groups joined by ``and`` or ``or``. ``&`` and ``|`` build one."""
+    """Conditions or groups joined by ``and`` or ``or``.
+
+    ``&`` and ``|`` build one, and a same-op operand is flattened, so ``a & b & c`` is one
+    ``and`` of three, not two nested.
+
+    Example:
+        >>> g = (F("a") == 1) & (F("b") == 2) & (F("c") == 3)
+        >>> g.op, len(g.operands)
+        ('and', 3)
+        >>> mixed = (F("a") == 1) | ((F("b") == 2) & (F("c") == 3))
+        >>> [o.type for o in mixed.operands]
+        ['condition', 'group']
+    """
 
     type: Literal["group"] = "group"
     op: str
@@ -62,6 +104,7 @@ class Group(_Node):
 Group.model_rebuild()
 
 Filter = Annotated[Condition | Group, Field(discriminator="type")]
+"""A ``Condition`` or a ``Group``: anything ``F`` builds."""
 
 
 def _join(op: str, *nodes: Any) -> Group:
@@ -78,57 +121,280 @@ def _join(op: str, *nodes: Any) -> Group:
 
 
 class F:
-    """A field to filter on: ``F("published") >= "2026-01-01"``, ``F("tags").contains_any([...])``.
+    """A field to filter on. Apply an operator to get a ``Condition``.
 
-    Operators are methods or the comparison operators; ``op(name, value)`` takes the operator as
-    a string, for conditions that arrive from a form or a model. Nothing is checked here: the
-    filter is validated against a source's schema when it meets one.
+    Every operator a schema may list is a method of the same name (``in`` is ``in_`` because of
+    the keyword), and the scalar ones double as Python comparison operators:
+
+    ======================  ==================================  =============================
+    wire operator           method                              operator form
+    ======================  ==================================  =============================
+    eq, ne                  ``.eq(v)``, ``.ne(v)``              ``F(x) == v``, ``F(x) != v``
+    gt, gte, lt, lte        ``.gt(v)`` ... ``.lte(v)``          ``>``, ``>=``, ``<``, ``<=``
+    in, nin                 ``.in_([..])``, ``.nin([..])``
+    contains_any, _all      ``.contains_any([..])``, ``_all``    list fields only
+    anything                ``.op("name", v)``                  for operators that arrive as text
+    ======================  ==================================  =============================
+
+    ``in_range(lo, hi)`` is ``gte & lte``. ``&`` and ``|`` make groups; ``F.all(...)`` and
+    ``F.any(...)`` do the same for a list of filters.
+
+    Nothing is checked here: a field, operator or value is validated against a source's
+    published schema when the filter meets one, in ``Source.where`` or ``FilterSchema.validate``.
+
+    Example:
+            >>> F("author") == "Joe Rogan"
+            Condition(type='condition', field='author', op='eq', value='Joe Rogan')
+            >>> F("tags").contains_any(["sleep", "health"]).to_wire()
+            {'type': 'condition', 'field': 'tags', 'op': 'contains_any', 'value': ['sleep', 'health']}
+            >>> both = F("published").in_range("2026-01-01", "2026-06-30") & F("author").ne("Joe Rogan")
+            >>> both.op, [c.op for c in both.operands]
+            ('and', ['gte', 'lte', 'ne'])
+
+        Because ``==`` builds a condition, an ``F`` is not hashable and never compares equal to
+        anything; compare the conditions it builds instead.
     """
 
     def __init__(self, name: str) -> None:
+        """Name the field to filter on.
+
+        Args:
+            name: a metadata key the source publishes as filterable.
+        """
         self.name = name
 
     def op(self, op: str, value: Any) -> Condition:
+        """``field op value`` with the operator given as a string.
+
+        The generic entry point for a condition that arrives from a form or a model.
+
+        Args:
+            op: a wire operator name, as a schema lists it: ``eq``, ``gte``, ``in``, ...
+            value: a scalar, a ``datetime``, or an iterable for the list operators.
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("published").op("gte", "2026-01-01") == (F("published") >= "2026-01-01")
+            True
+        """
         return Condition(field=self.name, op=op, value=_wire_value(value))
 
-    def __eq__(self, value: object) -> Condition:  # type: ignore[override]
+    def eq(self, value: Any) -> Condition:
+        """``field == value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("author").eq("Joe Rogan").to_wire()["op"]
+            'eq'
+        """
         return self.op("eq", value)
 
-    def __ne__(self, value: object) -> Condition:  # type: ignore[override]
+    def ne(self, value: Any) -> Condition:
+        """``field != value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("author").ne("Joe Rogan") == (F("author") != "Joe Rogan")
+            True
+        """
         return self.op("ne", value)
 
-    def __gt__(self, value: Any) -> Condition:
+    def gt(self, value: Any) -> Condition:
+        """``field > value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("score").gt(0.5).value
+            0.5
+        """
         return self.op("gt", value)
 
-    def __ge__(self, value: Any) -> Condition:
+    def gte(self, value: Any) -> Condition:
+        """``field >= value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("published").gte("2026-01-01").op
+            'gte'
+        """
         return self.op("gte", value)
 
-    def __lt__(self, value: Any) -> Condition:
+    def lt(self, value: Any) -> Condition:
+        """``field < value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("pages").lt(10).to_wire()
+            {'type': 'condition', 'field': 'pages', 'op': 'lt', 'value': 10}
+        """
         return self.op("lt", value)
 
-    def __le__(self, value: Any) -> Condition:
+    def lte(self, value: Any) -> Condition:
+        """``field <= value``.
+
+        Args:
+            value: a scalar, or a ``datetime`` (sent as ISO 8601).
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("pages").lte(10) == (F("pages") <= 10)
+            True
+        """
         return self.op("lte", value)
 
+    def in_range(self, lo: Any, hi: Any) -> Group:
+        """``lo <= field <= hi``, both ends included.
+
+        One ``and`` group of ``gte`` and ``lte``. A half-open range is written out:
+        ``(F(x) >= lo) & (F(x) < hi)``.
+
+        Args:
+            lo: the low end, included.
+            hi: the high end, included.
+
+        Returns:
+            The ``and`` group.
+
+        Example:
+            >>> F("n").in_range(1, 5).to_wire()["operands"][1]
+            {'type': 'condition', 'field': 'n', 'op': 'lte', 'value': 5}
+        """
+        return self.gte(lo) & self.lte(hi)
+
     def in_(self, values: Any) -> Condition:
+        """``field`` is one of ``values``. Any iterable; sent as a list.
+
+        Args:
+            values: any iterable of scalars; sent as a list.
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("author").in_(("Joe Rogan", "Theo Von")).to_wire()["value"]
+            ['Joe Rogan', 'Theo Von']
+        """
         return self.op("in", list(values))
 
-    def not_in(self, values: Any) -> Condition:
+    def nin(self, values: Any) -> Condition:
+        """``field`` is none of ``values``. ``not_in`` is the same method.
+
+        Args:
+            values: any iterable of scalars; sent as a list.
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("author").nin(["a"]).op, F("author").not_in(["a"]).op
+            ('nin', 'nin')
+        """
         return self.op("nin", list(values))
 
+    not_in = nin
+
+    def __eq__(self, value: object) -> Condition:  # type: ignore[override]
+        return self.eq(value)
+
+    def __ne__(self, value: object) -> Condition:  # type: ignore[override]
+        return self.ne(value)
+
+    __gt__ = gt
+    __ge__ = gte
+    __lt__ = lt
+    __le__ = lte
+
     def contains_any(self, values: Any) -> Condition:
+        """A list field shares at least one element with ``values``.
+
+        Args:
+            values: any iterable of elements; sent as a list.
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("tags").contains_any(["sleep", "health"]).to_wire()["value"]
+            ['sleep', 'health']
+        """
         return self.op("contains_any", list(values))
 
     def contains_all(self, values: Any) -> Condition:
+        """A list field holds every element of ``values``.
+
+        Args:
+            values: any iterable of elements; sent as a list.
+
+        Returns:
+            The condition.
+
+        Example:
+            >>> F("tags").contains_all(["sleep", "health"]).op
+            'contains_all'
+        """
         return self.op("contains_all", list(values))
 
     __hash__ = None  # type: ignore[assignment]
 
     @staticmethod
     def all(*filters: Condition | Group) -> Group:
+        """Every filter must hold: ``a & b & ...`` for a list.
+
+        Args:
+            *filters: conditions or groups.
+
+        Returns:
+            One ``and`` group.
+
+        Example:
+            >>> F.all(F("a") == 1, F("b") == 2).op
+            'and'
+        """
         return _join("and", *filters)
 
     @staticmethod
     def any(*filters: Condition | Group) -> Group:
+        """At least one filter must hold: ``a | b | ...`` for a list.
+
+        Args:
+            *filters: conditions or groups.
+
+        Returns:
+            One ``or`` group.
+
+        Example:
+            >>> F.any(*[F("author") == a for a in ("a", "b")]).to_wire()["op"]
+            'or'
+        """
         return _join("or", *filters)
 
     def __repr__(self) -> str:
@@ -136,28 +402,74 @@ class F:
 
 
 def depth(node: Condition | Group) -> int:
-    """Groups on the longest path: a bare condition is 0, a flat group 1."""
+    """Groups on the longest path: a bare condition is 0, a flat group 1.
+
+    Args:
+        node: a condition or group.
+
+    Returns:
+        The nesting depth.
+    """
     if isinstance(node, Condition):
         return 0
     return 1 + max(depth(o) for o in node.operands)
 
 
 def condition_count(node: Condition | Group) -> int:
+    """Conditions in the tree, however nested.
+
+    Args:
+        node: a condition or group.
+
+    Returns:
+        The count.
+    """
     if isinstance(node, Condition):
         return 1
     return sum(condition_count(o) for o in node.operands)
 
 
 class FieldFilterSpec(Frozen):
-    """What a query may do with one field: its published type and operators."""
+    """What a query may do with one field: its published ``type`` and operators.
+
+    Types are ``string``, ``number``, ``boolean``, ``datetime`` and the list forms ``string[]``
+    and ``number[]``. A list field takes ``contains_any`` / ``contains_all``; a scalar field
+    takes the comparisons and ``in`` / ``nin``. The Space decides; this is what it said.
+    """
 
     type: str
     ops: tuple[str, ...] = ()
 
 
 class FilterSchema(Frozen):
-    """``query_schema.filters`` as the Space published it: the filterable fields, the group
-    logic and the size caps. ``validate`` runs the Space's checks client-side."""
+    """``query_schema.filters`` as the Space published it.
+
+    The filterable ``fields``, the group ``logic`` a query may use, and the size caps.
+    ``Source.filter_schema`` holds one per source. Unknown keys in the published dict are
+    ignored, so a newer Space never breaks an older SDK.
+
+    ``validate`` runs the same checks the Space runs, in the same order and with the same words,
+    so an app can refuse a filter before sending it and show the Space's own reason.
+
+    Example:
+        >>> schema = FilterSchema.from_dict({
+        ...     "fields": {
+        ...         "author": {"type": "string", "ops": ["eq", "ne", "in", "nin"]},
+        ...         "tags": {"type": "string[]", "ops": ["contains_any", "contains_all"]},
+        ...         "published": {"type": "datetime", "ops": ["gt", "gte", "lt", "lte"]},
+        ...     },
+        ... })
+        >>> schema.validate(F("author") == "x") == (F("author") == "x")
+        True
+        >>> for bad in (F("title") == "x", F("tags") == "x", F("published") >= "soon"):
+        ...     try:
+        ...         schema.validate(bad)
+        ...     except FilterError as e:
+        ...         print(f"{e.field}: {e.reason}")
+        title: not a filterable field
+        tags: operator 'eq' is not allowed for a string[] field; allowed: ['contains_any', 'contains_all']
+        published: cannot parse 'soon' as datetime
+    """
 
     fields: dict[str, FieldFilterSpec] = Field(default_factory=dict)
     logic: tuple[str, ...] = ("and", "or")
@@ -166,8 +478,22 @@ class FilterSchema(Frozen):
     max_list_values: int = 100
 
     def validate(self, filter: Condition | Group) -> Condition | Group:  # type: ignore[override]
-        """The filter back, or ``FilterError(field, reason)`` for the first thing the Space
-        would refuse: size caps, group logic, unknown field, operator, list shape, value."""
+        """Run the Space's checks on ``filter`` before it is sent.
+
+        Checks run in the Space's order: the depth and condition caps, then per node the group
+        logic, the field, the operator, list versus single value, the list cap, and whether
+        each value reads as the field's type.
+
+        Args:
+            filter: the condition or group to check.
+
+        Returns:
+            The filter, unchanged.
+
+        Raises:
+            FilterError: for the first thing the Space would refuse, with the Space's own
+                ``field`` and ``reason``; ``field`` is ``<group>`` for a group-level problem.
+        """
         if depth(filter) > self.max_depth:
             raise FilterError("<group>", f"filter nests deeper than {self.max_depth} groups")
         if condition_count(filter) > self.max_conditions:
@@ -238,8 +564,15 @@ def _parses(text: str, element: str) -> bool:
 
 
 class SourceSelection(Frozen):
-    """A source named in a plan with the filter it is queried with. ``Source.where`` builds
-    one; a bare path is a selection with no filter."""
+    """A source named in a plan, with the filter it is queried with.
+
+    ``Source.where`` builds one, already checked against that source's schema; it goes into
+    ``hub.search`` in place of the path. A bare path is a selection with no filter.
+
+    Example:
+        >>> SourceSelection(path="nasa/news", filters=F("author") == "x").filters.op
+        'eq'
+    """
 
     path: str
     filters: Filter | None = None
