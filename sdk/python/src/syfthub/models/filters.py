@@ -27,7 +27,6 @@ from ..errors import FilterError
 from .base import Frozen
 
 LIST_OPS: frozenset[str] = frozenset({"in", "nin", "contains_any", "contains_all"})
-SCALAR_TYPES = (str, int, float, bool)
 
 
 def _wire_value(value: Any) -> Any:

@@ -21,19 +21,15 @@ class WalletPort(Protocol):
 
     async def wallet_balance(self, wallet: Wallet) -> tuple[Money, datetime]:
         """The wallet's balance now, and when it was read."""
-        ...
 
     async def wallet_top_up(self, wallet: Wallet, bundle: Bundle) -> Invoice:
         """An invoice for ``bundle`` on ``wallet``."""
-        ...
 
     async def wallet_invoices(self, wallet: Wallet) -> tuple[Invoice, ...]:
         """The invoices ``wallet`` issued to this caller."""
-        ...
 
     async def invoice_refresh(self, invoice: Invoice) -> Invoice:
         """``invoice`` with its current status."""
-        ...
 
 
 class SearchPort(Protocol):
@@ -41,11 +37,9 @@ class SearchPort(Protocol):
 
     async def preflight(self, plan: SearchPlan) -> Preflight:
         """Price and check ``plan`` without sending it."""
-        ...
 
     async def execute(self, plan: SearchPlan, *, strict: bool) -> Results:
         """Send ``plan`` and gather one row per source."""
-        ...
 
 
 class HubPorts(SearchPort, WalletPort, Protocol):
