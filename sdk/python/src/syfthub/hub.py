@@ -28,10 +28,22 @@ DEFAULT_URL = "https://syfthub.openmined.org"
 
 
 class AsyncHub:
-    """One session with a SyftHub. No network until the first call.
+    """One session with a SyftHub: the catalogue, a search over it, and the money.
 
-    ``url`` falls back to ``SYFTHUB_URL``, ``token`` to ``SYFTHUB_TOKEN``. Use ``async with`` or
-    call ``aclose()`` to release the HTTP client.
+    The Hub serves the catalogue, the per-Space tokens and, for metered sources, the payment
+    credential; every query goes from this process straight to the publisher's Space. The
+    namespaces are ``auth`` (login, ``me``), ``sources`` (browse and ``get``) and ``wallets``
+    (balances, top-ups). ``search`` composes a plan; the plan prices itself with ``preflight``
+    and runs with ``execute``. ``budget`` caps what a session may spend.
+
+    ``url`` falls back to ``SYFTHUB_URL``, ``token`` to ``SYFTHUB_TOKEN``. No network until the
+    first call. Use ``async with`` or call ``aclose()`` to release the HTTP client. ``Hub`` is
+    the sync twin with the same names and no ``await``::
+
+        async with syfthub.AsyncHub(token=...) as hub:
+            source = await hub.sources.get("nasa/news")
+            plan = hub.search("Artemis launches", [source], limit=3)
+            results = await plan.execute()
     """
 
     url: str
@@ -49,6 +61,16 @@ class AsyncHub:
         budget: BudgetLike = None,
         options: Options | None = None,
     ) -> None:
+        """Open a session; no request is made until the first call.
+
+        Args:
+            url: the Hub's origin; ``SYFTHUB_URL`` or the public Hub when omitted.
+            token: a personal access token; ``SYFTHUB_TOKEN`` when omitted. Without one, ``login``
+                later.
+            budget: a cap on spend: a number caps USD, a mapping caps several currencies, None caps
+                nothing.
+            options: timeouts, retries, concurrency and the HTTP client; the defaults when omitted.
+        """
         self.url = (url or os.environ.get("SYFTHUB_URL") or DEFAULT_URL).rstrip("/")
         if not self.url.startswith(("http://", "https://")):
             raise ConfigurationError(f"url must start with http:// or https://: {self.url!r}")
@@ -96,6 +118,7 @@ class AsyncHub:
         await self.aclose()
 
     async def aclose(self) -> None:
+        """Release the HTTP client. ``async with`` does this on exit."""
         await self._transport.aclose()
 
     # ── session ───────────────────────────────────────────────────────────
@@ -103,14 +126,28 @@ class AsyncHub:
     async def login(
         self, username: str | None = None, password: str | None = None, *, token: str | None = None
     ) -> Identity:
+        """Sign in with a username and password, or with a personal access ``token``.
+
+        A token given to the constructor or ``SYFTHUB_TOKEN`` is used without this call.
+
+        Args:
+            username: the Hub account name.
+            password: its password.
+            token: a personal access token instead of a username and password.
+
+        Returns:
+            Who you are, as the Hub sees it.
+        """
         return await self.auth.login(username, password, token=token)
 
     @property
     def me(self) -> Identity | None:
+        """Who is signed in, once known; None before ``login`` or ``auth.whoami()``."""
         return self.auth.me
 
     @property
     def authenticated(self) -> bool:
+        """True when the session holds a token."""
         return self._session.authenticated
 
     # ── search ────────────────────────────────────────────────────────────
@@ -125,11 +162,26 @@ class AsyncHub:
         include_metadata: bool = True,
         max_sources: int | None = None,
     ) -> SearchPlan:
-        """Compose a plan. Nothing is sent: ``await plan.preflight()`` prices it,
-        ``await plan.execute()`` runs it. Without ``sources`` the plan covers every free document
-        source in the catalogue that you may use; ``max_sources`` caps that pick and never a list
-        you name. A ``source.where(filter)`` selection narrows that source by metadata. For the
-        Hub's keyword ranking pass ``await hub.sources.search(text)``."""
+        """Compose a plan.
+
+        Nothing is sent: ``await plan.preflight()`` prices it, ``await plan.execute()`` runs
+        it. Without ``sources`` the plan covers every free document source in the catalogue
+        that you may use; ``max_sources`` caps that pick and never a list you name. A
+        ``source.where(filter)`` selection narrows that source by metadata. For the Hub's
+        keyword ranking pass ``await hub.sources.search(text)``.
+
+        Args:
+            query: the text to search for.
+            sources: paths, ``Source`` objects or ``source.where(...)`` selections; every free
+                source you may use when omitted.
+            limit: passages per source.
+            similarity_threshold: the lowest score a passage may have, 0 to 1.
+            include_metadata: ask each Space for document metadata.
+            max_sources: a ceiling on the automatic pick; never caps a list you name.
+
+        Returns:
+            The plan, unsent.
+        """
         return self._searcher.compose(
             query,
             sources,
@@ -152,30 +204,89 @@ class AsyncHub:
         return self._ledger.budget.spent
 
     def set_budget(self, limit: BudgetLike) -> Budget:
-        """Replace the caps; spend is kept. The one override for ``over_budget`` rows. ``None``
-        clears every cap, a number caps USD, a mapping caps several currencies at once."""
+        """Replace the caps; spend is kept.
+
+        The one override for ``over_budget`` rows. ``None`` clears every cap, a number caps
+        USD, a mapping caps several currencies at once.
+
+        Args:
+            limit: a number caps USD, a mapping caps several currencies, None clears every cap.
+
+        Returns:
+            The budget now in force.
+        """
         return self._ledger.set_limits(_limits(limit))
 
     # ── SearchPort: the plan and results models call back through the hub ──
 
     async def preflight(self, plan: SearchPlan) -> Preflight:
+        """``plan.preflight()``.
+
+        Args:
+            plan: the plan to price and check.
+
+        Returns:
+            The pre-flight snapshot.
+        """
         return await self._searcher.preflight(plan)
 
     async def execute(self, plan: SearchPlan, *, strict: bool = False) -> Results:
+        """``plan.execute()``.
+
+        Args:
+            plan: the plan to send.
+            strict: raise on a held or failed row instead of returning it.
+
+        Returns:
+            One row per source.
+        """
         return await self._searcher.execute(plan, strict=strict)
 
     # ── WalletPort: delegated to hub.wallets so bound models can call the hub ──
 
     async def wallet_balance(self, wallet: Wallet) -> tuple[Money, datetime]:
+        """``wallet.balance()``: the Space's current balance and when it was read.
+
+        Args:
+            wallet: the wallet to read.
+
+        Returns:
+            The balance and when it was read.
+        """
         return await self.wallets.wallet_balance(wallet)
 
     async def wallet_top_up(self, wallet: Wallet, bundle: Bundle) -> Invoice:
+        """``wallet.top_up(bundle)``: an invoice to pay; credits land when it is paid.
+
+        Args:
+            wallet: the wallet to credit.
+            bundle: the bundle to buy.
+
+        Returns:
+            The invoice to pay.
+        """
         return await self.wallets.wallet_top_up(wallet, bundle)
 
     async def wallet_invoices(self, wallet: Wallet) -> tuple[Invoice, ...]:
+        """``wallet.invoices()``: every invoice this wallet issued to you.
+
+        Args:
+            wallet: the wallet to list.
+
+        Returns:
+            Every invoice it issued to you.
+        """
         return await self.wallets.wallet_invoices(wallet)
 
     async def invoice_refresh(self, invoice: Invoice) -> Invoice:
+        """``invoice.refresh()``: the invoice with its current status.
+
+        Args:
+            invoice: the invoice to re-read.
+
+        Returns:
+            The invoice with its current status.
+        """
         return await self.wallets.invoice_refresh(invoice)
 
     def __repr__(self) -> str:
@@ -184,8 +295,11 @@ class AsyncHub:
 
 
 def _limits(value: BudgetLike) -> dict[str, Money]:
-    """``None``: no caps. A number or string: that much USD. ``Money``: a cap in its currency.
-    A mapping: one cap per currency, ``{"USD": 1.00, "IDR": 50000}``."""
+    """``None``: no caps.
+
+    A number or string: that much USD. ``Money``: a cap in its currency. A mapping: one cap per
+    currency, ``{"USD": 1.00, "IDR": 50000}``.
+    """
     if value is None:
         return {}
     if isinstance(value, Mapping):

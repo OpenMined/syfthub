@@ -41,8 +41,11 @@ _CHALLENGE_PARAM = re.compile(r'([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|([^
 
 
 def query_body(plan: SearchPlan, path: str) -> dict[str, Any]:
-    """The request body for one source: the four fields the Space documents, plus ``filters``
-    only when the plan attaches one to this path."""
+    """The request body for one source.
+
+    The four fields the Space documents, plus ``filters`` only when the plan attaches one to
+    this path.
+    """
     body: dict[str, Any] = {
         "messages": plan.query,
         "similarity_threshold": plan.similarity_threshold,
@@ -56,6 +59,7 @@ def query_body(plan: SearchPlan, path: str) -> dict[str, Any]:
 
 
 def body_of(response: httpx.Response) -> dict[str, Any]:
+    """The JSON body of ``response``, or an empty dict when it has none."""
     try:
         body = response.json()
     except ValueError:
@@ -64,6 +68,7 @@ def body_of(response: httpx.Response) -> dict[str, Any]:
 
 
 def entries_of(source: Source, body: dict[str, Any]) -> tuple[ChargeEntry, ...]:
+    """The charge entries in a Space response's ``policy_metadata``, for ``source``."""
     meta = body.get("policy_metadata")
     raw = meta.get("entries") if isinstance(meta, dict) else None
     if not isinstance(raw, list):
@@ -72,6 +77,7 @@ def entries_of(source: Source, body: dict[str, Any]) -> tuple[ChargeEntry, ...]:
 
 
 def outcome_of(body: dict[str, Any]) -> str | None:
+    """The ``policy_metadata.outcome`` of a Space response, if it names one."""
     meta = body.get("policy_metadata")
     value = meta.get("outcome") if isinstance(meta, dict) else None
     return value if isinstance(value, str) else None
@@ -84,8 +90,10 @@ def parse_challenge(header: str) -> dict[str, str]:
 
 
 def mpp_charge(source: Source, response: httpx.Response, fallback: Money) -> Charge:
-    """The ``Charge`` a 402 challenge asks for. The amount comes from the challenge when it names
-    one, else from the published price."""
+    """The ``Charge`` a 402 challenge asks for.
+
+    The amount comes from the challenge when it names one, else from the published price.
+    """
     header = response.headers.get("www-authenticate", "")
     params = parse_challenge(header)
     amount = fallback
@@ -210,8 +218,11 @@ def _returned(r: _Reply) -> SourceResult:
 
 
 def _payment(r: _Reply) -> SourceResult:
-    """402. After an MPP payment it is the Space refusing the credential; before any payment it
-    is a prepaid wallet short of credits, so the row carries the ``TopUp``."""
+    """402.
+
+    After an MPP payment it is the Space refusing the credential; before any payment it is a
+    prepaid wallet short of credits, so the row carries the ``TopUp``.
+    """
     if r.charge is not None:
         return r.row(
             outcome=Outcome.PAYMENT_REQUIRED,
@@ -299,8 +310,11 @@ def classify(
     attempts: int = 1,
     elapsed_ms: int = 0,
 ) -> SourceResult:
-    """One row from the final response of a query. ``charge`` is the MPP challenge that was paid
-    (or not) before this response; a 402 after paying is ``PAYMENT_REQUIRED``."""
+    """One row from the final response of a query.
+
+    ``charge`` is the MPP challenge that was paid (or not) before this response; a 402 after
+    paying is ``PAYMENT_REQUIRED``.
+    """
     status = response.status_code
     body = body_of(response)
     entries = entries_of(source, body)

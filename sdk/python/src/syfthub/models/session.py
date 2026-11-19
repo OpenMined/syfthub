@@ -12,6 +12,8 @@ from .money import Money
 
 
 class Identity(Frozen):
+    """Who is signed in: the Hub user's name and email."""
+
     username: str
     email: str = ""
     auth: AuthMethod = AuthMethod.TOKEN
@@ -37,6 +39,7 @@ class Budget(Frozen):
 
     @property
     def capped(self) -> bool:
+        """True when any currency has a cap."""
         return bool(self.limits)
 
     @property
@@ -45,9 +48,25 @@ class Budget(Frozen):
         return tuple(self.limits)
 
     def limit(self, currency: str) -> Money | None:
+        """The cap for ``currency``, if one is set.
+
+        Args:
+            currency: an ISO code.
+
+        Returns:
+            The cap, or None.
+        """
         return self.limits.get(currency)
 
     def spent_in(self, currency: str) -> Money:
+        """What this session has spent in ``currency``.
+
+        Args:
+            currency: an ISO code.
+
+        Returns:
+            The spend, zero when nothing was spent.
+        """
         return self.spent.get(currency) or Money.zero(currency)
 
     @property
@@ -56,47 +75,94 @@ class Budget(Frozen):
         return {cur: limit - self.spent_in(cur) for cur, limit in self.limits.items()}
 
     def remaining_in(self, currency: str) -> Money | None:
+        """What the cap for ``currency`` still allows, or None without a cap.
+
+        Args:
+            currency: an ISO code.
+
+        Returns:
+            What is left under the cap, or None.
+        """
         limit = self.limits.get(currency)
         return None if limit is None else limit - self.spent_in(currency)
 
     def counts(self, amount: Money) -> bool:
-        """Whether ``amount`` is in a capped currency."""
+        """Whether ``amount`` is in a capped currency.
+
+        Args:
+            amount: the amount to test.
+
+        Returns:
+            True when its currency has a cap.
+        """
         return amount.currency in self.limits
 
     def allows(self, extra: Money) -> bool:
-        """True when spending ``extra`` on top of what is spent in its currency stays within that
-        currency's cap. A currency without a cap always allows."""
+        """True when spending ``extra`` on top of its currency's spend stays within the cap.
+
+        A currency without a cap always allows.
+
+        Args:
+            extra: the amount about to be spent.
+
+        Returns:
+            True when it fits.
+        """
         limit = self.limits.get(extra.currency)
         if limit is None:
             return True
         return self.spent_in(extra.currency) + extra <= limit
 
     def record(self, amount: Money) -> Budget:
-        """A copy with ``amount`` added to the spend in its currency."""
+        """A copy with ``amount`` added to the spend in its currency.
+
+        Args:
+            amount: the amount spent.
+
+        Returns:
+            The updated budget.
+        """
         spent = {**self.spent, amount.currency: self.spent_in(amount.currency) + amount}
         return self.model_copy(update={"spent": spent})
 
 
 class Ledger(BaseModel):
-    """The session's ``Budget`` as it changes: caps replaced by ``hub.set_budget``, spend added
-    by the search runner. ``AsyncHub`` owns one and shows ``budget``; ``Searcher`` writes to it."""
+    """The session's ``Budget`` as it changes.
+
+    Caps are replaced by ``hub.set_budget``, spend added by the search runner. ``AsyncHub``
+    owns one and shows ``budget``; ``Searcher`` writes to it.
+    """
 
     budget: Budget = Budget()
 
     def set_limits(self, limits: dict[str, Money]) -> Budget:
-        """Replace the caps; what was spent stays."""
+        """Replace the caps; what was spent stays.
+
+        Args:
+            limits: ``currency -> cap``.
+
+        Returns:
+            The budget now in force.
+        """
         self.budget = Budget(limits=limits, spent=self.budget.spent)
         return self.budget
 
     def record(self, amount: Money) -> None:
-        """Add a charge to the spend in its currency."""
+        """Add a charge to the spend in its currency.
+
+        Args:
+            amount: the amount spent.
+        """
         self.budget = self.budget.record(amount)
 
 
 class Timeout(Frozen):
-    """``lookup`` is the read timeout for the balance reads behind ``wallets.list`` and pre-flight,
-    which wait on many hosts at once; one slow host then costs at most this. Everything you ask of
-    one host (``refresh``, top-ups, the query) keeps ``read``."""
+    """How long the SDK waits on the network, in seconds.
+
+    ``lookup`` is the read timeout for the balance reads behind ``wallets.list`` and
+    pre-flight, which wait on many hosts at once; one slow host then costs at most this.
+    Everything you ask of one host (``refresh``, top-ups, the query) keeps ``read``.
+    """
 
     connect: float = 5.0
     read: float = 30.0
@@ -105,9 +171,12 @@ class Timeout(Frozen):
 
 
 class Retry(Frozen):
-    """Network errors and 5xx only; never a 403 rate limit. ``attempts`` bounds the whole
-    request; ``server_errors`` is the smaller number of retries a 5xx response may use of it,
-    since a server that answered is less likely to answer differently a moment later."""
+    """Network errors and 5xx only; never a 403 rate limit.
+
+    ``attempts`` bounds the whole request; ``server_errors`` is the smaller number of retries a
+    5xx response may use of it, since a server that answered is less likely to answer
+    differently a moment later.
+    """
 
     attempts: int = Field(default=3, ge=1)
     server_errors: int = Field(default=1, ge=0)
@@ -116,6 +185,8 @@ class Retry(Frozen):
 
 
 class CircuitBreaker(Frozen):
+    """When a Space host is left alone: after ``failures`` in a row, for ``cooldown`` seconds."""
+
     failures: int = Field(default=5, ge=1)
     cooldown: float = Field(default=30.0, ge=0)
 

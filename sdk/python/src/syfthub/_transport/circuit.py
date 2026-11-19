@@ -64,8 +64,11 @@ class Breakers(BaseModel):
         self._states[host] = _State()
 
     def failure(self, host: str, *, connection: bool = False) -> None:
-        """Count a failure. A ``connection`` failure (timeout, refused, DNS) means the host is
-        down, so it opens the circuit at once; a 5xx counts toward ``settings.failures``."""
+        """Count a failure.
+
+        A ``connection`` failure (timeout, refused, DNS) means the host is down, so it opens
+        the circuit at once; a 5xx counts toward ``settings.failures``.
+        """
         st = self._state(host)
         st.failures += 1
         if connection or st.opened_at is not None or st.failures >= self.settings.failures:

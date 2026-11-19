@@ -14,10 +14,12 @@ class SourceType(StrEnum):
 
     @property
     def returns_documents(self) -> bool:
+        """True for a source that answers with passages."""
         return self in (SourceType.DOCUMENTS, SourceType.BOTH)
 
     @property
     def returns_summary(self) -> bool:
+        """True for a source that answers with a model's summary."""
         return self in (SourceType.MODEL, SourceType.BOTH)
 
 
@@ -32,6 +34,7 @@ class Rail(StrEnum):
 
     @property
     def prepaid(self) -> bool:
+        """True for a rail paid from a prepaid wallet rather than per request."""
         return self in (Rail.STRIPE, Rail.XENDIT, Rail.CLUSTER)
 
 
@@ -53,11 +56,15 @@ PAYMENT_POLICY_TYPES: frozenset[str] = frozenset(
 
 
 class PriceUnit(StrEnum):
+    """What one price covers: a request, or a document returned."""
+
     REQUEST = "request"
     DOCUMENT = "document"
 
 
 class AuthMethod(StrEnum):
+    """How a session signed in."""
+
     PASSWORD = "password"
     TOKEN = "token"
     GOOGLE = "google"
@@ -77,10 +84,13 @@ class Verdict(StrEnum):
 
     @property
     def sends(self) -> bool:
+        """True for a verdict that lets ``execute`` send."""
         return self in (Verdict.READY, Verdict.WILL_ASK_TO_PAY)
 
 
 class ActionKind(StrEnum):
+    """The cause an ``Action`` resolves."""
+
     TOP_UP = "top_up"
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
@@ -98,6 +108,8 @@ class Outcome(StrEnum):
 
 
 class Reason(StrEnum):
+    """Why a row was held, rejected or failed."""
+
     NO_CREDITS = "no_credits"
     OVER_BUDGET = "over_budget"
     ACCESS_DENIED = "access_denied"
@@ -116,6 +128,8 @@ class Reason(StrEnum):
 
 
 class ReturnKind(StrEnum):
+    """What a ``Results`` holds: passages, summaries, both, or nothing."""
+
     REFERENCES = "references"
     SUMMARIES = "summaries"
     BOTH = "both"
@@ -133,4 +147,5 @@ class InvoiceStatus(StrEnum):
 
     @property
     def open(self) -> bool:
+        """True while the invoice may still be paid."""
         return self in (InvoiceStatus.PENDING, InvoiceStatus.PROCESSING)

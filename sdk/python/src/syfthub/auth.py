@@ -30,22 +30,37 @@ class Session(BaseModel):
     _lock: asyncio.Lock | None = PrivateAttr(default=None)
 
     def attach(self, api: HubApi) -> None:
+        """Route token refreshes through ``api``.
+
+        Args:
+            api: the Hub API that refreshes and re-mints tokens.
+        """
         self._api = api
 
     @property
     def authenticated(self) -> bool:
+        """True when the session holds an access token."""
         return self.access_token is not None
 
     def headers(self) -> dict[str, str]:
+        """The ``Authorization`` header for a request; empty when not signed in.
+
+        Returns:
+            ``{"Authorization": "Bearer ..."}``, or an empty dict.
+        """
         return {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
 
     async def renew(self) -> bool:
-        """One attempt to get a fresh access token: refresh, else re-login with the stored
-        password. Returns False when neither is possible.
+        """One attempt to get a fresh access token: refresh, else re-login with the password.
+
+        Returns False when neither is possible.
 
         Safe under concurrency: callers that queued behind a renewal in progress see the token
         already rotated and return without renewing again. The refresh and login calls go to the
         transport directly, never back through the 401 handler, so the lock is never re-entered.
+
+        Returns:
+            True when the token was rotated.
         """
         api: HubApi | None = self._api
         if api is None:
@@ -82,16 +97,38 @@ class TokenCache:
     """Satellite tokens keyed by ``(owner, resource)``, refreshed at 80% of their lifetime."""
 
     def __init__(self, api: HubApi) -> None:
+        """Cache Space tokens minted through ``api``.
+
+        Args:
+            api: the Hub API that mints them.
+        """
         self.api = api
         self._tokens: dict[tuple[str, str], _Cached] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     @staticmethod
     def resource_of(url: str) -> str:
+        """The origin of ``url``: the resource a Space token is minted for.
+
+        Args:
+            url: a Space URL.
+
+        Returns:
+            Its ``scheme://host``, or the URL itself when it has neither.
+        """
         parts = urlsplit(url)
         return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else url
 
     async def get(self, owner: str, url: str) -> str:
+        """A Space token for ``owner`` at ``url``, minted on first use and cached per resource.
+
+        Args:
+            owner: the Space's owner.
+            url: any URL on that Space.
+
+        Returns:
+            A bearer token for that Space.
+        """
         key = (owner, self.resource_of(url))
         cached = self._tokens.get(key)
         if cached and cached.expires_at > time.monotonic():
@@ -108,10 +145,16 @@ class TokenCache:
             return token
 
     def forget(self, owner: str, url: str) -> None:
-        """Drop one token so the next ``get`` mints afresh (after a Space answered 401)."""
+        """Drop one token so the next ``get`` mints afresh (after a Space answered 401).
+
+        Args:
+            owner: the Space's owner.
+            url: any URL on that Space.
+        """
         self._tokens.pop((owner, self.resource_of(url)), None)
 
     def clear(self) -> None:
+        """Drop every cached Space token."""
         self._tokens.clear()
 
 
@@ -119,6 +162,12 @@ class AuthNamespace:
     """``hub.auth``: login and identity. ``hub.login`` and ``hub.me`` are aliases."""
 
     def __init__(self, api: HubApi, session: Session) -> None:
+        """``hub.auth``.
+
+        Args:
+            api: the Hub API.
+            session: the session whose token this namespace manages.
+        """
         self._api = api
         self._session = session
         self.me: Identity | None = None
@@ -130,6 +179,16 @@ class AuthNamespace:
         *,
         token: str | None = None,
     ) -> Identity:
+        """Sign in with a username and password, or with a personal access ``token``.
+
+        Args:
+            username: the Hub account name.
+            password: its password.
+            token: a personal access token instead of a username and password.
+
+        Returns:
+            Who you are, as the Hub sees it.
+        """
         if token is not None:
             if username or password:
                 raise ConfigurationError("pass either token= or username/password, not both")
@@ -153,6 +212,11 @@ class AuthNamespace:
         return identity
 
     async def whoami(self) -> Identity:
+        """Who the current token belongs to, read from the Hub and kept on ``me``.
+
+        Returns:
+            The signed-in identity.
+        """
         method = AuthMethod.PASSWORD if self._session.password else AuthMethod.TOKEN
         self.me = await self._whoami(method)
         return self.me

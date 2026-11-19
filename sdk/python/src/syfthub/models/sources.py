@@ -26,8 +26,11 @@ _DEFAULT_CURRENCY: dict[str, str] = {Rail.XENDIT.value: "IDR"}
 
 
 class Policy(Frozen):
-    """One entry of ``EndpointPublicResponse.policies[]``. ``type`` is the Hub's string; unknown
-    types still parse, and ``known`` names the ones the SDK understands."""
+    """One entry of ``EndpointPublicResponse.policies[]``.
+
+    ``type`` is the Hub's string; unknown types still parse, and ``known`` names the ones the
+    SDK understands.
+    """
 
     type: str
     config: dict[str, Any] = Field(default_factory=dict)
@@ -37,6 +40,7 @@ class Policy(Frozen):
 
     @property
     def known(self) -> PolicyType | None:
+        """The policy's type as the SDK knows it, or None for one it does not."""
         try:
             return PolicyType(self.type)
         except ValueError:
@@ -44,6 +48,7 @@ class Policy(Frozen):
 
     @property
     def is_payment(self) -> bool:
+        """True for a pricing or payment policy."""
         return self.type in PAYMENT_POLICY_TYPES
 
 
@@ -57,14 +62,18 @@ class Connection(Frozen):
 
     @property
     def url(self) -> str | None:
+        """The Space origin this connection points at, if it has one."""
         value = self.config.get("url") or self.config.get("base_url")
         return value if isinstance(value, str) and value else None
 
 
 class QuerySchema(Frozen):
-    """``EndpointPublicResponse.query_schema``: what a query may carry, as the publisher
-    declared it. ``metadata_fields`` are the keys a document's ``metadata`` can hold;
-    ``filters`` is what a query may filter on, None when the Space predates filters."""
+    """What a query may carry, as the publisher declared it.
+
+    ``metadata_fields`` are the keys a document's ``metadata`` can hold; ``filters`` is what a
+    query may filter on, None when the Space predates filters. The Hub relays it as
+    ``EndpointPublicResponse.query_schema``.
+    """
 
     metadata_fields: tuple[str, ...] = ()
     filters: FilterSchema | None = None
@@ -79,7 +88,15 @@ class Price(Frozen):
 
 
 def matches_patterns(email: str, patterns: tuple[str, ...]) -> str | None:
-    """The first glob pattern that matches ``email`` (case-insensitive), or None."""
+    """The first glob pattern that matches ``email`` (case-insensitive), or None.
+
+    Args:
+        email: the address to test.
+        patterns: glob patterns, ``*`` for everyone.
+
+    Returns:
+        The pattern that matched, or None.
+    """
     needle = email.strip().lower()
     for pattern in patterns:
         if fnmatchcase(needle, pattern.strip().lower()):
@@ -91,9 +108,17 @@ _UUID_SEGMENT = re.compile(r"/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{
 
 
 def wallet_id_from_url(url: str | None) -> str | None:
-    """The last UUID path segment of a wallet URL. Spaces build their wallet URLs as
-    ``.../wallets/<wallet id>/balance``, so a policy published before ``wallet_id`` was part of
-    the wire format still carries its id there."""
+    """The last UUID path segment of a wallet URL.
+
+    Spaces build their wallet URLs as ``.../wallets/<wallet id>/balance``, so a policy published
+    before ``wallet_id`` was part of the wire format still carries its id there.
+
+    Args:
+        url: a Space wallet route.
+
+    Returns:
+        The id, or None when the URL carries none.
+    """
     if not url:
         return None
     found = _UUID_SEGMENT.findall(url.split("?", 1)[0])
@@ -131,24 +156,41 @@ class Pricing(Frozen):
 
     @property
     def price(self) -> Money:
+        """The first listed price, or zero in the pricing's currency."""
         return self.prices[0].amount if self.prices else Money.zero(self.currency)
 
     @property
     def unit(self) -> PriceUnit:
+        """What the price covers: a request, or a document."""
         return self.prices[0].unit if self.prices else PriceUnit.REQUEST
 
     @property
     def free(self) -> bool:
+        """True when nothing is charged."""
         return self.rail is Rail.FREE or not any(p.amount.positive for p in self.prices)
 
     def applies_to(self, email: str | None) -> bool:
-        """Whether the caller is charged: ``applied_to`` empty or ``*`` means everyone."""
+        """Whether the caller is charged: ``applied_to`` empty or ``*`` means everyone.
+
+        Args:
+            email: the caller's address; None for anonymous.
+
+        Returns:
+            True when this caller pays.
+        """
         if not self.applied_to or "*" in self.applied_to:
             return True
         return email is not None and matches_patterns(email, self.applied_to) is not None
 
     def estimate(self, limit: int) -> Money:
-        """Maximum cost of one query: per-request prices once, per-document prices ``limit`` times."""
+        """Maximum cost of one query: per-request prices once, per-document prices ``limit`` times.
+
+        Args:
+            limit: passages the query asks for.
+
+        Returns:
+            The worst-case cost of one query.
+        """
         total = Money.zero(self.currency)
         for p in self.prices:
             total = total + (p.amount * (limit if p.unit is PriceUnit.DOCUMENT else 1))
@@ -205,6 +247,12 @@ def pricing_from_policies(policies: tuple[Policy, ...]) -> Pricing | None:
 
     All payment policies on one endpoint share one wallet, so the wallet fields come from the
     first; the prices are summed by ``estimate``.
+
+    Args:
+        policies: a source's published policies.
+
+    Returns:
+        The pricing, or None.
     """
     payment = [
         (p, r)
@@ -236,8 +284,18 @@ def pricing_from_policies(policies: tuple[Policy, ...]) -> Pricing | None:
 
 
 def access_for(policies: tuple[Policy, ...], email: str | None) -> Access:
-    """Mirror the Space's access policy: denied patterns win; an empty allow list means everyone;
-    with several policies the caller passes if any one of them allows."""
+    """Mirror the Space's access policy for ``email``.
+
+    Denied patterns win; an empty allow list means everyone; with several policies the caller
+    passes if any one of them allows.
+
+    Args:
+        policies: a source's published policies.
+        email: the caller's address; None for anonymous.
+
+    Returns:
+        Whether the caller is allowed, and the rule that decided.
+    """
     rules = [p for p in policies if p.enabled and p.type == PolicyType.ACCESS.value]
     if not rules:
         return Access()
@@ -258,7 +316,30 @@ def access_for(policies: tuple[Policy, ...], email: str | None) -> Access:
 
 
 class Source(Frozen):
-    """A Hub endpoint. ``path`` (``owner/slug``) is the key used everywhere else."""
+    """One endpoint in the Hub catalogue.
+
+    A document source or a model, who publishes it, what it costs and who may use it, and the
+    Space that answers its queries.
+
+    ``path`` (``owner/slug``) is the key used everywhere else: in ``hub.search``, in plan and
+    result rows, in ``results[path]``. A ``Source`` is immutable; ``hub.sources.get(path)`` and
+    ``hub.sources.list()`` return fresh ones.
+
+    What a query gets back is declared up front: ``metadata_fields`` are the keys every result's
+    ``metadata`` carries, ``filter_schema`` is the subset a query may filter on, and
+    ``where(filter)`` attaches a checked filter for ``hub.search``.
+
+    Example:
+        ::
+
+            source = await hub.sources.get("nasa/news")
+            source.free, source.pricing, source.access(hub.me.email).allowed
+            plan = hub.search("Artemis", [source.where(F("published") >= "2026-10-01")])
+
+        >>> s = Source(name="News", slug="news", type="data_source", owner_username="nasa")
+        >>> s.path, s.free, s.metadata_fields, s.filter_schema
+        ('nasa/news', True, (), None)
+    """
 
     name: str
     slug: str
@@ -276,43 +357,73 @@ class Source(Frozen):
 
     @classmethod
     def from_hub(cls, body: dict[str, Any]) -> Source:
-        """Build from an ``EndpointPublicResponse`` body, keeping it verbatim in ``raw``. The
-        Hub's ``health_*`` fields stay there untouched: they are the Space's own backend
-        self-check, which the Hub already uses to delist dead sources, not a signal to act on."""
+        """Build from an ``EndpointPublicResponse`` body, keeping it verbatim in ``raw``.
+
+        The Hub's ``health_*`` fields stay there untouched: they are the Space's own backend
+        self-check, which the Hub already uses to delist dead sources, not a signal to act
+        on.
+
+        Args:
+            body: an ``EndpointPublicResponse`` body.
+
+        Returns:
+            The source.
+        """
         return cls.model_validate({**body, "raw": body})
 
     @property
     def path(self) -> str:
+        """``owner/slug``: the key for this source everywhere in the SDK."""
         return f"{self.owner_username}/{self.slug}"
 
     @property
     def pricing(self) -> Pricing | None:
+        """What a query costs and how it is paid, from the published policies.
+
+        None when the source has no pricing policy.
+        """
         return pricing_from_policies(self.policies)
 
     @property
     def free(self) -> bool:
+        """True when a query costs nothing: no pricing policy, or one priced at zero."""
         pricing = self.pricing
         return pricing is None or pricing.free
 
     @property
     def metadata_fields(self) -> tuple[str, ...]:
-        """The keys a document's ``metadata`` may carry; empty when the publisher declared
-        none, or nothing at all (``query_schema`` is then None)."""
+        """The keys a document's ``metadata`` may carry.
+
+        Empty when the publisher declared none, or nothing at all (``query_schema`` is then
+        None).
+        """
         return self.query_schema.metadata_fields if self.query_schema else ()
 
     @property
     def filter_schema(self) -> FilterSchema | None:
-        """The fields a query may filter on; None when the Space published no filter schema,
-        in which case any filter is refused."""
+        """The fields a query may filter on.
+
+        None when the Space published no filter schema, in which case any filter is refused.
+        """
         return self.query_schema.filters if self.query_schema else None
 
     def where(self, filters: Condition | Group) -> SourceSelection:
-        """This source with ``filters`` attached, for ``hub.search``. Checked here against the
-        published schema, so a refused filter raises ``FilterError`` before any plan exists."""
+        """This source with ``filters`` attached, for ``hub.search``.
+
+        Checked here against the published schema, so a refused filter raises
+        ``FilterError`` before any plan exists.
+
+        Args:
+            filters: a condition or group built with ``F``.
+
+        Returns:
+            The selection to pass to ``hub.search``.
+        """
         return SourceSelection(path=self.path, filters=check_filters(self, filters))
 
     @property
     def connection(self) -> Connection | None:
+        """The first enabled connection with a URL: the Space this source is served from."""
         for connection in self.connect:
             if connection.enabled and connection.url:
                 return connection
@@ -355,11 +466,22 @@ class Source(Frozen):
 
     @property
     def tenant(self) -> str | None:
+        """The tenant name a multi-tenant Space wants in the query, if its connection names one."""
         connection = self.connection
         value = connection.config.get("tenant_name") if connection else None
         return value if isinstance(value, str) and value else None
 
     def access(self, email: str | None) -> Access:
+        """Whether ``email`` may query this source, predicted client-side from its policy.
+
+        ``None`` is an anonymous caller. Pre-flight uses the same rule.
+
+        Args:
+            email: the caller's address; None for anonymous.
+
+        Returns:
+            Whether the caller is allowed, and the rule that decided.
+        """
         return access_for(self.policies, email)
 
     def __str__(self) -> str:
@@ -367,8 +489,18 @@ class Source(Frozen):
 
 
 def check_filters(source: Source, filters: Condition | Group) -> Condition | Group:
-    """``filters`` back, or ``FilterError`` naming the source: the Space's own checks against
-    its published schema, and a refusal of any filter when it published none."""
+    """``filters`` back, or ``FilterError`` naming the source.
+
+    The Space's own checks against its published schema, and a refusal of any filter when it
+    published none.
+
+    Args:
+        source: the source the filter is for.
+        filters: a condition or group.
+
+    Returns:
+        The filter, unchanged.
+    """
     schema = source.filter_schema
     if schema is None:
         raise FilterError("<filters>", "this source publishes no filter schema", path=source.path)
@@ -396,8 +528,10 @@ def _fuzzy_score(source: Source, text: str) -> float:
 
 
 class SourceList(Frozen):
-    """What ``hub.sources.list()`` returns. Every view returns a new list; ``total`` is the Hub's
-    count before any local view."""
+    """What ``hub.sources.list()`` returns.
+
+    Every view returns a new list; ``total`` is the Hub's count before any local view.
+    """
 
     items: tuple[Source, ...] = ()
     total: int = 0
@@ -423,13 +557,22 @@ class SourceList(Frozen):
 
     @property
     def paths(self) -> tuple[str, ...]:
+        """Every source's ``owner/slug``, in order."""
         return tuple(s.path for s in self.items)
 
     def _view(self, items: list[Source]) -> SourceList:
         return SourceList(items=tuple(items), total=self.total)
 
     def matching(self, text: str, *, threshold: float = 0.5) -> SourceList:
-        """Fuzzy match over name, slug, description and tags; best first."""
+        """Fuzzy match over name, slug, description and tags; best first.
+
+        Args:
+            text: the words to match.
+            threshold: the lowest match score kept, 0 to 1.
+
+        Returns:
+            The matches, best first.
+        """
         scored = [(s, _fuzzy_score(s, text)) for s in self.items]
         kept = [s for s, score in sorted(scored, key=lambda p: -p[1]) if score >= threshold]
         return self._view(kept)
@@ -442,6 +585,17 @@ class SourceList(Frozen):
         free: bool | None = None,
         tag: str | None = None,
     ) -> SourceList:
+        """A view keeping the sources that match every criterion given.
+
+        Args:
+            type: only this source type.
+            owner: only this publisher.
+            free: only free (True) or only paid (False).
+            tag: only sources carrying this tag.
+
+        Returns:
+            The matching sources.
+        """
         want_type = SourceType(type) if isinstance(type, str) else type
         kept = [
             s
@@ -454,12 +608,29 @@ class SourceList(Frozen):
         return self._view(kept)
 
     def accessible(self, viewer: Identity | str | None) -> SourceList:
-        """The sources whose access policy admits ``viewer``, predicted client-side the way
-        ``Source.access`` does. ``None`` keeps only sources that need no login."""
+        """The sources whose access policy admits ``viewer``.
+
+        Predicted client-side the way ``Source.access`` does. ``None`` keeps only sources that
+        need no login.
+
+        Args:
+            viewer: an ``Identity``, an email, or None for anonymous.
+
+        Returns:
+            The sources that admit the viewer.
+        """
         email = viewer.email if isinstance(viewer, Identity) else viewer
         return self._view([s for s in self.items if s.access(email).allowed])
 
     def pick(self, *paths: str) -> SourceList:
+        """A view of just these paths, in the order given; a missing one raises ``KeyError``.
+
+        Args:
+            *paths: ``owner/slug`` strings.
+
+        Returns:
+            Those sources, in that order.
+        """
         return self._view([self[p] for p in paths])
 
     def __add__(self, other: SourceList) -> SourceList:

@@ -159,9 +159,11 @@ class Searcher:
     # ── SearchPort ────────────────────────────────────────────────────────
 
     async def preflight(self, plan: SearchPlan) -> Preflight:
+        """``plan.preflight()``: pure rules over the facts read now."""
         return plan_preflight(plan, await self.facts(plan))
 
     async def execute(self, plan: SearchPlan, *, strict: bool = False) -> Results:
+        """``plan.execute()``: pre-flight, then one request per sending row."""
         pre = await self.preflight(plan)
         plan._pre = pre
         if strict and pre.actions:
@@ -188,6 +190,7 @@ class Searcher:
     # ── facts ─────────────────────────────────────────────────────────────
 
     async def facts(self, plan: SearchPlan) -> Facts:
+        """Everything pre-flight needs, read now: the caller, the sources, balances and circuits."""
         email = await self._email()
         sources = await self._candidates(plan, email)
         wallets: dict[str, Wallet] = {}
@@ -243,8 +246,11 @@ class Searcher:
     async def _send_all(
         self, rows: tuple[PlanRow, ...], plan: SearchPlan
     ) -> dict[str, SourceResult]:
-        """Every host in parallel, at most ``Options.concurrency`` queries in flight. A half-open
-        host gets one probe first; if the probe trips the breaker the rest of its rows are held."""
+        """Every host in parallel, at most ``Options.concurrency`` queries in flight.
+
+        A half-open host gets one probe first; if the probe trips the breaker the rest of
+        its rows are held.
+        """
         sem = asyncio.Semaphore(self._options.concurrency)
         by_host: dict[str, list[PlanRow]] = {}
         for row in rows:
@@ -273,8 +279,11 @@ class Searcher:
     async def _send_one(
         self, row: PlanRow, plan: SearchPlan, sem: asyncio.Semaphore
     ) -> SourceResult:
-        """One row: mint the token, query, re-mint once on a 401, pay once on an MPP 402, then
-        classify whatever came back last. Network faults never raise: they are the row."""
+        """Send one row's query and classify whatever came back last.
+
+        Mint the token, query, re-mint once on a 401, pay once on an MPP 402. Network faults
+        never raise: they are the row.
+        """
         source = row.source
         url, host = source.query_url, source.host
         assert url is not None and host is not None  # pre-flight sends only reachable rows
@@ -329,8 +338,11 @@ class Searcher:
         )
 
     async def _pay(self, at: _Attempt, challenge: httpx.Response) -> str | SourceResult:
-        """Answer an MPP 402 through the Hub: the ``X-Payment`` credential to re-send with, or the
-        ``PAYMENT_REQUIRED`` row when the budget or the Hub says no."""
+        """Answer an MPP 402 through the Hub.
+
+        Returns the ``X-Payment`` credential to re-send with, or the ``PAYMENT_REQUIRED`` row
+        when the budget or the Hub says no.
+        """
         at.charge = charge = mpp_charge(at.source, challenge, at.row.estimate)
         if not self._ledger.budget.allows(charge.amount):
             return at.payment_required(

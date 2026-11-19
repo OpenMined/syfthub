@@ -41,7 +41,14 @@ class Wallet(Bound):
         return hash(("Wallet", self.id))
 
     def bundle(self, bundle: str | Bundle) -> Bundle:
-        """Resolve a bundle id against what this wallet sells."""
+        """Resolve a bundle id against what this wallet sells.
+
+        Args:
+            bundle: a bundle or its id.
+
+        Returns:
+            The bundle.
+        """
         if isinstance(bundle, Bundle):
             return bundle
         for b in self.bundles:
@@ -53,23 +60,45 @@ class Wallet(Bound):
         )
 
     def suggest(self, shortfall: Money) -> Bundle | None:
-        """The smallest bundle whose credits cover ``shortfall``; None if none does."""
+        """The smallest bundle whose credits cover ``shortfall``; None if none does.
+
+        Args:
+            shortfall: the credits missing.
+
+        Returns:
+            The bundle, or None.
+        """
         covering = [b for b in self.bundles if b.granted >= shortfall]
         return min(covering, key=lambda b: b.granted.amount) if covering else None
 
     async def refresh(self) -> Wallet:
-        """One balance call to ``credits_url``; updates ``balance`` and ``refreshed_at``."""
+        """One balance call to ``credits_url``; updates ``balance`` and ``refreshed_at``.
+
+        Returns:
+            This wallet, with the balance read now.
+        """
         balance, at = await self._require_hub().wallet_balance(self)
         self.balance = balance
         self.refreshed_at = at
         return self
 
     async def top_up(self, bundle: str | Bundle) -> Invoice:
-        """``POST payment_url`` with the bundle; returns a ``PENDING`` invoice."""
+        """``POST payment_url`` with the bundle; returns a ``PENDING`` invoice.
+
+        Args:
+            bundle: a bundle or its id.
+
+        Returns:
+            The invoice to pay.
+        """
         return await self._require_hub().wallet_top_up(self, self.bundle(bundle))
 
     async def invoices(self) -> tuple[Invoice, ...]:
-        """``GET invoices_url``: my invoices on this wallet."""
+        """``GET invoices_url``: my invoices on this wallet.
+
+        Returns:
+            The invoices this wallet issued to you.
+        """
         return await self._require_hub().wallet_invoices(self)
 
 
@@ -91,7 +120,15 @@ class Invoice(Bound):
 
     @classmethod
     def from_space(cls, wallet_key: str, body: dict[str, Any]) -> Invoice:
-        """Build from the Space's ``InvoiceResponse`` body, kept verbatim in ``raw``."""
+        """Build from the Space's ``InvoiceResponse`` body, kept verbatim in ``raw``.
+
+        Args:
+            wallet_key: the wallet's ``owner/rail/currency`` key.
+            body: the ``InvoiceResponse`` body.
+
+        Returns:
+            The invoice.
+        """
         status_value = body.get("status")
         status = (
             InvoiceStatus(status_value)
@@ -115,6 +152,7 @@ class Invoice(Bound):
 
     @property
     def paid(self) -> bool:
+        """True once the Space credited this invoice."""
         return self.status is InvoiceStatus.PAID
 
     @property
@@ -123,13 +161,27 @@ class Invoice(Bound):
         return self.status.open
 
     async def refresh(self) -> Invoice:
-        """A new ``Invoice`` read back from ``invoices_url``; unchanged if the Space does not list it."""
+        """A new ``Invoice`` read back from ``invoices_url``; unchanged if the Space does not list it.
+
+        Returns:
+            The invoice with its current status.
+        """
         fresh = await self._require_hub().invoice_refresh(self)
         return fresh
 
     async def wait_paid(self, *, timeout: float = 600, poll: float = 5) -> Invoice:
-        """Poll ``refresh()`` until settled. Keeps polling through ``processing``; returns early
-        on ``expired`` or ``cancelled`` so the app can act. Raises ``PaymentTimeout``."""
+        """Poll ``refresh()`` until settled.
+
+        Keeps polling through ``processing``; returns early on ``expired`` or ``cancelled``
+        so the app can act. Raises ``PaymentTimeout``.
+
+        Args:
+            timeout: seconds to wait in all.
+            poll: seconds between reads.
+
+        Returns:
+            The settled invoice.
+        """
         deadline = time.monotonic() + timeout
         current = self
         while True:
@@ -168,6 +220,15 @@ class ChargeEntry(Frozen):
 
     @classmethod
     def from_space(cls, source: str, entry: dict[str, Any]) -> ChargeEntry:
+        """One ``policy_metadata.entries[]`` item of a Space response, for ``source``.
+
+        Args:
+            source: the source's path.
+            entry: the item as the Space sent it.
+
+        Returns:
+            The entry.
+        """
         amount = entry.get("amount")
         currency = entry.get("currency") or "USD"
         tx_raw = entry.get("transaction")
@@ -197,6 +258,7 @@ class ChargeEntry(Frozen):
 
     @property
     def charged(self) -> bool:
+        """True when the Space took a positive amount."""
         return self.status == "charged" and self.amount is not None and self.amount.positive
 
 
@@ -211,7 +273,15 @@ class RateLimit(Frozen):
     def from_entry(
         cls, details: dict[str, Any], headers: dict[str, str] | None = None
     ) -> RateLimit:
-        """Read ``reset_seconds`` (code) or ``retry_after_seconds`` (docs), then ``Retry-After``."""
+        """Read ``reset_seconds`` (code) or ``retry_after_seconds`` (docs), then ``Retry-After``.
+
+        Args:
+            details: the rejection's ``details``.
+            headers: the response headers.
+
+        Returns:
+            The limit, with what was found.
+        """
         headers = {k.lower(): v for k, v in (headers or {}).items()}
         reset = details.get("reset_seconds", details.get("retry_after_seconds"))
         if reset is None and "retry-after" in headers:

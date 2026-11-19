@@ -93,7 +93,9 @@ class HubApi:
 
     async def refresh(self, refresh_token: str) -> dict[str, Any] | None:
         """``POST /auth/refresh``: a new token pair, or None when the refresh token is dead.
-        Goes to the transport directly so a renewal never re-enters the 401 handler."""
+
+        Goes to the transport directly so a renewal never re-enters the 401 handler.
+        """
         try:
             response = await self.transport.request(
                 "POST", self.url("/auth/refresh"), json={"refresh_token": refresh_token}
@@ -113,8 +115,10 @@ class HubApi:
         return body
 
     async def satellite_token(self, owner_username: str, resource: str) -> tuple[str, float]:
-        """``GET /token``: a short-lived token for one owner's Space at ``resource`` and its
-        lifetime in seconds. A 400 (no access) is ``ValidationError``."""
+        """``GET /token``: a short-lived token for one owner's Space, and its lifetime in seconds.
+
+        A 400 (no access) is ``ValidationError``.
+        """
         response = await self._send(
             "GET", "/token", params={"owner_username": owner_username, "resource": resource}
         )

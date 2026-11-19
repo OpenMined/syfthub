@@ -84,8 +84,10 @@ def _row(plan: SearchPlan, source: Source, facts: Facts) -> PlanRow:
 
 
 def _hold_for_credits(rows: list[PlanRow]) -> tuple[list[PlanRow], dict[str, Money]]:
-    """Per wallet: the sum of the estimates it would carry against its balance. Short by any
-    amount, every row on that wallet is held and one shortfall is reported."""
+    """Per wallet: the sum of the estimates it would carry against its balance.
+
+    Short by any amount, every row on that wallet is held and one shortfall is reported.
+    """
     committed: dict[str, Money] = {}
     for row in rows:
         if row.send and row.wallet is not None and row.wallet.balance is not None:
@@ -115,9 +117,14 @@ def _hold_for_credits(rows: list[PlanRow]) -> tuple[list[PlanRow], dict[str, Mon
 
 
 def _hold_for_budget(rows: list[PlanRow], budget: Budget) -> tuple[list[PlanRow], dict[str, Money]]:
-    """Walk the sending rows in plan order, per currency: the first paid row that would cross its
-    currency's cap and every paid row in that currency after it are held. A currency with no cap
-    is not budgeted. Returns, for each currency that crossed, what its paid rows would have cost."""
+    """Hold the paid rows that would cross a currency's cap, walking the plan in order.
+
+    The first paid row that would cross its currency's cap and every paid row in that currency
+    after it are held. A currency with no cap is not budgeted.
+
+    Returns:
+        For each currency that crossed, what its paid rows would have cost.
+    """
     if not budget.capped:
         return rows, {}
     running: dict[str, Money] = {}
@@ -149,9 +156,11 @@ def _hold_for_budget(rows: list[PlanRow], budget: Budget) -> tuple[list[PlanRow]
 
 
 def plan_preflight(plan: SearchPlan, facts: Facts) -> Preflight:
-    """The rules, in order: skips, reachability, access, circuit, credits, budget. A filter
-    the source's published schema refuses raises ``FilterError`` first: the plan may have
-    been rebuilt from a dict, or the schema changed since it was composed."""
+    """The rules, in order: skips, reachability, access, circuit, credits, budget.
+
+    A filter the source's published schema refuses raises ``FilterError`` first: the plan may
+    have been rebuilt from a dict, or the schema changed since it was composed.
+    """
     for source in facts.sources:
         filters = plan.filter_for(source.path)
         if filters is not None and source.path not in plan.skips:
@@ -175,9 +184,12 @@ def plan_preflight(plan: SearchPlan, facts: Facts) -> Preflight:
 def pick_sources(
     candidates: Iterable[Source], plan: SearchPlan, email: str | None
 ) -> tuple[Source, ...]:
-    """For a plan without explicit sources: every free, reachable document source the caller may
-    use, in catalogue order, or the first ``max_sources`` of them when the plan sets a ceiling.
-    Skipped ones are kept so they show as ``SKIPPED`` rows."""
+    """The automatic pick for a plan without explicit sources.
+
+    Every free, reachable document source the caller may use, in catalogue order, or the first
+    ``max_sources`` of them when the plan sets a ceiling. Skipped ones are kept so they show as
+    ``SKIPPED`` rows.
+    """
     picked: list[Source] = []
     active = 0
     for source in candidates:
