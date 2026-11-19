@@ -711,7 +711,7 @@ Create a new endpoint.
 | `tags` | string[] | No | — | Searchable tags |
 | `policies` | object | No | — | Access policy config (JSON) |
 | `connect` | object[] | No | — | Connection configurations |
-| `query_schema` | object | No | `{"metadata_fields": string[]}` | What a query may carry, as declared by the publisher; `null` when undeclared |
+| `query_schema` | object | No | `{"metadata_fields": string[], "filters": object \| null}` | What a query may carry, as declared by the publisher; `null` when undeclared. `filters` is `{fields: {name: {type, ops[]}}, logic[], max_depth, max_conditions, max_list_values}`, stored and relayed verbatim |
 | `contributors` | string[] | No | — | Contributor usernames |
 
 **Response `201 Created`:** Full `EndpointResponse`.

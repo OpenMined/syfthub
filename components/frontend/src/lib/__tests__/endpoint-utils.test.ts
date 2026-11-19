@@ -7,6 +7,7 @@ import {
   filterRelevantSources,
   findEndpointByName,
   findEndpointByPath,
+  getPublicEndpointByPath,
   mapEndpointPublicToSource,
   parseEndpointMentions
 } from '../endpoint-utils';
@@ -360,5 +361,57 @@ describe('mapEndpointPublicToSource', () => {
     const result = mapEndpointPublicToSource(endpoint as never);
     expect(result.url).toBeUndefined();
     expect(result.tenant_name).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// getPublicEndpointByPath
+// ============================================================================
+
+describe('getPublicEndpointByPath', () => {
+  const body = {
+    name: 'Feed',
+    slug: 'feed',
+    description: '',
+    type: 'data_source',
+    owner_username: 'alice',
+    contributors_count: 1,
+    version: '1.0',
+    readme: '',
+    tags: [],
+    stars_count: 0,
+    policies: [],
+    connect: [{ type: 'http', enabled: true, description: '', config: { url: 'https://a.test' } }],
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-14T00:00:00Z'
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('relays query_schema as published', async () => {
+    const query_schema = {
+      metadata_fields: ['title'],
+      filters: {
+        fields: { title: { type: 'string', ops: ['eq'] } },
+        logic: ['and'],
+        max_depth: 5,
+        max_conditions: 50,
+        max_list_values: 100
+      }
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...body, query_schema }) })
+    );
+    const source = await getPublicEndpointByPath('alice/feed');
+    expect(source?.query_schema).toEqual(query_schema);
+  });
+
+  it('reads null when the publisher declared nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => body }));
+    const source = await getPublicEndpointByPath('alice/feed');
+    expect(source?.query_schema).toBeNull();
   });
 });

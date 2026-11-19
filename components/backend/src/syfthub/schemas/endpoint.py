@@ -173,22 +173,64 @@ class Connection(BaseModel):
     )
 
 
+# Unknown keys in a query schema are dropped, not rejected: a space may publish
+# a newer shape before this Hub learns its keys, and a sync is atomic.
+_RELAYED = ConfigDict(str_strip_whitespace=True)
+
+
+class FieldFilterSpec(BaseModel):
+    """What a query may do with one metadata field: its type and operators."""
+
+    type: str = Field(
+        ..., description="The field's declared type, e.g. string, datetime"
+    )
+    ops: List[str] = Field(
+        default_factory=list, description="Operators a query may use"
+    )
+
+    model_config = _RELAYED
+
+
+class FilterSchema(BaseModel):
+    """The filters a query may send, as the space published them. The Hub does not
+    check operators or types; the space that runs the query is the authority."""
+
+    fields: Dict[str, FieldFilterSpec] = Field(
+        default_factory=dict, description="Filterable fields by name"
+    )
+    logic: List[str] = Field(
+        default_factory=list, description="Group operators, e.g. and, or"
+    )
+    max_depth: int = Field(
+        default=0, description="Deepest group nesting a query may send"
+    )
+    max_conditions: int = Field(default=0, description="Most conditions in one query")
+    max_list_values: int = Field(
+        default=0, description="Most values in one list operand"
+    )
+
+    model_config = _RELAYED
+
+
 class QuerySchema(BaseModel):
     """What a query against this endpoint may carry, as declared by the publisher.
 
     The Hub stores and relays it; the space that serves the endpoint is the
     authority. ``metadata_fields`` names the per-document metadata keys a
-    search response can include.
+    search response can include; ``filters`` is what a query may filter on,
+    None when the space declared nothing.
     """
 
     metadata_fields: List[str] = Field(
         default_factory=list,
         description="Metadata keys a search response may carry per document",
     )
+    filters: Optional[FilterSchema] = Field(
+        default=None,
+        description="Filterable fields, operators and caps; None when undeclared",
+    )
 
-    # Unknown keys are dropped, not rejected: a space may publish a newer
-    # query_schema before this Hub learns its keys, and a sync is atomic.
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = _RELAYED
 
 
 # Reserved slugs that cannot be used for endpoints

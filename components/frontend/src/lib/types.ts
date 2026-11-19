@@ -201,9 +201,27 @@ export interface Connection {
 }
 
 /** What a query against the endpoint may carry, as declared by its publisher. */
+export interface FieldFilterSpec {
+  /** The field's declared type, e.g. string, number, datetime, string[] */
+  type: string;
+  /** Operators a query may use on it */
+  ops: string[];
+}
+
+/** The filters a query may send, as the space published them */
+export interface FilterSchema {
+  fields: Record<string, FieldFilterSpec>;
+  logic: string[];
+  max_depth: number;
+  max_conditions: number;
+  max_list_values: number;
+}
+
 export interface QuerySchema {
   /** Metadata keys a search response may carry per document */
   metadata_fields: string[];
+  /** Filterable fields, operators and caps; null when the space declared nothing */
+  filters?: FilterSchema | null;
 }
 
 // Endpoint schemas
@@ -320,6 +338,7 @@ export interface ChatSource {
   tenant_name?: string; // Tenant name from connect[0].config.tenant_name (for SyftAI-Space multi-tenancy)
   connections?: Connection[]; // Full connection configurations (for detailed view)
   policies?: Policy[]; // Access policies for the endpoint
+  query_schema?: QuerySchema | null; // What a query may carry, as the publisher declared it (detail view only)
 }
 
 // API Error interface

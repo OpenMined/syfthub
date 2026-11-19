@@ -19,7 +19,8 @@ import type {
   EndpointType,
   EndpointUpdate,
   GroupedEndpointsResponse,
-  PaginationParams
+  PaginationParams,
+  QuerySchema
 } from './types';
 
 import Bot from 'lucide-react/dist/esm/icons/bot';
@@ -318,6 +319,7 @@ interface RawEndpointPublic {
     description: string;
     config: Record<string, unknown>;
   }>;
+  query_schema?: QuerySchema | null;
   created_at: string;
   updated_at: string;
 }
@@ -431,7 +433,8 @@ export async function getPublicEndpointByPath(path: string): Promise<ChatSource 
 
     const rawData = (await response.json()) as RawEndpointPublic;
     const endpoint = transformRawEndpoint(rawData);
-    return mapEndpointPublicToSource(endpoint);
+    // The detail page is the only reader of query_schema; it is relayed as published.
+    return { ...mapEndpointPublicToSource(endpoint), query_schema: rawData.query_schema ?? null };
   } catch (error) {
     console.error('Failed to fetch public endpoint by path:', error);
     return null;

@@ -24,9 +24,29 @@ export interface Connection {
 /**
  * What a query against an endpoint may carry, as declared by its publisher.
  */
+export interface FieldFilterSpec {
+  /** The field's declared type, e.g. string, number, datetime, string[] */
+  readonly type: string;
+  /** Operators a query may use on it */
+  readonly ops: readonly string[];
+}
+
+/**
+ * The filters a query may send, as the space published them.
+ */
+export interface FilterSchema {
+  readonly fields: Readonly<Record<string, FieldFilterSpec>>;
+  readonly logic: readonly string[];
+  readonly maxDepth: number;
+  readonly maxConditions: number;
+  readonly maxListValues: number;
+}
+
 export interface QuerySchema {
   /** Metadata keys a search response may carry per document */
   readonly metadataFields: readonly string[];
+  /** Filterable fields, operators and caps; null when the space declared nothing */
+  readonly filters?: FilterSchema | null;
 }
 
 /**

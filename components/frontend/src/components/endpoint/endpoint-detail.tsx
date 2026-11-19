@@ -21,6 +21,7 @@ import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint
 import { AccessPoliciesCard } from './access-policies-card';
 import { ApiTab } from './api-tab';
 import { EndpointCollectivesCard } from './endpoint-collectives-card';
+import { QuerySchemaCard } from './query-schema-card';
 import { UptimeTab } from './uptime-tab';
 
 type EndpointTabId = 'overview' | 'uptime' | 'api';
@@ -419,6 +420,8 @@ export const EndpointDetail = memo(function EndpointDetail({
                   </div>
                 </div>
               </div>
+
+              <QuerySchemaCard schema={endpoint.query_schema} endpointType={endpoint.type} />
 
               {/* Connections Card */}
               {endpoint.connections && endpoint.connections.length > 0 ? (
