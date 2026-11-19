@@ -296,7 +296,12 @@ class Results(Bound):
         retry_paths = tuple(r.path for r in self.retryable)
         if not retry_paths:
             return self
-        plan = self.plan.model_copy(update={"sources": retry_paths})
+        plan = self.plan.model_copy(
+            update={
+                "sources": retry_paths,
+                "filters": {p: f for p, f in self.plan.filters.items() if p in retry_paths},
+            }
+        )
         plan._bind(self._require_hub())
         fresh: Results = await plan.execute()
         return self + fresh

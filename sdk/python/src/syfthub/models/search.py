@@ -7,12 +7,13 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from pydantic import Field, PrivateAttr, field_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from .._version import __version__
 from ..errors import StaleSnapshot, ValidationError
 from .base import FROZEN, Bound, Frozen
 from .enums import ActionKind, Reason, Verdict
+from .filters import Condition, Filter, Group, SourceSelection
 from .money import Bundle, Money
 from .ports import HubPorts
 from .session import Budget
@@ -39,12 +40,20 @@ def check_snapshot_version(found: Any) -> None:
         raise StaleSnapshot(found, __version__)
 
 
-def as_path(value: str | Source) -> str:
-    """Accept a ``Source`` or an ``owner/slug`` string; return the path."""
-    path = value.path if isinstance(value, Source) else value
+def as_path(value: str | Source | SourceSelection) -> str:
+    """Accept a ``Source``, a ``SourceSelection`` or an ``owner/slug`` string; return the path."""
+    path = value.path if isinstance(value, (Source, SourceSelection)) else value
     if not isinstance(path, str) or not _PATH.match(path):
         raise ValidationError(f"not a source path (owner/slug): {value!r}")
     return path
+
+
+def as_selection(value: str | Source | SourceSelection) -> SourceSelection:
+    """A ``SourceSelection``: a bare path or ``Source`` carries no filter."""
+    if isinstance(value, SourceSelection):
+        as_path(value)
+        return value
+    return SourceSelection(path=as_path(value))
 
 
 class SearchPlan(Bound):
@@ -55,6 +64,7 @@ class SearchPlan(Bound):
 
     query: str
     sources: tuple[str, ...] = ()
+    filters: dict[str, Filter] = Field(default_factory=dict)  # by path, named sources only
     limit: int = 5
     similarity_threshold: float = 0.5
     include_metadata: bool = True
@@ -85,10 +95,37 @@ class SearchPlan(Bound):
             raise ValueError("similarity_threshold must be within 0..1")
         return v
 
+    @model_validator(mode="before")
+    @classmethod
+    def _split_selections(cls, data: Any) -> Any:
+        """``sources`` may carry ``SourceSelection`` or ``Source`` objects: their paths go to
+        ``sources`` and their filters to ``filters``."""
+        if not isinstance(data, dict) or isinstance(data.get("sources"), str):
+            return data
+        given = data.get("sources")
+        if given is None or all(isinstance(s, str) for s in given):
+            return data
+        filters = dict(data.get("filters") or {})
+        paths: list[str] = []
+        for item in given:
+            selection = as_selection(item)
+            paths.append(selection.path)
+            if selection.filters is not None:
+                filters[selection.path] = selection.filters
+        return {**data, "sources": tuple(paths), "filters": filters}
+
     @field_validator("sources", "skips")
     @classmethod
     def _paths(cls, v: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(as_path(p) for p in v)
+
+    @model_validator(mode="after")
+    def _filters_name_plan_sources(self) -> SearchPlan:
+        """A filter rides on a named source: nothing is filtered on an automatic pick."""
+        stray = [p for p in self.filters if p not in self.sources]
+        if stray:
+            raise ValueError(f"filters for sources not in this plan: {', '.join(stray)}")
+        return self
 
     @classmethod
     def from_dict(cls, hub: HubPorts, d: dict[str, Any]) -> SearchPlan:
@@ -110,6 +147,10 @@ class SearchPlan(Bound):
         """The last ``Preflight`` this plan ran, if any."""
         pre: Preflight | None = self._pre
         return pre
+
+    def filter_for(self, path: str) -> Condition | Group | None:
+        """The filter this plan sends to ``path``, if any."""
+        return self.filters.get(path)
 
     def skip(self, *paths: str | Source) -> SearchPlan:
         """The one decision. Returns a new plan; rows for these paths become ``HELD by_user``."""

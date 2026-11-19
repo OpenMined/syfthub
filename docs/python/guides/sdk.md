@@ -125,6 +125,7 @@ source.free            # True when there is no payment policy
 source.reachable       # False when the publisher has not connected a Space
 source.access(email)   # Access(allowed, rule) from the access policy, predicted client-side
 source.metadata_fields # the keys a document's metadata may carry, as the publisher declared them
+source.filter_schema   # FilterSchema | None: the fields a query may filter on, with their operators
 ```
 
 `SourceList` is a tuple-like view: `listing.paths`, `listing["erin/trials"]`, `listing[0]`, and
@@ -159,6 +160,36 @@ may use; paid sources are only ever searched when you name them. `max_sources` p
 that automatic pick and never trims a list you pass. For the Hub's keyword ranking instead, pass
 its result in: `hub.search(q, await hub.sources.search(q))`. `plan.explicit` tells the two apart
 and `plan.active` lists the paths that are not skipped.
+
+### Filtering by metadata
+
+A source that publishes `query_schema.filters` can narrow a search by document metadata. Build
+the filter with `F`, attach it to that source with `where`, and pass the selection in place of
+the path:
+
+```python
+from syfthub import F
+
+source = await hub.sources.get("nasa/news")
+source.filter_schema.fields          # {"published": FieldFilterSpec(type="datetime", ops=(...)), ...}
+
+recent = F("published") >= "2026-10-01"          # ==, !=, >, >=, <, <= ; in_, not_in
+moon = F("tags").contains_any(["moon", "artemis"])  # contains_any, contains_all for list fields
+plan = hub.search("Artemis launches", [source.where(recent & moon), "esa/news"])
+```
+
+`&` and `|` make groups; `F.all(...)` and `F.any(...)` do the same for a list, and
+`F(name).op("gte", value)` takes the operator as a string for conditions that arrive from a form
+or a model. Datetimes go out as ISO 8601 with a zone; a naive `datetime` is taken as UTC.
+
+Filters apply per source, because fields differ per source: a filter rides only on a source you
+name, never on an automatic pick. `where` checks the filter against the source's published schema
+on the spot and raises `FilterError(field, reason)` with the same words the Space would answer, so
+a filter that passes here is not refused there. `FilterSchema.validate(filter)` runs the same
+checks on their own, for an app that builds filters from user input. A source with no schema
+(`filter_schema` is `None`) refuses every filter. Pre-flight checks again, so a plan rebuilt from a
+dict is covered; a filter the Space still refuses lands in `results.failed` for that source as
+`Reason.INVALID_FILTER`, never as a silently unfiltered answer.
 
 ## Pre-flight
 
@@ -406,6 +437,7 @@ All errors derive from `syfthub.SyftHubError`.
 | `PaymentFailed` | A wallet, top-up or invoice call was refused; `.code` carries the Hub's code when there is one. At execute time an MPP refusal lands in the row instead. |
 | `PaymentTimeout` | `invoice.wait_paid` ran out of time. |
 | `StaleSnapshot` | A dict from an incompatible SDK version. |
+| `FilterError` | Also a `ValueError`: a filter the source's published schema refuses; `.field` and `.reason` are the Space's own words, `.path` the source. |
 
 Per-source trouble at execute time never raises; it lands in the `SourceResult` row.
 
@@ -419,6 +451,7 @@ from syfthub.testing import FakeHub
 
 fake = FakeHub()
 fake.add_source("alice", "notes", description="parental leave policy", metadata_fields=["title"])
+fake.add_source("nasa", "news", filters={"fields": {"published": {"type": "datetime", "ops": ["gte"]}}})
 fake.add_source("erin", "trials", price=0.05)                 # prepaid, 0.05 USD per request
 fake.add_source("kim", "metered", mpp_price=0.02)             # MPP
 fake.space("alice").reply("notes", documents=[{"content": "16 weeks", "score": 0.8}])
@@ -434,7 +467,8 @@ async with fake.hub(budget=1.0) as hub:
 fake.calls                                           # every request, secrets redacted
 ```
 
-`FakeSpace.reject(slug, outcome="rate_limited", ...)` scripts refusals, `FakeHub.users` enforces
+`FakeSpace.reject(slug, outcome="rate_limited", ...)` scripts refusals, a source added with
+`filters=` refuses a query filter its schema does not allow with the Space's own 400, `FakeHub.users` enforces
 login, and `FakeHub.mpp_error` makes the Hub's pay route fail with a given code. The sync twin works
 against the fake too: `syfthub.Hub(fake.url, token="t", options=fake.options())`.
 

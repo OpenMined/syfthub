@@ -15,8 +15,10 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 
+from ..errors import FilterError
 from .base import Frozen
 from .enums import PAYMENT_POLICY_TYPES, PolicyType, PriceUnit, Rail, SourceType
+from .filters import Condition, FilterSchema, Group, SourceSelection
 from .money import Bundle, Money
 from .session import Identity
 
@@ -61,9 +63,11 @@ class Connection(Frozen):
 
 class QuerySchema(Frozen):
     """``EndpointPublicResponse.query_schema``: what a query may carry, as the publisher
-    declared it. ``metadata_fields`` are the keys a document's ``metadata`` can hold."""
+    declared it. ``metadata_fields`` are the keys a document's ``metadata`` can hold;
+    ``filters`` is what a query may filter on, None when the Space predates filters."""
 
     metadata_fields: tuple[str, ...] = ()
+    filters: FilterSchema | None = None
 
 
 class Price(Frozen):
@@ -297,6 +301,17 @@ class Source(Frozen):
         return self.query_schema.metadata_fields if self.query_schema else ()
 
     @property
+    def filter_schema(self) -> FilterSchema | None:
+        """The fields a query may filter on; None when the Space published no filter schema,
+        in which case any filter is refused."""
+        return self.query_schema.filters if self.query_schema else None
+
+    def where(self, filters: Condition | Group) -> SourceSelection:
+        """This source with ``filters`` attached, for ``hub.search``. Checked here against the
+        published schema, so a refused filter raises ``FilterError`` before any plan exists."""
+        return SourceSelection(path=self.path, filters=check_filters(self, filters))
+
+    @property
     def connection(self) -> Connection | None:
         for connection in self.connect:
             if connection.enabled and connection.url:
@@ -349,6 +364,18 @@ class Source(Frozen):
 
     def __str__(self) -> str:
         return self.path
+
+
+def check_filters(source: Source, filters: Condition | Group) -> Condition | Group:
+    """``filters`` back, or ``FilterError`` naming the source: the Space's own checks against
+    its published schema, and a refusal of any filter when it published none."""
+    schema = source.filter_schema
+    if schema is None:
+        raise FilterError("<filters>", "this source publishes no filter schema", path=source.path)
+    try:
+        return schema.validate(filters)
+    except FilterError as e:
+        raise FilterError(e.field, e.reason, path=source.path) from None
 
 
 def _fuzzy_score(source: Source, text: str) -> float:

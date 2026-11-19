@@ -19,7 +19,7 @@ from syfthub import (
     Verdict,
     Wallet,
 )
-from syfthub.preflight import Facts, paths_of, pick_sources, plan_preflight
+from syfthub.preflight import Facts, pick_sources, plan_preflight, selections_of
 
 from .conftest import hub_body, xendit_policy
 
@@ -285,11 +285,13 @@ def test_pick_sources_for_an_implicit_plan(free_source: Source, paid_source: Sou
     assert [s.path for s in capped] == ["alice/free-docs", "kim/hybrid", "alice/d0", "alice/d1"]
 
 
-def test_paths_of_accepts_strings_sources_and_lists(free_source: Source) -> None:
-    from syfthub import SourceList
+def test_selections_of_accepts_strings_sources_selections_and_lists(free_source: Source) -> None:
+    from syfthub import F, SourceList, SourceSelection
 
     listing = SourceList(items=(free_source,), total=1)
-    assert paths_of(None) == ()
-    assert paths_of("a/b") == ("a/b",)
-    assert paths_of(["a/b", free_source, "a/b"]) == ("a/b", "alice/free-docs")
-    assert paths_of(listing) == ("alice/free-docs",)
+    picked = SourceSelection(path="a/b", filters=F("x") == 1)
+    assert selections_of(None) == ()
+    assert selections_of("a/b") == ("a/b",)
+    assert selections_of(["a/b", free_source, "a/b"]) == ("a/b", free_source)
+    assert selections_of([picked, "a/b"]) == (picked,)  # the first mention of a path wins
+    assert selections_of(listing) == (free_source,)

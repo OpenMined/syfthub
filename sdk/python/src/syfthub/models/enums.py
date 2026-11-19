@@ -112,6 +112,7 @@ class Reason(StrEnum):
     NOT_FOUND = "not_found"
     NOT_PUBLISHED = "not_published"
     AUTH = "auth"
+    INVALID_FILTER = "invalid_filter"
 
 
 class ReturnKind(StrEnum):

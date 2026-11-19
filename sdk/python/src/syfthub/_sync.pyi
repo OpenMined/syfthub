@@ -10,6 +10,7 @@ import syfthub.auth
 import syfthub.hub
 import syfthub.models.base
 import syfthub.models.enums
+import syfthub.models.filters
 import syfthub.models.money
 import syfthub.models.ports
 import syfthub.models.results
@@ -171,7 +172,9 @@ class Hub:
     def search(
         self,
         query: str,
-        sources: collections.abc.Iterable[str | syfthub.models.sources.Source]
+        sources: collections.abc.Iterable[
+            str | syfthub.models.sources.Source | syfthub.models.filters.SourceSelection
+        ]
         | syfthub.models.sources.SourceList
         | None = ...,
         *,

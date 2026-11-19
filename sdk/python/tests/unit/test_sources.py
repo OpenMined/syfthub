@@ -227,7 +227,48 @@ def test_query_schema_with_no_public_keys_is_declared_but_empty() -> None:
 
 def test_query_schema_keeps_unknown_keys_in_raw_only() -> None:
     src = Source.from_hub(
-        hub_body("bob", "feed", query_schema={"metadata_fields": ["title"], "filters": {"a": 1}})
+        hub_body("bob", "feed", query_schema={"metadata_fields": ["title"], "future": {"a": 1}})
     )
     assert src.metadata_fields == ("title",)
-    assert src.raw["query_schema"]["filters"] == {"a": 1}
+    assert src.raw["query_schema"]["future"] == {"a": 1}
+
+
+FILTERS = {
+    "fields": {
+        "published": {"type": "datetime", "ops": ["gt", "gte", "lt", "lte"]},
+        "tags": {"type": "string[]", "ops": ["contains_any", "contains_all"]},
+    },
+    "logic": ["and", "or"],
+    "max_depth": 5,
+    "max_conditions": 50,
+    "max_list_values": 100,
+}
+
+
+def test_filter_schema_declared_by_the_publisher_and_where_checks_against_it() -> None:
+    from syfthub import F, FilterError, SourceSelection
+
+    src = Source.from_hub(
+        hub_body("bob", "feed", query_schema={"metadata_fields": ["title"], "filters": FILTERS})
+    )
+    assert src.filter_schema is not None
+    assert src.filter_schema.fields["tags"].ops == ("contains_any", "contains_all")
+
+    recent = F("published") >= "2026-01-01"
+    assert src.where(recent) == SourceSelection(path="bob/feed", filters=recent)
+    with pytest.raises(FilterError) as info:
+        src.where(F("title") == "x")
+    assert info.value.field == "title" and info.value.path == "bob/feed"
+    assert str(info.value) == "bob/feed: title: not a filterable field"
+
+
+def test_a_source_without_a_filter_schema_refuses_every_filter(free_source: Source) -> None:
+    from syfthub import F, FilterError
+
+    assert free_source.filter_schema is None
+    disabled = Source.from_hub(
+        hub_body("bob", "feed", query_schema={"metadata_fields": [], "filters": None})
+    )
+    assert disabled.filter_schema is None
+    with pytest.raises(FilterError, match="publishes no filter schema"):
+        free_source.where(F("published") >= "2026-01-01")

@@ -4,7 +4,18 @@ from __future__ import annotations
 
 import pytest
 
-from syfthub import AuthError, Money, Outcome, Reason, SourceNotFound, TopUp, Verdict
+from syfthub import (
+    AuthError,
+    F,
+    FilterError,
+    Money,
+    Outcome,
+    Reason,
+    SourceNotFound,
+    SourceSelection,
+    TopUp,
+    Verdict,
+)
 from syfthub.testing import FakeHub
 
 
@@ -136,3 +147,57 @@ async def test_metadata_fields_declared_on_the_hub_and_named_by_the_space() -> N
     assert results["alice/feed"].metadata_fields == ("title", "url")
     assert results["alice/feed"].chunks[0].metadata == {"title": "T"}
     assert results["alice/plain"].metadata_fields == ()
+
+
+FILTERS = {
+    "fields": {
+        "published": {"type": "datetime", "ops": ["gt", "gte", "lt", "lte"]},
+        "tags": {"type": "string[]", "ops": ["contains_any", "contains_all"]},
+    }
+}
+
+
+async def test_filters_reach_only_the_filtered_source() -> None:
+    f = FakeHub()
+    f.add_source("alice", "feed", metadata_fields=["title"], filters=FILTERS)
+    f.add_source("alice", "plain")
+    f.space("alice").reply("feed", documents=[{"content": "moon", "score": 0.9}])
+    f.space("alice").reply("plain", documents=[{"content": "sun", "score": 0.8}])
+    recent = (F("published") >= "2026-10-01") & F("tags").contains_any(["moon"])
+    async with f.hub() as hub:
+        feed = await hub.sources.get("alice/feed")
+        assert feed.filter_schema is not None and feed.filter_schema.max_depth == 5
+        plan = hub.search("artemis", [feed.where(recent), "alice/plain"])
+        assert plan.filters == {"alice/feed": recent}
+        results = await plan.execute()
+        assert [r.outcome for r in results] == [Outcome.RETURNED, Outcome.RETURNED]
+        assert results["alice/feed"].request["json"]["filters"] == recent.to_wire()
+        assert "filters" not in results["alice/plain"].request["json"]
+        assert results.to_dict()["plan"]["filters"]["alice/feed"] == recent.to_wire()
+
+    sent = {c.path.split("/")[-2]: c.json_body for c in f.calls if c.path.endswith("/query")}
+    assert sent["feed"]["filters"] == recent.to_wire() and "filters" not in sent["plain"]
+
+
+async def test_a_filter_the_space_refuses_is_a_failed_row_not_a_silent_answer() -> None:
+    f = FakeHub()
+    f.add_source("alice", "feed", filters=FILTERS)
+    f.space("alice").reply("feed", documents=[{"content": "moon", "score": 0.9}])
+    async with f.hub() as hub:
+        # Pre-flight catches it first: the plan was rebuilt from a dict, bypassing where().
+        stale = SourceSelection(path="alice/feed", filters=F("author") == "peter")
+        with pytest.raises(FilterError) as info:
+            await hub.search("q", [stale]).preflight()
+        assert info.value.field == "author" and info.value.path == "alice/feed"
+
+        # The Space is the authority: its 400 lands in the row, with the same field and reason.
+        f.space("alice").filter_schemas["feed"].fields.pop("tags")
+        plan = hub.search(
+            "q", [SourceSelection(path="alice/feed", filters=F("tags").contains_any(["x"]))]
+        )
+        f.space("alice").filter_schemas.pop("feed")
+        results = await plan.execute()
+        row = results["alice/feed"]
+        assert row.outcome is Outcome.FAILED and row.reason is Reason.INVALID_FILTER
+        assert row.error == "<filters>: this source does not accept filters"
+        assert not row.retryable and results.documents == ()

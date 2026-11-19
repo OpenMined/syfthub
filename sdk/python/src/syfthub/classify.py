@@ -40,14 +40,19 @@ _REASON_CODES: dict[str, Reason] = {
 _CHALLENGE_PARAM = re.compile(r'([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|([^,\s]+))')
 
 
-def query_body(plan: SearchPlan) -> dict[str, Any]:
-    """The request body: the four fields the Space documents, nothing else."""
-    return {
+def query_body(plan: SearchPlan, path: str) -> dict[str, Any]:
+    """The request body for one source: the four fields the Space documents, plus ``filters``
+    only when the plan attaches one to this path."""
+    body: dict[str, Any] = {
         "messages": plan.query,
         "similarity_threshold": plan.similarity_threshold,
         "limit": plan.limit,
         "include_metadata": plan.include_metadata,
     }
+    filters = plan.filter_for(path)
+    if filters is not None:
+        body["filters"] = filters.to_wire()
+    return body
 
 
 def body_of(response: httpx.Response) -> dict[str, Any]:
@@ -263,7 +268,20 @@ def _failed(r: _Reply) -> SourceResult:
     return r.row(outcome=Outcome.FAILED, reason=reason, error=r.detail)
 
 
+def _bad_request(r: _Reply) -> SourceResult:
+    """400: a refused filter carries ``{field, reason}``; anything else is a plain failure."""
+    detail = r.body.get("detail")
+    if isinstance(detail, dict) and "field" in detail and "reason" in detail:
+        return r.row(
+            outcome=Outcome.FAILED,
+            reason=Reason.INVALID_FILTER,
+            error=f"{detail['field']}: {detail['reason']}",
+        )
+    return _failed(r)
+
+
 _HANDLERS: dict[int, Callable[[_Reply], SourceResult]] = {
+    400: _bad_request,
     402: _payment,
     403: _forbidden,
     429: _throttled,

@@ -22,13 +22,14 @@ from .actions import actions_after
 from .classify import body_of, classify, entries_of, mpp_charge, query_body
 from .errors import ActionRequired, AuthError, PaymentFailed, TransportError, ValidationError
 from .models.enums import Outcome, Rail, Reason, Verdict
+from .models.filters import SourceSelection
 from .models.ports import HubPorts
 from .models.results import Results, SourceResult
 from .models.search import PlanRow, Preflight, SearchPlan, TopUp
 from .models.session import Ledger
 from .models.sources import Source, SourceList
 from .models.wallets import Charge, Wallet
-from .preflight import Facts, paths_of, pick_sources, plan_preflight
+from .preflight import Facts, pick_sources, plan_preflight, selections_of
 
 if TYPE_CHECKING:
     from ._api.hub import HubApi
@@ -133,7 +134,7 @@ class Searcher:
     def compose(
         self,
         query: str,
-        sources: Iterable[str | Source] | SourceList | None = None,
+        sources: Iterable[str | Source | SourceSelection] | SourceList | None = None,
         *,
         limit: int = 5,
         similarity_threshold: float = 0.5,
@@ -144,7 +145,7 @@ class Searcher:
         try:
             plan = SearchPlan(
                 query=query,
-                sources=paths_of(sources),
+                sources=selections_of(sources),
                 limit=limit,
                 similarity_threshold=similarity_threshold,
                 include_metadata=include_metadata,
@@ -245,7 +246,6 @@ class Searcher:
         """Every host in parallel, at most ``Options.concurrency`` queries in flight. A half-open
         host gets one probe first; if the probe trips the breaker the rest of its rows are held."""
         sem = asyncio.Semaphore(self._options.concurrency)
-        body = query_body(plan)
         by_host: dict[str, list[PlanRow]] = {}
         for row in rows:
             by_host.setdefault(row.source.host or "", []).append(row)
@@ -254,7 +254,7 @@ class Searcher:
         async def run_host(host: str, hrows: list[PlanRow]) -> None:
             if self._breakers.half_open(host):
                 probe, hrows = hrows[0], hrows[1:]
-                out[probe.path] = await self._send_one(probe, body, sem)
+                out[probe.path] = await self._send_one(probe, plan, sem)
                 if self._breakers.is_open(host):
                     for row in hrows:
                         out[row.path] = _held(
@@ -263,7 +263,7 @@ class Searcher:
                             f"{host}: the probe to {probe.path} failed",
                         )
                     return
-            sent = await asyncio.gather(*(self._send_one(r, body, sem) for r in hrows))
+            sent = await asyncio.gather(*(self._send_one(r, plan, sem) for r in hrows))
             for row, result in zip(hrows, sent, strict=True):
                 out[row.path] = result
 
@@ -271,13 +271,14 @@ class Searcher:
         return out
 
     async def _send_one(
-        self, row: PlanRow, body: dict[str, Any], sem: asyncio.Semaphore
+        self, row: PlanRow, plan: SearchPlan, sem: asyncio.Semaphore
     ) -> SourceResult:
         """One row: mint the token, query, re-mint once on a 401, pay once on an MPP 402, then
         classify whatever came back last. Network faults never raise: they are the row."""
         source = row.source
         url, host = source.query_url, source.host
         assert url is not None and host is not None  # pre-flight sends only reachable rows
+        body = query_body(plan, source.path)
         at = _Attempt(row=row, url=url, host=host, body=body, started=time.monotonic())
         async with sem:
             try:

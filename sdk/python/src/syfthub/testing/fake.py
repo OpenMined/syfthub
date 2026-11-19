@@ -10,11 +10,15 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter
 
 from .._transport import redact
+from ..errors import FilterError
 from ..hub import AsyncHub
+from ..models.filters import Condition, Filter, FilterSchema, Group
 from ..models.session import Options
+
+_FILTER = TypeAdapter[Condition | Group](Filter)
 
 _QUERY_PREFIX = "/api/v1/endpoints/"
 _QUERY_SUFFIX = "/query"
@@ -67,6 +71,8 @@ class FakeSpace(BaseModel):
     replies: dict[str, Reply] = Field(default_factory=dict)
     # slug -> the metadata keys its documents may carry, as ``add_source`` declared them
     metadata_fields: dict[str, list[str]] = Field(default_factory=dict)
+    # slug -> the filters a query may send, as ``add_source`` declared them
+    filter_schemas: dict[str, FilterSchema] = Field(default_factory=dict)
     invoices: list[dict[str, Any]] = Field(default_factory=list)
     accept_tokens: bool = True
     _charged: int = PrivateAttr(default=0)
@@ -206,6 +212,9 @@ class FakeSpace(BaseModel):
         reply = self.replies.get(slug)
         if reply is None:
             return httpx.Response(404, json={"detail": f"Endpoint '{slug}' not found"})
+        refused = self._refused_filter(slug, request)
+        if refused is not None:
+            return refused
         if reply.status != 200:
             entry: dict[str, Any] = {
                 "policy_type": reply.outcome,
@@ -289,6 +298,25 @@ class FakeSpace(BaseModel):
             body["cost"], body["currency"] = cost, self.currency
         return httpx.Response(200, json=body)
 
+    def _refused_filter(self, slug: str, request: httpx.Request) -> httpx.Response | None:
+        """The Space's 400 for a filter its published schema refuses, in the Space's shape."""
+        try:
+            filters = json.loads(request.content).get("filters")
+        except (ValueError, AttributeError):
+            return None
+        if filters is None:
+            return None
+        schema = self.filter_schemas.get(slug)
+        try:
+            if schema is None:
+                raise FilterError("<filters>", "this source does not accept filters")
+            schema.validate(_FILTER.validate_python(filters))
+        except FilterError as e:
+            return httpx.Response(400, json={"detail": {"field": e.field, "reason": e.reason}})
+        except ValueError as e:
+            return httpx.Response(400, json={"detail": {"field": "<filters>", "reason": str(e)}})
+        return None
+
 
 def _charged(policy_type: str, amount: float, currency: str, rail: str) -> dict[str, Any]:
     return {
@@ -353,14 +381,19 @@ class FakeHub(BaseModel):
         description: str = "",
         name: str | None = None,
         metadata_fields: list[str] | None = None,
+        filters: FilterSchema | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Register a source. ``price`` adds a prepaid policy on the owner's Space wallet;
         ``mpp_price`` adds an MPP policy and makes the Space challenge every query.
-        ``metadata_fields`` is what the publisher declared: the Hub body gets ``query_schema``
-        and the Space's replies name them in ``provider_info``; None leaves both unsaid."""
+        ``metadata_fields`` and ``filters`` are what the publisher declared: the Hub body gets
+        ``query_schema``, the Space's replies name the metadata keys in ``provider_info``, and
+        the Space refuses a query filter the schema does not allow. None leaves them unsaid."""
         space = self.space(owner)
         if metadata_fields is not None:
             space.metadata_fields[slug] = list(metadata_fields)
+        schema = FilterSchema.model_validate(filters) if isinstance(filters, dict) else filters
+        if schema is not None:
+            space.filter_schemas[slug] = schema
         pols = list(policies or [])
         if price is not None:
             pols.append(space.policy(price, unit=unit, rail=rail))
@@ -387,7 +420,12 @@ class FakeHub(BaseModel):
             "policies": pols,
             "connect": [{"type": "http", "enabled": True, "config": {"url": space.origin}}],
             "query_schema": (
-                {"metadata_fields": list(metadata_fields)} if metadata_fields is not None else None
+                {
+                    "metadata_fields": list(metadata_fields or []),
+                    "filters": schema.to_dict() if schema is not None else None,
+                }
+                if metadata_fields is not None or schema is not None
+                else None
             ),
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",

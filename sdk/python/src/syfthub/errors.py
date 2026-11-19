@@ -26,6 +26,18 @@ class ValidationError(SyftHubError, ValueError):
     so pydantic wraps it when it is raised inside a field validator."""
 
 
+class FilterError(SyftHubError, ValueError):
+    """A filter the source's published schema refuses: which field, and why. The same
+    ``field`` and ``reason`` the Space answers with, so an app can feed it back to whatever
+    built the filter. ``field`` is ``<group>`` for a group-level problem."""
+
+    def __init__(self, field: str, reason: str, *, path: str | None = None) -> None:
+        super().__init__(f"{path}: {field}: {reason}" if path else f"{field}: {reason}")
+        self.field = field
+        self.reason = reason
+        self.path = path
+
+
 class AuthError(SyftHubError):
     """Login failed, or the token expired and could not be re-minted."""
 

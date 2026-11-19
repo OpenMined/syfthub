@@ -13,10 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .actions import preflight_actions
 from .models.enums import Rail, Reason, Verdict
+from .models.filters import SourceSelection
 from .models.money import Money
 from .models.search import PlanRow, Preflight, SearchPlan, as_path
 from .models.session import Budget
-from .models.sources import Source, SourceList
+from .models.sources import Source, SourceList, check_filters
 from .models.wallets import Wallet
 
 
@@ -148,7 +149,13 @@ def _hold_for_budget(rows: list[PlanRow], budget: Budget) -> tuple[list[PlanRow]
 
 
 def plan_preflight(plan: SearchPlan, facts: Facts) -> Preflight:
-    """The rules, in order: skips, reachability, access, circuit, credits, budget."""
+    """The rules, in order: skips, reachability, access, circuit, credits, budget. A filter
+    the source's published schema refuses raises ``FilterError`` first: the plan may have
+    been rebuilt from a dict, or the schema changed since it was composed."""
+    for source in facts.sources:
+        filters = plan.filter_for(source.path)
+        if filters is not None and source.path not in plan.skips:
+            check_filters(source, filters)
     rows = [_row(plan, s, facts) for s in facts.sources]
     rows, shortfalls = _hold_for_credits(rows)
     rows, over = _hold_for_budget(rows, facts.budget)
@@ -186,12 +193,18 @@ def pick_sources(
     return tuple(picked)
 
 
-def paths_of(sources: Iterable[str | Source] | SourceList | None) -> tuple[str, ...]:
+def selections_of(
+    sources: Iterable[str | Source | SourceSelection] | SourceList | None,
+) -> tuple[str | Source | SourceSelection, ...]:
+    """The named sources in order, one per path; the first mention of a path wins."""
     if sources is None:
         return ()
-    if isinstance(sources, (str, Source)):
+    if isinstance(sources, (str, Source, SourceSelection)):
         sources = (sources,)
-    return tuple(dict.fromkeys(as_path(s) for s in sources))
+    seen: dict[str, str | Source | SourceSelection] = {}
+    for s in sources:
+        seen.setdefault(as_path(s), s)
+    return tuple(seen.values())
 
 
-__all__ = ["Facts", "paths_of", "pick_sources", "plan_preflight"]
+__all__ = ["Facts", "pick_sources", "plan_preflight", "selections_of"]

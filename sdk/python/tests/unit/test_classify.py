@@ -37,12 +37,39 @@ def entry(**fields: Any) -> dict[str, Any]:
 
 def test_query_body_has_exactly_the_four_documented_fields() -> None:
     plan = SearchPlan(query="hello", limit=3, similarity_threshold=0.7, include_metadata=False)
-    assert query_body(plan) == {
+    assert query_body(plan, "a/b") == {
         "messages": "hello",
         "similarity_threshold": 0.7,
         "limit": 3,
         "include_metadata": False,
     }
+
+
+def test_query_body_carries_filters_only_for_the_filtered_source() -> None:
+    from syfthub import F, SourceSelection
+
+    plan = SearchPlan(
+        query="hello", sources=(SourceSelection(path="a/b", filters=F("year") >= 2020), "c/d")
+    )
+    assert query_body(plan, "a/b")["filters"] == {
+        "type": "condition",
+        "field": "year",
+        "op": "gte",
+        "value": 2020,
+    }
+    assert "filters" not in query_body(plan, "c/d")
+
+
+def test_a_refused_filter_is_a_failed_row_with_the_field_and_reason(free_source: Source) -> None:
+    response = httpx.Response(
+        400, json={"detail": {"field": "year", "reason": "not a filterable field"}}
+    )
+    row = classify(free_source, response)
+    assert row.outcome is Outcome.FAILED and row.reason is Reason.INVALID_FILTER
+    assert row.error == "year: not a filterable field" and not row.retryable
+
+    plain = classify(free_source, httpx.Response(400, json={"detail": "bad request"}))
+    assert plain.outcome is Outcome.FAILED and plain.reason is None
 
 
 def test_success_with_documents_summary_cost_and_charges(

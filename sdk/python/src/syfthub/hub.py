@@ -11,6 +11,7 @@ from ._api import HubApi, SpaceApi
 from ._transport import Breakers, Transport
 from .auth import AuthNamespace, Session, TokenCache
 from .errors import ConfigurationError
+from .models.filters import SourceSelection
 from .models.money import Bundle, Money
 from .models.results import Results
 from .models.search import Preflight, SearchPlan
@@ -117,7 +118,7 @@ class AsyncHub:
     def search(
         self,
         query: str,
-        sources: Iterable[str | Source] | SourceList | None = None,
+        sources: Iterable[str | Source | SourceSelection] | SourceList | None = None,
         *,
         limit: int = 5,
         similarity_threshold: float = 0.5,
@@ -127,7 +128,8 @@ class AsyncHub:
         """Compose a plan. Nothing is sent: ``await plan.preflight()`` prices it,
         ``await plan.execute()`` runs it. Without ``sources`` the plan covers every free document
         source in the catalogue that you may use; ``max_sources`` caps that pick and never a list
-        you name. For the Hub's keyword ranking pass ``await hub.sources.search(text)``."""
+        you name. A ``source.where(filter)`` selection narrows that source by metadata. For the
+        Hub's keyword ranking pass ``await hub.sources.search(text)``."""
         return self._searcher.compose(
             query,
             sources,
