@@ -18,7 +18,7 @@ from pydantic import Field, model_validator
 from ..errors import FilterError
 from .base import Frozen
 from .enums import PAYMENT_POLICY_TYPES, PolicyType, PriceUnit, Rail, SourceType
-from .filters import Condition, FilterSchema, Group, SourceSelection
+from .filters import Condition, F, FilterSchema, Group, SourceSelection
 from .money import Bundle, Money
 from .session import Identity
 
@@ -407,19 +407,27 @@ class Source(Frozen):
         """
         return self.query_schema.filters if self.query_schema else None
 
-    def where(self, filters: Condition | Group) -> SourceSelection:
-        """This source with ``filters`` attached, for ``hub.search``.
+    def where(self, *filters: Condition | Group) -> SourceSelection:
+        """This source narrowed by ``filters``, for ``hub.search``.
 
+        Several filters must all hold, as one ``and``: ``where(a, b)`` is ``where(a & b)``.
         Checked here against the published schema, so a refused filter raises
         ``FilterError`` before any plan exists.
 
         Args:
-            filters: a condition or group built with ``F``.
+            *filters: one or more conditions or groups built with ``F``.
 
         Returns:
             The selection to pass to ``hub.search``.
+
+        Raises:
+            FilterError: a field, operator or value the source's schema refuses.
+            TypeError: no filter given.
         """
-        return SourceSelection(path=self.path, filters=check_filters(self, filters))
+        if not filters:
+            raise TypeError("where() needs at least one filter")
+        joined = filters[0] if len(filters) == 1 else F.all(*filters)
+        return SourceSelection(path=self.path, filters=check_filters(self, joined))
 
     @property
     def connection(self) -> Connection | None:

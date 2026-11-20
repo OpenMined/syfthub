@@ -167,3 +167,39 @@ def test_schema_defaults_and_unknown_keys() -> None:
     assert FilterSchema().validate  # an empty schema refuses every field
     with pytest.raises(FilterError, match="not a filterable field"):
         FilterSchema().validate(F("a") == 1)
+
+
+# ── guards against the usual slips ────────────────────────────────────────
+
+
+@pytest.mark.parametrize("method", ["in_", "nin", "not_in", "contains_any", "contains_all"])
+def test_list_operators_refuse_a_bare_string(method: str) -> None:
+    with pytest.raises(TypeError, match="wrap it in a list"):
+        getattr(F("author"), method)("abc")
+    assert getattr(F("author"), method)(("a", "b")).value == ["a", "b"]
+
+
+def test_a_condition_has_no_truth_value() -> None:
+    with pytest.raises(TypeError, match="no truth value"):
+        bool(F("author") == "x")
+    with pytest.raises(TypeError, match="no truth value"):
+        if (F("a") == 1) & (F("b") == 2):
+            pass
+
+
+def test_not_is_refused_with_a_hint() -> None:
+    with pytest.raises(TypeError, match="accepts no ``not``"):
+        ~(F("author") == "x")
+    with pytest.raises(TypeError, match="accepts no ``not``"):
+        ~F("author")
+
+
+def test_missing_parentheses_name_the_cause() -> None:
+    with pytest.raises(TypeError, match="parentheses"):
+        F("a") == 1 & F("b") == 2  # type: ignore[operator]  # noqa: B015
+    with pytest.raises(TypeError, match="is a field, not a filter"):
+        (F("a") == 1) & F("b")  # type: ignore[operator]  # noqa: B015
+    with pytest.raises(TypeError, match="is a field, not a filter"):
+        F("a") | (F("b") == 2)  # type: ignore[operator]  # noqa: B015
+    with pytest.raises(TypeError, match="parentheses"):
+        1 & (F("b") == 2)  # type: ignore[operator]  # noqa: B015

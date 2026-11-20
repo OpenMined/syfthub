@@ -272,3 +272,16 @@ def test_a_source_without_a_filter_schema_refuses_every_filter(free_source: Sour
     assert disabled.filter_schema is None
     with pytest.raises(FilterError, match="publishes no filter schema"):
         free_source.where(F("published") >= "2026-01-01")
+
+
+def test_where_ands_several_filters_and_needs_at_least_one() -> None:
+    from syfthub import F
+
+    src = Source.from_hub(
+        hub_body("bob", "feed", query_schema={"metadata_fields": ["title"], "filters": FILTERS})
+    )
+    recent = F("published") >= "2026-01-01"
+    tagged = F("tags").contains_any(["moon"])
+    assert src.where(recent, tagged) == src.where(recent & tagged)
+    with pytest.raises(TypeError, match="at least one filter"):
+        src.where()

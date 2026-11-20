@@ -131,14 +131,14 @@ async def answer(h: syfthub.AsyncHub, path: str, request: str) -> dict[str, Any]
         return {"error": f"{path} does not accept query filters"}
     extracted = await extract(spec, request)
     f = extracted["filter"]
-    plan = h.search(extracted["query"], [source.where(f) if f else source], limit=5)
+    plan = h.search(extracted["query"], [source if f is None else source.where(f)], limit=5)
     results = await plan.execute()
     context = "\n\n".join(
         f"[{i}] ({p}) {doc.content}" for i, (p, doc) in enumerate(results.documents, 1)
     )
     return {
         "query": extracted["query"],
-        "applied": f.to_wire() if f else None,  # what narrowed the search, for the chat UI
+        "applied": None if f is None else f.to_wire(),  # what narrowed the search, for the chat UI
         "answer": await ask_openai(extracted["query"], context),
         "unavailable": [
             {"path": r.path, "reason": r.reason.value if r.reason else None, "error": r.error}

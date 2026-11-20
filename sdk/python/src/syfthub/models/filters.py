@@ -29,6 +29,13 @@ from .base import Frozen
 LIST_OPS: frozenset[str] = frozenset({"in", "nin", "contains_any", "contains_all"})
 
 
+def _values(values: Any) -> list[Any]:
+    """``values`` as a list for a list operator; a bare string is one value, not many."""
+    if isinstance(values, (str, bytes)):
+        raise TypeError(f"expected an iterable of values, got {values!r}; wrap it in a list")
+    return list(values)
+
+
 def _wire_value(value: Any) -> Any:
     """Datetimes go out as ISO 8601 with a zone, naive ones as UTC; lists are lists."""
     if isinstance(value, datetime):
@@ -40,12 +47,44 @@ def _wire_value(value: Any) -> Any:
     return value
 
 
+_PRECEDENCE_HINT = (
+    "``&`` and ``|`` bind tighter than a comparison: wrap each in parentheses, "
+    "(F('a') == 1) & (F('b') == 2)"
+)
+_NO_NOT_HINT = "the Space accepts no ``not``: use ``ne``, ``nin`` or ``contains_any`` instead"
+
+
+def _operand(node: Any) -> Condition | Group:
+    """``node`` as a filter, or a TypeError that names the usual cause."""
+    if isinstance(node, (Condition, Group)):
+        return node
+    if isinstance(node, F):
+        raise TypeError(f"{node!r} is a field, not a filter; {_PRECEDENCE_HINT}")
+    raise TypeError(f"not a filter: {node!r}; {_PRECEDENCE_HINT}")
+
+
 class _Node(Frozen):
     def __and__(self, other: Condition | Group) -> Group:
-        return _join("and", self, other)
+        return _join("and", self, _operand(other))
 
     def __or__(self, other: Condition | Group) -> Group:
-        return _join("or", self, other)
+        return _join("or", self, _operand(other))
+
+    def __rand__(self, other: Any) -> Group:
+        return _join("and", _operand(other), self)
+
+    def __ror__(self, other: Any) -> Group:
+        return _join("or", _operand(other), self)
+
+    def __invert__(self) -> Group:
+        raise TypeError(_NO_NOT_HINT)
+
+    def __bool__(self) -> bool:
+        # ``if F("a") == "x":`` is always a bug: ``==`` built a Condition, not a bool.
+        raise TypeError(
+            f"a {type(self).__name__} has no truth value; compare with ``is None`` "
+            "or validate it against a schema"
+        )
 
     def to_wire(self) -> dict[str, Any]:
         """The ``{type, ...}`` tree a query sends as ``filters``.
@@ -140,6 +179,10 @@ class F:
 
     Nothing is checked here: a field, operator or value is validated against a source's
     published schema when the filter meets one, in ``Source.where`` or ``FilterSchema.validate``.
+    The usual slips raise at once instead: a condition has no truth value (``if F(x) == v:``
+    is always a bug), ``~`` is refused because the Space accepts no ``not``, a bare string is
+    refused where a list is due, and a missing pair of parentheses around a comparison is
+    named as such.
 
     Example:
             >>> F("author") == "Joe Rogan"
@@ -293,7 +336,7 @@ class F:
         """``field`` is one of ``values``. Any iterable; sent as a list.
 
         Args:
-            values: any iterable of scalars; sent as a list.
+            values: any iterable of scalars; sent as a list. A bare string is refused.
 
         Returns:
             The condition.
@@ -302,7 +345,7 @@ class F:
             >>> F("author").in_(("Joe Rogan", "Theo Von")).to_wire()["value"]
             ['Joe Rogan', 'Theo Von']
         """
-        return self.op("in", list(values))
+        return self.op("in", _values(values))
 
     def nin(self, values: Any) -> Condition:
         """``field`` is none of ``values``. ``not_in`` is the same method.
@@ -317,7 +360,7 @@ class F:
             >>> F("author").nin(["a"]).op, F("author").not_in(["a"]).op
             ('nin', 'nin')
         """
-        return self.op("nin", list(values))
+        return self.op("nin", _values(values))
 
     not_in = nin
 
@@ -345,7 +388,7 @@ class F:
             >>> F("tags").contains_any(["sleep", "health"]).to_wire()["value"]
             ['sleep', 'health']
         """
-        return self.op("contains_any", list(values))
+        return self.op("contains_any", _values(values))
 
     def contains_all(self, values: Any) -> Condition:
         """A list field holds every element of ``values``.
@@ -360,9 +403,19 @@ class F:
             >>> F("tags").contains_all(["sleep", "health"]).op
             'contains_all'
         """
-        return self.op("contains_all", list(values))
+        return self.op("contains_all", _values(values))
 
     __hash__ = None  # type: ignore[assignment]
+
+    def __invert__(self) -> Condition:
+        raise TypeError(_NO_NOT_HINT)
+
+    def __and__(self, other: Any) -> Group:
+        raise TypeError(f"{self!r} is a field, not a filter; {_PRECEDENCE_HINT}")
+
+    __or__ = __and__
+    __rand__ = __and__
+    __ror__ = __and__
 
     @staticmethod
     def all(*filters: Condition | Group) -> Group:

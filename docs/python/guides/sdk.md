@@ -176,7 +176,7 @@ source.filter_schema.fields          # {"published": FieldFilterSpec(type="datet
 recent = F("published") >= "2026-10-01"          # or .gte(...); eq ne gt gte lt lte in_ nin
 moon = F("tags").contains_any(["moon", "artemis"])  # contains_any, contains_all for list fields
 october = F("published").in_range("2026-10-01", "2026-10-31")  # gte & lte, both ends included
-plan = hub.search("Artemis launches", [source.where(recent & moon), "esa/news"])
+plan = hub.search("Artemis launches", [source.where(recent, moon), "esa/news"])  # where(a, b) is where(a & b)
 ```
 
 Every operator a schema lists is a method of the same name, so what `filter_schema` prints is
