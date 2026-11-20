@@ -77,6 +77,7 @@ class _Node(Frozen):
         return _join("or", _operand(other), self)
 
     def __invert__(self) -> Group:
+        # TypeError is what Python raises for an unsupported ``~``; ours says what to use.
         raise TypeError(_NO_NOT_HINT)
 
     def __bool__(self) -> bool:
@@ -408,9 +409,12 @@ class F:
     __hash__ = None  # type: ignore[assignment]
 
     def __invert__(self) -> Condition:
+        # TypeError is what Python raises for an unsupported ``~``; ours says what to use.
         raise TypeError(_NO_NOT_HINT)
 
     def __and__(self, other: Any) -> Group:
+        # Raised, not ``NotImplemented``: ``1 & F("b")`` would otherwise fall back to
+        # Python's bare "unsupported operand" message and lose the parentheses hint.
         raise TypeError(f"{self!r} is a field, not a filter; {_PRECEDENCE_HINT}")
 
     __or__ = __and__
