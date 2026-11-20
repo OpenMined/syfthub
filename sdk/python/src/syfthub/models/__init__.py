@@ -15,6 +15,15 @@ from .enums import (
     SourceType,
     Verdict,
 )
+from .filters import (
+    Condition,
+    F,
+    FieldFilterSpec,
+    Filter,
+    FilterSchema,
+    Group,
+    SourceSelection,
+)
 from .money import Bundle, Money
 from .results import Document, Results, SourceResult
 from .search import (
@@ -61,9 +70,15 @@ __all__ = [
     "ChargeEntry",
     "CircuitBreaker",
     "CircuitOpen",
+    "Condition",
     "Connection",
     "Document",
+    "F",
+    "FieldFilterSpec",
+    "Filter",
+    "FilterSchema",
     "Frozen",
+    "Group",
     "Identity",
     "Invoice",
     "InvoiceStatus",
@@ -88,6 +103,7 @@ __all__ = [
     "SearchPlan",
     "Source",
     "SourceList",
+    "SourceSelection",
     "SourceResult",
     "SourceType",
     "Timeout",

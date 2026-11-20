@@ -21,9 +21,26 @@ class ConfigurationError(SyftHubError):
 
 
 class ValidationError(SyftHubError, ValueError):
-    """A caller-supplied value is out of range or malformed (limit < 1, threshold outside 0..1,
-    a source path that is not ``owner/slug``, a snapshot that does not parse). Also a ``ValueError``,
-    so pydantic wraps it when it is raised inside a field validator."""
+    """A caller-supplied value is out of range or malformed.
+
+    A limit below 1, a threshold outside 0..1, a source path that is not ``owner/slug``, a
+    snapshot that does not parse. Also a ``ValueError``, so pydantic wraps it when it is raised
+    inside a field validator.
+    """
+
+
+class FilterError(SyftHubError, ValueError):
+    """A filter the source's published schema refuses: which field, and why.
+
+    The same ``field`` and ``reason`` the Space answers with, so an app can feed it back to
+    whatever built the filter. ``field`` is ``<group>`` for a group-level problem.
+    """
+
+    def __init__(self, field: str, reason: str, *, path: str | None = None) -> None:
+        super().__init__(f"{path}: {field}: {reason}" if path else f"{field}: {reason}")
+        self.field = field
+        self.reason = reason
+        self.path = path
 
 
 class AuthError(SyftHubError):
@@ -31,9 +48,11 @@ class AuthError(SyftHubError):
 
 
 class TransportError(SyftHubError):
-    """A request produced no response after retries. Never reaches the caller as such: the Hub
-    side becomes ``HubUnreachable``, a wallet route ``PaymentFailed``, a query a FAILED row.
-    ``reason`` is ``TIMEOUT`` or ``UNREACHABLE``."""
+    """A request produced no response after retries.
+
+    Never reaches the caller as such: the Hub side becomes ``HubUnreachable``, a wallet route
+    ``PaymentFailed``, a query a FAILED row. ``reason`` is ``TIMEOUT`` or ``UNREACHABLE``.
+    """
 
     def __init__(self, reason: Any, message: str, attempts: int) -> None:
         super().__init__(message)
@@ -67,9 +86,12 @@ class PaymentTimeout(PaymentError):
 
 
 class PaymentFailed(PaymentError):
-    """The Hub wallet pay call or the Space invoice route returned an error. ``code`` is the
-    Hub's machine-readable code when it sent one (``WALLET_NOT_CONFIGURED``,
-    ``INSUFFICIENT_BALANCE``, ``INVALID_CHALLENGE``, ``PAYMENT_FAILED``, ``BLOCKCHAIN_TIMEOUT``)."""
+    """The Hub wallet pay call or the Space invoice route returned an error.
+
+    ``code`` is the Hub's machine-readable code when it sent one (``WALLET_NOT_CONFIGURED``,
+    ``INSUFFICIENT_BALANCE``, ``INVALID_CHALLENGE``, ``PAYMENT_FAILED``,
+    ``BLOCKCHAIN_TIMEOUT``).
+    """
 
     def __init__(self, message: str, *, code: str | None = None) -> None:
         super().__init__(message)

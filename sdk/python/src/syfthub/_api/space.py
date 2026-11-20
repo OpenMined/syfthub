@@ -26,8 +26,11 @@ def _headers(
 
 
 class SpaceApi:
-    """The four Space routes, each at a URL the Hub published. Wallet routes raise
-    ``PaymentFailed`` for any failure and ``AuthError`` for a rejected satellite token."""
+    """The four Space routes, each at a URL the Hub published.
+
+    Wallet routes raise ``PaymentFailed`` for any failure and ``AuthError`` for a rejected
+    satellite token.
+    """
 
     def __init__(self, transport: Transport) -> None:
         self.transport = transport
@@ -68,8 +71,10 @@ class SpaceApi:
     async def create_invoice(
         self, payment_url: str, token: str, *, bundle_name: str, endpoint_slug: str | None = None
     ) -> dict[str, Any]:
-        """``POST payment_url``: a pending invoice for one bundle. Never retried: a retry could
-        issue two invoices."""
+        """``POST payment_url``: a pending invoice for one bundle.
+
+        Never retried: a retry could issue two invoices.
+        """
         body: dict[str, Any] = {"bundle_name": bundle_name}
         if endpoint_slug:
             body["endpoint_slug"] = endpoint_slug

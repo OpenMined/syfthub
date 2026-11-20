@@ -34,6 +34,10 @@ if TYPE_CHECKING:
 
 
 def topup_steps(wallet: Wallet, suggested: Bundle | None) -> tuple[str, ...]:
+    """Plain-English steps to cover ``wallet``'s shortfall.
+
+    Names ``suggested`` when there is one.
+    """
     buy = (
         f"await action.top_up() buys the {suggested.id} bundle ({suggested.amount})"
         if suggested is not None
@@ -47,6 +51,7 @@ def topup_steps(wallet: Wallet, suggested: Bundle | None) -> tuple[str, ...]:
 
 
 def top_up(wallet: Wallet, shortfall: Money, affects: tuple[Source, ...]) -> TopUp:
+    """A ``TopUp`` action for ``wallet``, with the bundle that covers ``shortfall``."""
     suggested = wallet.suggest(shortfall)
     return TopUp(
         wallet=wallet,
@@ -59,6 +64,7 @@ def top_up(wallet: Wallet, shortfall: Money, affects: tuple[Source, ...]) -> Top
 
 
 def over_budget(total: Money, budget: Budget, affects: tuple[Source, ...]) -> OverBudget:
+    """An ``OverBudget`` action: ``total`` crosses the cap for its currency."""
     cur = total.currency
     return OverBudget(
         estimate=total,
@@ -73,6 +79,7 @@ def over_budget(total: Money, budget: Budget, affects: tuple[Source, ...]) -> Ov
 
 
 def access_denied(rule: str | None, affects: tuple[Source, ...]) -> AccessDenied:
+    """An ``AccessDenied`` action for the sources ``rule`` shuts this caller out of."""
     return AccessDenied(
         rule=rule,
         affects=affects,
@@ -81,6 +88,7 @@ def access_denied(rule: str | None, affects: tuple[Source, ...]) -> AccessDenied
 
 
 def circuit_open(reopens_at: datetime, affects: tuple[Source, ...]) -> CircuitOpen:
+    """A ``CircuitOpen`` action for sources on a host that is cooling down until ``reopens_at``."""
     return CircuitOpen(
         reopens_at=reopens_at,
         affects=affects,
@@ -97,8 +105,11 @@ def circuit_open(reopens_at: datetime, affects: tuple[Source, ...]) -> CircuitOp
 def preflight_actions(
     rows: list[PlanRow], shortfalls: dict[str, Money], over: dict[str, Money], facts: Facts
 ) -> tuple[AnyAction, ...]:
-    """From held rows: one TopUp per short wallet, one OverBudget per crossed currency, one
-    AccessDenied per rule, one CircuitOpen per host."""
+    """The actions that would free the held rows, one per cause.
+
+    One TopUp per short wallet, one OverBudget per crossed currency, one AccessDenied per rule,
+    one CircuitOpen per host.
+    """
     actions: list[AnyAction] = []
     for wallet_id, shortfall in shortfalls.items():
         affected = [r for r in rows if r.wallet is not None and r.wallet.id == wallet_id]
@@ -131,9 +142,11 @@ def actions_after(
     budget: Budget,
     reopens_at: Callable[[str], datetime | None],
 ) -> tuple[AnyAction, ...]:
-    """From what the Spaces answered, on top of pre-flight's: a prepaid 402 is a TopUp with the
-    Space's own shortfall, an MPP charge over the cap an OverBudget, a probe that failed a
-    CircuitOpen for the rows it held."""
+    """The actions the Spaces' answers add on top of pre-flight's.
+
+    A prepaid 402 is a TopUp with the Space's own shortfall, an MPP charge over the cap an
+    OverBudget, a probe that failed a CircuitOpen for the rows it held.
+    """
     actions: list[AnyAction] = []
     by_wallet: dict[str, list[SourceResult]] = {}
     for r in rows:

@@ -30,11 +30,29 @@ log = logging.getLogger("syfthub")
 
 
 def wallet_key(owner: str, rail: str, currency: str) -> str:
+    """``owner/rail/currency``: the key a wallet is cached and listed under.
+
+    Args:
+        owner: the wallet's owner.
+        rail: the payment rail.
+        currency: the wallet's currency.
+
+    Returns:
+        The key.
+    """
     return f"{owner}/{rail}/{currency}"
 
 
 def wallet_from(source: Source, pricing: Pricing) -> Wallet | None:
-    """The prepaid wallet a source bills, or None for free and MPP sources."""
+    """The prepaid wallet a source bills, or None for free and MPP sources.
+
+    Args:
+        source: the source billed.
+        pricing: its pricing.
+
+    Returns:
+        The wallet, or None.
+    """
     if not pricing.rail.prepaid or not pricing.credits_url:
         return None
     owner = pricing.wallet_owner or source.owner_username
@@ -53,7 +71,14 @@ def wallet_from(source: Source, pricing: Pricing) -> Wallet | None:
 
 
 def group_wallets(sources: list[Source] | tuple[Source, ...]) -> dict[str, Wallet]:
-    """One ``Wallet`` per wallet id across sources; ``sources`` lists every path billed to it."""
+    """One ``Wallet`` per wallet id across sources; ``sources`` lists every path billed to it.
+
+    Args:
+        sources: the sources to group.
+
+    Returns:
+        ``wallet id -> Wallet``.
+    """
     wallets: dict[str, Wallet] = {}
     for source in sources:
         pricing = source.pricing
@@ -71,9 +96,11 @@ def group_wallets(sources: list[Source] | tuple[Source, ...]) -> dict[str, Walle
 
 
 class WalletsNamespace:
-    """``hub.wallets``: the prepaid wallets the listing bills to, their balances, top-ups and
-    invoices. One ``Wallet`` object per wallet id for the session, so a balance read anywhere
-    shows everywhere."""
+    """``hub.wallets``: the prepaid wallets the listing bills to.
+
+    Their balances, top-ups and invoices. One ``Wallet`` object per wallet id for the session,
+    so a balance read anywhere shows everywhere.
+    """
 
     def __init__(
         self,
@@ -84,6 +111,15 @@ class WalletsNamespace:
         hub: HubPorts,
         options: Options,
     ) -> None:
+        """``hub.wallets``.
+
+        Args:
+            space: the Space API.
+            tokens: the Space token cache.
+            sources: ``hub.sources``, for the catalogue.
+            hub: the session the wallets bind to.
+            options: timeouts and concurrency.
+        """
         self._space = space
         self._tokens = tokens
         self._sources = sources
@@ -97,14 +133,25 @@ class WalletsNamespace:
         """Every prepaid wallet the listing bills to, with its balance read now.
 
         One ``GET credits_url`` per wallet, in parallel. A wallet whose Space cannot be reached
-        comes back with ``balance=None`` and a warning in the log; the rest are unaffected."""
+        comes back with ``balance=None`` and a warning in the log; the rest are unaffected.
+
+        Returns:
+            Every wallet, balances read.
+        """
         listing = await self._sources.list()
         wallets = [self._adopt(w) for w in group_wallets(listing.items).values()]
         await self.read_balances(wallets)
         return tuple(wallets)
 
     async def for_source(self, path: str | Source) -> Wallet | None:
-        """The wallet a source bills, with its balance read now; None for free and MPP sources."""
+        """The wallet a source bills, with its balance read now; None for free and MPP sources.
+
+        Args:
+            path: ``owner/slug``.
+
+        Returns:
+            The wallet with its balance, or None.
+        """
         source = path if isinstance(path, Source) else await self._sources.get(path)
         wallet = self.wallet_of(source)
         if wallet is not None:
@@ -112,8 +159,16 @@ class WalletsNamespace:
         return wallet
 
     def wallet_of(self, source: Source) -> Wallet | None:
-        """The session's ``Wallet`` for a source, without reading its balance. Pre-flight uses
-        this and reads every balance itself, once per wallet."""
+        """The session's ``Wallet`` for a source, without reading its balance.
+
+        Pre-flight uses this and reads every balance itself, once per wallet.
+
+        Args:
+            source: the source billed.
+
+        Returns:
+            The wallet, or None for free and MPP sources.
+        """
         pricing = source.pricing
         if pricing is None:
             return None
@@ -121,15 +176,32 @@ class WalletsNamespace:
         return self._adopt(wallet) if wallet is not None else None
 
     def get(self, key_or_id: str) -> Wallet:
-        """A wallet already seen this session, by key or id; no request. Its ``balance`` is as
-        of ``refreshed_at``; ``await wallet.refresh()`` reads it again."""
+        """A wallet already seen this session, by key or id; no request.
+
+        Its ``balance`` is as of ``refreshed_at``; ``await wallet.refresh()`` reads it
+        again.
+
+        Args:
+            key_or_id: the wallet's ``owner/rail/currency`` key or its id.
+
+        Returns:
+            The wallet as last read.
+        """
         for wallet in self._known.values():
             if wallet.id == key_or_id or wallet.key == key_or_id:
                 return wallet
         raise ValidationError(f"unknown wallet {key_or_id!r}; call hub.wallets.list() first")
 
     async def invoice(self, wallet_key: str, invoice_id: str) -> Invoice:
-        """Re-read an invoice by handle, for a pause that spans processes."""
+        """Re-read an invoice by handle, for a pause that spans processes.
+
+        Args:
+            wallet_key: the wallet's ``owner/rail/currency`` key.
+            invoice_id: the invoice's id on the Space.
+
+        Returns:
+            The invoice as the Space lists it now.
+        """
         wallet = await self._wallet_by_key(wallet_key)
         for body in await self._space.invoices(
             self._require(wallet, "invoices_url"), await self._token(wallet)
@@ -143,6 +215,16 @@ class WalletsNamespace:
     async def wallet_balance(
         self, wallet: Wallet, *, retry: bool = True, read_timeout: float | None = None
     ) -> tuple[Money, datetime]:
+        """Read ``wallet``'s balance from its Space.
+
+        Args:
+            wallet: the wallet to read; its Space's credits route answers.
+            retry: re-send once on a transient failure.
+            read_timeout: overrides ``Timeout.read`` for this read.
+
+        Returns:
+            The balance and when it was read.
+        """
         body = await self._space.balance(
             self._require(wallet, "credits_url"),
             await self._token(wallet),
@@ -153,6 +235,15 @@ class WalletsNamespace:
         return Money.of(body.get("balance", 0), currency), datetime.now(UTC)
 
     async def wallet_top_up(self, wallet: Wallet, bundle: Bundle) -> Invoice:
+        """Create an invoice for ``bundle`` on ``wallet``'s Space.
+
+        Args:
+            wallet: the wallet to credit.
+            bundle: the bundle to buy.
+
+        Returns:
+            A ``PENDING`` invoice.
+        """
         slug = wallet.sources[0].split("/", 1)[1] if wallet.sources else None
         body = await self._space.create_invoice(
             self._require(wallet, "payment_url"),
@@ -163,14 +254,31 @@ class WalletsNamespace:
         return self._bind(Invoice.from_space(wallet.key, body))
 
     async def wallet_invoices(self, wallet: Wallet) -> tuple[Invoice, ...]:
+        """List the invoices ``wallet``'s Space issued to this caller.
+
+        Args:
+            wallet: the wallet to list.
+
+        Returns:
+            Its invoices, as the Space lists them.
+        """
         bodies = await self._space.invoices(
             self._require(wallet, "invoices_url"), await self._token(wallet)
         )
         return tuple(self._bind(Invoice.from_space(wallet.key, b)) for b in bodies)
 
     async def invoice_refresh(self, invoice: Invoice) -> Invoice:
-        """``GET invoices_url`` and match by id. A Space lists every invoice it issued, so one
-        that is not listed comes back as it was: never marked paid on any other evidence."""
+        """``GET invoices_url`` and match by id.
+
+        A Space lists every invoice it issued, so one that is not listed comes back as it
+        was: never marked paid on any other evidence.
+
+        Args:
+            invoice: the invoice to re-read.
+
+        Returns:
+            The invoice with its current status; unchanged if the Space no longer lists it.
+        """
         wallet = await self._wallet_by_key(invoice.wallet_key)
         bodies = await self._space.invoices(
             self._require(wallet, "invoices_url"), await self._token(wallet)
@@ -181,12 +289,20 @@ class WalletsNamespace:
         return self._bind(invoice)
 
     async def read_balances(self, wallets: Sequence[Wallet]) -> dict[str, str]:
-        """Read each balance once, in place, at most ``Options.concurrency`` at a time; the one
-        balance-read policy, shared by the listing and pre-flight.
+        """Read each balance once, in place, at most ``Options.concurrency`` at a time.
+
+        The one balance-read policy, shared by the listing and pre-flight.
 
         One attempt, no retries, ``Timeout.lookup`` on the read: a dead Space costs one timeout,
         and its wallet is left at ``balance=None`` rather than a stale number. Returns why, per
-        wallet id, for the wallets that did not answer."""
+        wallet id, for the wallets that did not answer.
+
+        Args:
+            wallets: the wallets to read; each is updated in place.
+
+        Returns:
+            ``wallet id -> why`` for the wallets that did not answer.
+        """
         gate = asyncio.Semaphore(self._options.concurrency)
         errors: dict[str, str] = {}
 

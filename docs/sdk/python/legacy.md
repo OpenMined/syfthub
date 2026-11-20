@@ -2,7 +2,7 @@
 
 > This describes `syfthub-sdk` 0.3.x, the `syfthub_sdk` package: a full Hub client with endpoint
 > management, chat and accounting. It is the release on PyPI today and what the MCP server runs.
-> The 2.x SDK (`import syfthub`) is a search client with a different shape; see [sdk.md](sdk.md).
+> The 2.x SDK (`import syfthub`) is a search client with a different shape; see [README.md](README.md).
 > Nothing here applies to 2.x.
 
 ## Installation

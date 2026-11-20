@@ -20,7 +20,7 @@ describe('CliRetiredPage', () => {
     );
     expect(screen.getByRole('link', { name: /read the guide/i })).toHaveAttribute(
       'href',
-      expect.stringContaining('docs/python/guides/sdk.md')
+      expect.stringContaining('docs/sdk/python/README.md')
     );
   });
 });

@@ -24,8 +24,11 @@ KEEPALIVE_SECONDS = 60.0
 
 
 class Transport:
-    """The one HTTP client of a session. Owns the pool unless ``Options.http_client`` was given;
-    ``request`` is the only way out to the network."""
+    """The one HTTP client of a session.
+
+    Owns the pool unless ``Options.http_client`` was given; ``request`` is the only way out to
+    the network.
+    """
 
     def __init__(self, options: Options | None = None) -> None:
         self.options = options or Options()
@@ -67,12 +70,16 @@ class Transport:
         retry: bool = True,
         read_timeout: float | None = None,
     ) -> httpx.Response:
-        """Send once, or up to ``Retry.attempts`` times on network errors; a 5xx is retried at
-        most ``Retry.server_errors`` times within that. ``read_timeout`` overrides
-        ``Timeout.read`` for this request.
+        """Send once, or up to ``Retry.attempts`` times on network errors.
 
-        Returns the last response, whatever its status; raises ``TransportError`` only when no
-        response was ever received.
+        A 5xx is retried at most ``Retry.server_errors`` times within that. ``read_timeout``
+        overrides ``Timeout.read`` for this request.
+
+        Returns:
+            The last response, whatever its status.
+
+        Raises:
+            TransportError: when no response was ever received.
         """
         hdrs = {"User-Agent": self.user_agent, **(headers or {})}
         t = self.options.timeout

@@ -10,11 +10,24 @@ from .base import Frozen
 
 
 class Money(Frozen):
+    """An exact amount in one currency."""
+
     amount: Decimal = Decimal(0)
     currency: str = "USD"
 
     @classmethod
     def of(cls, amount: Decimal | float | str | int, currency: str = "USD") -> Money:
+        """``Money`` from a number or a string.
+
+        ``Money.of(1.5)`` and ``Money.of("1.5")`` agree: the float goes through ``str`` first.
+
+        Args:
+            amount: a ``Decimal``, number or numeric string.
+            currency: an ISO code.
+
+        Returns:
+            The amount.
+        """
         try:
             dec = amount if isinstance(amount, Decimal) else Decimal(str(amount))
         except InvalidOperation as e:
@@ -23,6 +36,14 @@ class Money(Frozen):
 
     @classmethod
     def zero(cls, currency: str = "USD") -> Money:
+        """Nothing, in ``currency``.
+
+        Args:
+            currency: an ISO code.
+
+        Returns:
+            Zero in that currency.
+        """
         return cls(amount=Decimal(0), currency=currency)
 
     def _check(self, other: Any) -> Money:
@@ -57,6 +78,7 @@ class Money(Frozen):
 
     @property
     def positive(self) -> bool:
+        """True above zero."""
         return self.amount > 0
 
     def __str__(self) -> str:

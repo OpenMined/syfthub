@@ -38,7 +38,11 @@ class Base(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     def to_dict(self) -> dict[str, Any]:
-        """Plain-JSON dict with wire names. Safe to store; never carries a hub reference."""
+        """Plain-JSON dict with wire names. Safe to store; never carries a hub reference.
+
+        Returns:
+            The dict.
+        """
         return self.model_dump(mode="json", by_alias=True)
 
     # Equality and hashing look at the same field values, never at the private hub binding, so
@@ -60,6 +64,14 @@ class Frozen(Base):
 
     @classmethod
     def from_dict(cls: type[T], d: dict[str, Any]) -> T:
+        """Build from a plain dict with wire names: the inverse of ``to_dict``.
+
+        Args:
+            d: what ``to_dict`` wrote.
+
+        Returns:
+            The object.
+        """
         return _validate(cls, d)
 
 
@@ -75,6 +87,15 @@ class Bound(Base):
 
     @classmethod
     def from_dict(cls: type[B], hub: HubPorts, d: dict[str, Any]) -> B:
+        """Build from a plain dict and bind to ``hub``, so the object can call the network.
+
+        Args:
+            hub: the session to bind to.
+            d: what ``to_dict`` wrote.
+
+        Returns:
+            The object, bound.
+        """
         obj = _validate(cls, d)
         obj._bind(hub)
         return obj
@@ -83,8 +104,10 @@ class Bound(Base):
         self._hub = hub
 
     def _derive(self: B, **update: Any) -> B:
-        """``model_copy(update=...)`` that keeps the binding: a view of a bound object is bound,
-        a view of a stored one stays unbound."""
+        """``model_copy(update=...)`` that keeps the binding.
+
+        A view of a bound object is bound, a view of a stored one stays unbound.
+        """
         new = self.model_copy(update=update)
         if self._hub is not None:
             new._bind(self._hub)

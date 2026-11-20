@@ -1,5 +1,7 @@
-"""``FakeHub`` and ``FakeSpace``: in-memory stand-ins for the two servers, speaking the same
-routes the SDK speaks, routed through one ``httpx.MockTransport``."""
+"""``FakeHub`` and ``FakeSpace``: in-memory stand-ins for the two servers.
+
+They speak the same routes the SDK speaks, routed through one ``httpx.MockTransport``.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +12,15 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter
 
 from .._transport import redact
+from ..errors import FilterError
 from ..hub import AsyncHub
+from ..models.filters import Condition, Filter, FilterSchema, Group
 from ..models.session import Options
+
+_FILTER = TypeAdapter[Condition | Group](Filter)
 
 _QUERY_PREFIX = "/api/v1/endpoints/"
 _QUERY_SUFFIX = "/query"
@@ -37,6 +43,8 @@ class Reply(BaseModel):
 
 
 class Call(BaseModel):
+    """One request the fake received, for assertions."""
+
     method: str
     url: str
     headers: dict[str, str]
@@ -44,10 +52,12 @@ class Call(BaseModel):
 
     @property
     def host(self) -> str:
+        """The request's host."""
         return urlsplit(self.url).netloc
 
     @property
     def path(self) -> str:
+        """The request's path."""
         return urlsplit(self.url).path
 
 
@@ -67,6 +77,8 @@ class FakeSpace(BaseModel):
     replies: dict[str, Reply] = Field(default_factory=dict)
     # slug -> the metadata keys its documents may carry, as ``add_source`` declared them
     metadata_fields: dict[str, list[str]] = Field(default_factory=dict)
+    # slug -> the filters a query may send, as ``add_source`` declared them
+    filter_schemas: dict[str, FilterSchema] = Field(default_factory=dict)
     invoices: list[dict[str, Any]] = Field(default_factory=list)
     accept_tokens: bool = True
     _charged: int = PrivateAttr(default=0)
@@ -82,9 +94,22 @@ class FakeSpace(BaseModel):
         cost: float | None = None,
         mpp_price: float | None = None,
     ) -> Reply:
-        """A 200 for ``slug``. ``documents`` items take ``content``, ``score``, ``metadata``,
-        ``id``. ``cost`` makes it a prepaid charge against ``balance``; ``mpp_price`` makes the
-        first call answer a 402 challenge until ``X-Payment`` arrives."""
+        """A 200 for ``slug``.
+
+        ``documents`` items take ``content``, ``score``, ``metadata``, ``id``. ``cost``
+        makes it a prepaid charge against ``balance``; ``mpp_price`` makes the first call
+        answer a 402 challenge until ``X-Payment`` arrives.
+
+        Args:
+            slug: the source's slug.
+            documents: items with ``content``, ``score``, ``metadata``, ``id``.
+            summary: a model answer.
+            cost: a prepaid charge against ``balance``.
+            mpp_price: makes the first call a 402 challenge until ``X-Payment`` arrives.
+
+        Returns:
+            The reply, kept for ``slug``.
+        """
         r = Reply(documents=documents or [], summary=summary, cost=cost, mpp_price=mpp_price)
         self.replies[slug] = r
         return r
@@ -100,7 +125,20 @@ class FakeSpace(BaseModel):
         details: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> Reply:
-        """An error for ``slug`` in the Space's ``policy_metadata`` envelope."""
+        """An error for ``slug`` in the Space's ``policy_metadata`` envelope.
+
+        Args:
+            slug: the source's slug.
+            status: the HTTP status.
+            outcome: ``policy_metadata.outcome``.
+            reason_code: ``policy_metadata.reason_code``; the outcome upper-cased when omitted.
+            detail: the human-readable detail.
+            details: ``policy_metadata.details``.
+            headers: response headers, such as ``Retry-After``.
+
+        Returns:
+            The reply, kept for ``slug``.
+        """
         r = Reply(
             status=status,
             outcome=outcome,
@@ -113,7 +151,11 @@ class FakeSpace(BaseModel):
         return r
 
     def pay(self, invoice_id: str) -> None:
-        """Mark an invoice paid and credit the bundle to the balance."""
+        """Mark an invoice paid and credit the bundle to the balance.
+
+        Args:
+            invoice_id: the invoice to settle.
+        """
         for inv in self.invoices:
             if inv["id"] == invoice_id and inv["status"] != "paid":
                 inv["status"] = "paid"
@@ -124,20 +166,32 @@ class FakeSpace(BaseModel):
 
     @property
     def credits_url(self) -> str:
+        """This Space's balance route."""
         return f"{self.origin}/api/v1/credits"
 
     @property
     def payment_url(self) -> str:
+        """This Space's invoice-creation route."""
         return f"{self.origin}/api/v1/payments"
 
     @property
     def invoices_url(self) -> str:
+        """This Space's invoice-listing route."""
         return f"{self.origin}/api/v1/invoices"
 
     def policy(
         self, price: float, *, unit: str = "request", rail: str = "xendit"
     ) -> dict[str, Any]:
-        """A Hub-shaped payment policy billing this Space's wallet."""
+        """A Hub-shaped payment policy billing this Space's wallet.
+
+        Args:
+            price: the amount per unit.
+            unit: ``request`` or ``document``.
+            rail: the payment rail.
+
+        Returns:
+            The policy dict, as the Hub would list it.
+        """
         return {
             "type": rail,
             "enabled": True,
@@ -157,6 +211,14 @@ class FakeSpace(BaseModel):
     # ── serve ─────────────────────────────────────────────────────────────
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        """Answer one request to this Space origin.
+
+        Args:
+            request: the request.
+
+        Returns:
+            The response.
+        """
         path = request.url.path
         auth = request.headers.get("Authorization", "")
         if self.accept_tokens and not auth.startswith("Bearer "):
@@ -206,6 +268,9 @@ class FakeSpace(BaseModel):
         reply = self.replies.get(slug)
         if reply is None:
             return httpx.Response(404, json={"detail": f"Endpoint '{slug}' not found"})
+        refused = self._refused_filter(slug, request)
+        if refused is not None:
+            return refused
         if reply.status != 200:
             entry: dict[str, Any] = {
                 "policy_type": reply.outcome,
@@ -289,6 +354,25 @@ class FakeSpace(BaseModel):
             body["cost"], body["currency"] = cost, self.currency
         return httpx.Response(200, json=body)
 
+    def _refused_filter(self, slug: str, request: httpx.Request) -> httpx.Response | None:
+        """The Space's 400 for a filter its published schema refuses, in the Space's shape."""
+        try:
+            filters = json.loads(request.content).get("filters")
+        except (ValueError, AttributeError):
+            return None
+        if filters is None:
+            return None
+        schema = self.filter_schemas.get(slug)
+        try:
+            if schema is None:
+                raise FilterError("<filters>", "this source does not accept filters")
+            schema.validate(_FILTER.validate_python(filters))
+        except FilterError as e:
+            return httpx.Response(400, json={"detail": {"field": e.field, "reason": e.reason}})
+        except ValueError as e:
+            return httpx.Response(400, json={"detail": {"field": "<filters>", "reason": str(e)}})
+        return None
+
 
 def _charged(policy_type: str, amount: float, currency: str, rail: str) -> dict[str, Any]:
     return {
@@ -329,7 +413,15 @@ class FakeHub(BaseModel):
     # ── configure ─────────────────────────────────────────────────────────
 
     def space(self, owner: str, origin: str | None = None) -> FakeSpace:
-        """The Space that serves ``owner``'s sources, created on first use."""
+        """The Space that serves ``owner``'s sources, created on first use.
+
+        Args:
+            owner: the publisher.
+            origin: the Space origin, ``https://{owner}.space.test`` when omitted.
+
+        Returns:
+            The Space.
+        """
         if owner not in self.spaces:
             self.spaces[owner] = FakeSpace(
                 origin=origin or f"https://{owner}.space.test",
@@ -353,14 +445,40 @@ class FakeHub(BaseModel):
         description: str = "",
         name: str | None = None,
         metadata_fields: list[str] | None = None,
+        filters: FilterSchema | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Register a source. ``price`` adds a prepaid policy on the owner's Space wallet;
-        ``mpp_price`` adds an MPP policy and makes the Space challenge every query.
-        ``metadata_fields`` is what the publisher declared: the Hub body gets ``query_schema``
-        and the Space's replies name them in ``provider_info``; None leaves both unsaid."""
+        """Register a source.
+
+        ``price`` adds a prepaid policy on the owner's Space wallet; ``mpp_price`` adds an
+        MPP policy and makes the Space challenge every query. ``metadata_fields`` and
+        ``filters`` are what the publisher declared: the Hub body gets ``query_schema``, the
+        Space's replies name the metadata keys in ``provider_info``, and the Space refuses a
+        query filter the schema does not allow. None leaves them unsaid.
+
+        Args:
+            owner: the publisher.
+            slug: the source's slug.
+            type: ``data_source``, ``model`` or ``both``.
+            price: adds a prepaid policy on the owner's Space wallet.
+            unit: ``request`` or ``document``.
+            rail: the prepaid rail.
+            mpp_price: adds an MPP policy; the Space challenges every query.
+            policies: extra policies, as the Hub would list them.
+            tags: the source's tags.
+            description: its description.
+            name: its display name; the slug when omitted.
+            metadata_fields: the keys every result carries.
+            filters: the filter schema the Space enforces.
+
+        Returns:
+            The Hub body for the source.
+        """
         space = self.space(owner)
         if metadata_fields is not None:
             space.metadata_fields[slug] = list(metadata_fields)
+        schema = FilterSchema.model_validate(filters) if isinstance(filters, dict) else filters
+        if schema is not None:
+            space.filter_schemas[slug] = schema
         pols = list(policies or [])
         if price is not None:
             pols.append(space.policy(price, unit=unit, rail=rail))
@@ -387,7 +505,12 @@ class FakeHub(BaseModel):
             "policies": pols,
             "connect": [{"type": "http", "enabled": True, "config": {"url": space.origin}}],
             "query_schema": (
-                {"metadata_fields": list(metadata_fields)} if metadata_fields is not None else None
+                {
+                    "metadata_fields": list(metadata_fields or []),
+                    "filters": schema.to_dict() if schema is not None else None,
+                }
+                if metadata_fields is not None or schema is not None
+                else None
             ),
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
@@ -400,12 +523,24 @@ class FakeHub(BaseModel):
         return body
 
     def options(self, **overrides: Any) -> Options:
-        """``Options`` whose HTTP client is routed to this fake."""
+        """``Options`` whose HTTP client is routed to this fake.
+
+        Returns:
+            The options.
+        """
         client = httpx.AsyncClient(transport=httpx.MockTransport(self.handle))
         return Options(http_client=client, **overrides)
 
     def hub(self, *, token: str | None = "fake-token", **kwargs: Any) -> AsyncHub:
-        """An ``AsyncHub`` wired to this fake. Pass ``options=`` to override retry and friends."""
+        """An ``AsyncHub`` wired to this fake. Pass ``options=`` to override retry and friends.
+
+        Args:
+            token: the bearer token to sign in with; None for anonymous.
+            **kwargs: passed to ``AsyncHub``; ``options`` overrides retry and friends.
+
+        Returns:
+            The hub.
+        """
         options = kwargs.pop("options", None)
         overrides = options.model_dump(exclude={"http_client"}) if options else {}
         return AsyncHub(self.url, token=token, options=self.options(**overrides), **kwargs)
@@ -413,6 +548,14 @@ class FakeHub(BaseModel):
     # ── serve ─────────────────────────────────────────────────────────────
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        """Answer one request: the Hub's own routes, or the Space whose origin it names.
+
+        Args:
+            request: the request.
+
+        Returns:
+            The response.
+        """
         body: Any = None
         if request.content:
             try:

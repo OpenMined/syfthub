@@ -9,6 +9,7 @@ import syfthub
 from syfthub import (
     AccessDenied,
     Budget,
+    F,
     Money,
     OverBudget,
     PlanRow,
@@ -16,6 +17,7 @@ from syfthub import (
     Reason,
     SearchPlan,
     Source,
+    SourceSelection,
     StaleSnapshot,
     TopUp,
     ValidationError,
@@ -61,6 +63,27 @@ def test_snapshot_roundtrip_and_stale_version() -> None:
         SearchPlan.from_dict(None, {k: v for k, v in d.items() if k != "version"})
     with pytest.raises(ValidationError):
         SearchPlan.from_dict(None, {**d, "limit": "many"})
+
+
+def test_selections_split_into_sources_and_filters(free_source: Source) -> None:
+    recent = F("published") >= "2026-01-01"
+    plan = SearchPlan(
+        query="q",
+        sources=(SourceSelection(path="a/b", filters=recent), free_source, "c/d"),  # type: ignore[arg-type]
+    )
+    assert plan.sources == ("a/b", "alice/free-docs", "c/d")
+    assert plan.filters == {"a/b": recent} and plan.filter_for("c/d") is None
+    assert plan.explicit and plan.skip("a/b").filters == {"a/b": recent}
+
+    d = plan.to_dict()
+    assert d["filters"] == {"a/b": recent.to_wire()}
+    back = SearchPlan.from_dict(None, d)
+    assert back == plan and back.filter_for("a/b") == recent
+
+    with pytest.raises(pydantic.ValidationError, match="sources not in this plan"):
+        SearchPlan(query="q", sources=("a/b",), filters={"x/y": recent})
+    with pytest.raises(pydantic.ValidationError, match="sources not in this plan"):
+        SearchPlan(query="q", filters={"x/y": recent})  # an automatic pick is never filtered
 
 
 async def test_unbound_plan_cannot_run() -> None:

@@ -7,9 +7,12 @@ from pydantic import BaseModel
 
 
 class ErrorDetail(BaseModel):
-    """A FastAPI error body, parsed once. The Hub sends ``detail`` as a string, or as
-    ``{"code", "message"}`` on the wallet routes; a 422 sends a list. ``code`` is the
-    machine-readable part when there is one; ``message`` is always set."""
+    """A FastAPI error body, parsed once.
+
+    The Hub sends ``detail`` as a string, or as ``{"code", "message"}`` on the wallet routes; a
+    422 sends a list. ``code`` is the machine-readable part when there is one; ``message`` is
+    always set.
+    """
 
     code: str | None = None
     message: str = ""

@@ -1,5 +1,6 @@
-"""Test doubles for apps built on the SDK. No extra dependency: everything runs through
-``httpx.MockTransport``.
+"""Test doubles for apps built on the SDK.
+
+No extra dependency: everything runs through ``httpx.MockTransport``.
 
 ::
 

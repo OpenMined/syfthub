@@ -64,7 +64,7 @@ with syfthub.Hub(token="syft_pat_...", budget=1.00) as hub:   # optional cap, pe
         print(path, doc.score, doc.content[:80])
 ```
 
-See the [Python SDK guide](docs/python/guides/sdk.md) for the full reference.
+See the [Python SDK guide](docs/sdk/python/README.md) for the full reference.
 
 The TypeScript SDK, the Go SDK and the `syft` CLI are retired. Their last state is kept on the
 [`legacy-sdks`](https://github.com/OpenMined/syfthub/tree/legacy-sdks) branch, and the published

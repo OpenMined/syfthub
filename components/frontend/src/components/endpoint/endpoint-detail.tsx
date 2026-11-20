@@ -455,6 +455,7 @@ export const EndpointDetail = memo(function EndpointDetail({
             <ApiTab
               endpointPath={endpoint.full_path ?? endpoint.slug}
               endpointType={endpoint.type}
+              filters={endpoint.query_schema?.filters}
             />
           ) : null}
         </TabsContent>

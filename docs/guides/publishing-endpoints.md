@@ -28,8 +28,8 @@ POST /api/v1/endpoints
 
 | SDK | Creates endpoints? | Where |
 |---|---|---|
-| Python `syfthub-sdk` 2.x | No. It is a consumer client: it searches published endpoints and pays for them. | [Python SDK guide](../python/guides/sdk.md) |
-| Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [legacy Python SDK guide](../python/guides/sdk-legacy.md#endpoints) |
+| Python `syfthub-sdk` 2.x | No. It is a consumer client: it searches published endpoints and pays for them. | [Python SDK guide](../sdk/python/README.md) |
+| Python `syfthub-sdk` 0.x | Yes, `client.my_endpoints.create(...)` | [legacy Python SDK guide](../sdk/python/legacy.md#endpoints) |
 
 ### Via the API
 

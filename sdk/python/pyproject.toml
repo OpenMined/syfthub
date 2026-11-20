@@ -49,8 +49,16 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
-ignore = ["E501"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM", "D"]
+ignore = ["E501", "D105", "D107"]  # magic methods and __init__ speak for themselves
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D"]
+"**/scripts/**" = ["D"]
+"**/examples/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["syfthub"]
