@@ -10,9 +10,12 @@ for the catalogue, the per-Space tokens and, for metered sources, the payment cr
 
 ## Documentation
 
-The full guide is at
-**[docs/python/guides/sdk.md](https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md)**:
-sources, pre-flight, decisions, wallets, budgets, snapshots, options and errors.
+The guide starts at
+**[docs/sdk/python/README.md](https://github.com/OpenMined/syfthub/blob/main/docs/sdk/python/README.md)**,
+with one page per topic under
+[docs/sdk/python/](https://github.com/OpenMined/syfthub/tree/main/docs/sdk/python):
+client, sources, searching, filtering by metadata, money, errors, testing, and a generated
+API reference. The docstrings carry the rest: `help(syfthub.SearchPlan)`.
 
 Runnable examples, including a notebook and a chat app with SyftHub as retrieval, are in
 [examples/](https://github.com/OpenMined/syfthub/tree/main/sdk/python/examples).
@@ -51,7 +54,7 @@ with syfthub.Hub(token="...") as hub:
 ## Testing your app
 
 `syfthub.testing.FakeHub` stands in for a Hub and its Spaces, with no extra dependency. See
-[Testing your app](https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md#testing-your-app)
+[Testing your app](https://github.com/OpenMined/syfthub/blob/main/docs/sdk/python/testing.md)
 in the guide.
 
 ## Development

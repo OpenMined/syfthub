@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 
-const PYTHON_SDK_GUIDE = 'https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md';
+const PYTHON_SDK_GUIDE = 'https://github.com/OpenMined/syfthub/blob/main/docs/sdk/python/README.md';
 
 /**
  * Retirement notice at /cli-setup.

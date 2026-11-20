@@ -134,7 +134,7 @@ print(results.cost, hub.spent)`}
                   <CardContent className='grid gap-2'>
                     <ResourceLink
                       label='Guide'
-                      href='https://github.com/OpenMined/syfthub/blob/main/docs/python/guides/sdk.md'
+                      href='https://github.com/OpenMined/syfthub/blob/main/docs/sdk/python/README.md'
                     />
                     <ResourceLink
                       label='PyPI Package'

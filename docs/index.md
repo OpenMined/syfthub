@@ -53,8 +53,8 @@ OpenAPI (dev): `http://localhost:8080/docs`
 | Doc | Audience |
 |---|---|
 | [Publishing Endpoints](guides/publishing-endpoints.md) | ML engineers, data scientists |
-| [Python SDK 2.x](python/guides/sdk.md) | Python developers: search, pre-flight, wallets |
-| [Python SDK (legacy)](python/guides/sdk-legacy.md) | Python developers still on the 0.3 release: endpoint management, chat |
+| [Python SDK 2.x](sdk/python/README.md) | Python developers: search, pre-flight, wallets |
+| [Python SDK (legacy)](sdk/python/legacy.md) | Python developers still on the 0.3 release: endpoint management, chat |
 
 ---
 
