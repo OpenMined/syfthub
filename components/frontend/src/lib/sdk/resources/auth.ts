@@ -70,6 +70,14 @@ export function satelliteTokenParams(audience: string, resource?: string): Recor
   return resource ? { owner_username: audience, resource } : { aud: audience };
 }
 
+/**
+ * Cache key for a minted token. Carries the owner as well as the resource, so
+ * a token is reused only for the exact request the hub approved.
+ */
+function cacheKey(kind: 'user' | 'guest', owner: string, resource?: string): string {
+  return JSON.stringify([kind, owner, resource ?? null]);
+}
+
 /** Unique targets, deduped on the same key the tokens are cached under. */
 function dedupeTargets(targets: AudienceTarget[]): { owner: string; resource?: string }[] {
   const seen = new Map<string, { owner: string; resource?: string }>();
@@ -445,7 +453,7 @@ export class AuthResource {
    * );
    */
   async getSatelliteToken(audience: string, resource?: string): Promise<SatelliteTokenResponse> {
-    return this.satelliteTokenCache().get(`user:${tokenKey(audience, resource)}`, () =>
+    return this.satelliteTokenCache().get(cacheKey('user', audience, resource), () =>
       this.http.get<SatelliteTokenResponse>(
         '/api/v1/token',
         satelliteTokenParams(audience, resource)
@@ -520,7 +528,7 @@ export class AuthResource {
     audience: string,
     resource?: string
   ): Promise<SatelliteTokenResponse> {
-    return this.satelliteTokenCache().get(`guest:${tokenKey(audience, resource)}`, () =>
+    return this.satelliteTokenCache().get(cacheKey('guest', audience, resource), () =>
       this.http.get<SatelliteTokenResponse>(
         '/api/v1/token/guest',
         satelliteTokenParams(audience, resource),

@@ -86,6 +86,28 @@ describe('SatelliteTokenCache', () => {
     expect(result.targetToken).toBe('token-2');
   });
 
+  it('does not reuse a token after the clock is set backwards', async () => {
+    await cache.get('a', mint);
+    advance(-3600);
+
+    const result = await cache.get('a', mint);
+
+    expect(result.targetToken).toBe('token-2');
+  });
+
+  it('counts the lifetime from the request, not the reply', async () => {
+    const slowMint = async () => {
+      advance(10);
+      return { targetToken: 'slow', expiresIn: LIFETIME };
+    };
+    await cache.get('a', slowMint);
+    advance(LIFETIME - MIN_REMAINING_SECONDS - 10 + 1);
+
+    const result = await cache.get('a', mint);
+
+    expect(result.targetToken).toBe('token-1');
+  });
+
   it('mints again after clear', async () => {
     await cache.get('a', mint);
     cache.clear();
@@ -137,6 +159,31 @@ describe('AuthResource satellite tokens', () => {
 
     expect(second.targetToken).toBe(first.targetToken);
     expect(mints).toEqual(['/api/v1/token']);
+  });
+
+  it('mints separately for another owner naming the same host', async () => {
+    await client.auth.getSatelliteToken('owner', HOST);
+    await client.auth.getSatelliteToken('someone-else', HOST);
+
+    expect(mints).toHaveLength(2);
+  });
+
+  it('mints again after a failed token refresh ends the session', async () => {
+    const before = await client.auth.getGuestSatelliteToken('owner', HOST);
+    mockFetch.mockImplementation(async () => new Response('{}', { status: 401 }));
+    await expect(client.auth.me()).rejects.toThrow();
+    mockFetch.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ target_token: 'fresh', expires_in: LIFETIME }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+    );
+
+    const after = await client.auth.getGuestSatelliteToken('owner', HOST);
+
+    expect(before.targetToken).not.toBe('fresh');
+    expect(after.targetToken).toBe('fresh');
   });
 
   it('never hands a guest token to a signed-in request', async () => {

@@ -21,6 +21,8 @@ export interface MintedToken {
 
 interface Entry {
   minted: Promise<unknown>;
+  /** Epoch ms when the mint was requested. */
+  requestedAt: number;
   /** Epoch ms; unset while the mint is in flight. */
   expiresAt?: number;
 }
@@ -44,12 +46,15 @@ export class SatelliteTokenCache {
       return { ...token, expiresIn: Math.floor((cached.expiresAt - this.now()) / 1000) };
     }
 
+    this.dropUnusable();
+    const requestedAt = this.now();
     const minted = mint();
-    const entry: Entry = { minted };
+    const entry: Entry = { minted, requestedAt };
     this.entries.set(key, entry);
     try {
       const token = await minted;
-      entry.expiresAt = this.now() + (token.expiresIn ?? 0) * 1000;
+      // Counted from the request, not the reply: the hub's clock started first.
+      entry.expiresAt = entry.requestedAt + (token.expiresIn ?? 0) * 1000;
       return token;
     } catch (error) {
       // A failed mint is not remembered; clear() may already have dropped it.
@@ -65,6 +70,15 @@ export class SatelliteTokenCache {
 
   private isReusable(entry: Entry): boolean {
     if (entry.expiresAt === undefined) return true;
-    return entry.expiresAt - this.now() >= MIN_REMAINING_SECONDS * 1000;
+    const now = this.now();
+    // A clock set backwards would make an old token look fresh.
+    if (now < entry.requestedAt) return false;
+    return entry.expiresAt - now >= MIN_REMAINING_SECONDS * 1000;
+  }
+
+  private dropUnusable(): void {
+    for (const [key, entry] of this.entries) {
+      if (!this.isReusable(entry)) this.entries.delete(key);
+    }
   }
 }
