@@ -11,6 +11,7 @@ import type {
 } from '../models/index.js';
 
 import { AuthenticationError } from '../errors.js';
+import { SatelliteTokenCache } from './satellite-token-cache.js';
 
 /**
  * Response from login/register endpoints.
@@ -103,7 +104,20 @@ function dedupeTargets(targets: AudienceTarget[]): { owner: string; resource?: s
  * await client.auth.logout();
  */
 export class AuthResource {
+  private readonly satelliteTokens = new SatelliteTokenCache();
+  private cachedForIdentity = 0;
+
   constructor(private readonly http: HTTPClient) {}
+
+  /** The token cache, emptied first if the signed-in identity has changed. */
+  private satelliteTokenCache(): SatelliteTokenCache {
+    const identity = this.http.getIdentityVersion();
+    if (identity !== this.cachedForIdentity) {
+      this.satelliteTokens.clear();
+      this.cachedForIdentity = identity;
+    }
+    return this.satelliteTokens;
+  }
 
   /**
    * Register a new user account.
@@ -418,6 +432,8 @@ export class AuthResource {
    * @param resource - URL this token will be sent to. Binds the token to that
    *   one host; without it the hub falls back to the deprecated account-wide
    *   form, which fails once the account runs more than one satellite.
+   * A recent token for the same host is reused; see SatelliteTokenCache.
+   *
    * @returns Satellite token response with token and expiry
    * @throws {AuthenticationError} If not authenticated
    * @throws {ValidationError} If the owner runs no host at that URL
@@ -429,9 +445,11 @@ export class AuthResource {
    * );
    */
   async getSatelliteToken(audience: string, resource?: string): Promise<SatelliteTokenResponse> {
-    return this.http.get<SatelliteTokenResponse>(
-      '/api/v1/token',
-      satelliteTokenParams(audience, resource)
+    return this.satelliteTokenCache().get(`user:${tokenKey(audience, resource)}`, () =>
+      this.http.get<SatelliteTokenResponse>(
+        '/api/v1/token',
+        satelliteTokenParams(audience, resource)
+      )
     );
   }
 
@@ -502,10 +520,12 @@ export class AuthResource {
     audience: string,
     resource?: string
   ): Promise<SatelliteTokenResponse> {
-    return this.http.get<SatelliteTokenResponse>(
-      '/api/v1/token/guest',
-      satelliteTokenParams(audience, resource),
-      { includeAuth: false }
+    return this.satelliteTokenCache().get(`guest:${tokenKey(audience, resource)}`, () =>
+      this.http.get<SatelliteTokenResponse>(
+        '/api/v1/token/guest',
+        satelliteTokenParams(audience, resource),
+        { includeAuth: false }
+      )
     );
   }
 

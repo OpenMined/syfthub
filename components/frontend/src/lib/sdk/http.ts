@@ -56,6 +56,7 @@ export class HTTPClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private apiToken: string | null = null;
+  private identityVersion = 0;
   private isRefreshing = false;
   private refreshPromise: Promise<void> | null = null;
 
@@ -78,6 +79,7 @@ export class HTTPClient {
     this.accessToken = access;
     this.refreshToken = refresh;
     this.apiToken = null; // Clear API token when using JWT
+    this.identityVersion++;
   }
 
   /**
@@ -90,6 +92,7 @@ export class HTTPClient {
     this.apiToken = token;
     this.accessToken = null; // Clear JWT tokens when using API token
     this.refreshToken = null;
+    this.identityVersion++;
   }
 
   /**
@@ -121,6 +124,15 @@ export class HTTPClient {
     this.accessToken = null;
     this.refreshToken = null;
     this.apiToken = null;
+    this.identityVersion++;
+  }
+
+  /**
+   * Changes whenever the credentials are replaced or cleared.
+   * A token refresh keeps the same user, so it does not count.
+   */
+  getIdentityVersion(): number {
+    return this.identityVersion;
   }
 
   /**
