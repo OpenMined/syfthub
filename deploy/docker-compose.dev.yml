@@ -4,7 +4,7 @@
 services:
   # Nginx reverse proxy - SINGLE ENTRY POINT
   proxy:
-    image: nginx:1.25-alpine
+    image: nginx:1.30.8-alpine
     container_name: syfthub-proxy-dev
     ports:
       - "8080:80"
