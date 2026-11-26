@@ -1,5 +1,5 @@
 # Simple Dockerfile for SyftHub UI (using pre-built dist)
-FROM nginx:1.25-alpine
+FROM nginx:1.30.8-alpine
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf

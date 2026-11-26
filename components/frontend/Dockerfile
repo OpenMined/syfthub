@@ -26,7 +26,7 @@ ENV VITE_DEFAULT_MODEL=$VITE_DEFAULT_MODEL
 RUN npm run build
 
 # Stage 2: Production environment with nginx
-FROM nginx:1.25-alpine AS production
+FROM nginx:1.30.8-alpine AS production
 
 # Install security updates
 RUN apk upgrade --no-cache

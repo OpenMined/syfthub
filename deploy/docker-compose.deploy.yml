@@ -42,7 +42,7 @@ services:
   # NGINX REVERSE PROXY - Single entry point with SSL termination
   # ==========================================================================
   proxy:
-    image: nginx:1.25-alpine
+    image: nginx:1.30.8-alpine
     container_name: syfthub-proxy
     restart: unless-stopped
     logging:
