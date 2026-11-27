@@ -30,8 +30,8 @@
 
 | Doc | Base URL | Endpoints |
 |---|---|---|
-| [Backend API](api/backend.md) | `/api/v1` | 89 endpoints — auth, users, endpoints, orgs, IdP, NATS, accounting |
-| [Aggregator API](api/aggregator.md) | `/aggregator/api/v1` | RAG chat + streaming (SSE) |
+| [Backend API](api/backend.md) | `/api/v1` | Layout, authentication and errors; per-route detail is served live at `/docs` |
+| [Aggregator API](api/aggregator.md) | `/aggregator/api/v1` | RAG chat, streaming (SSE), URL queries, agent sessions |
 | [MCP API](api/mcp.md) | `/mcp` | OAuth 2.1 flow + MCP tools |
 
 OpenAPI (dev): `http://localhost:8080/docs`
