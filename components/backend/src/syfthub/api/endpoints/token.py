@@ -126,18 +126,22 @@ The returned token is signed by the Hub's Private Key using RS256.
 **Token Claims:**
 - `sub`: User's unique ID
 - `iss`: Issuer URL (Hub URL)
-- `aud`: The target service identifier (username of target user/service)
+- `aud`: The id of the satellite the token is for
 - `exp`: Expiration timestamp (short-lived, typically 60 seconds)
 - `role`: User's role (admin, user, etc.)
 
-**Audience Validation:**
-- The audience must be the username of an active user account
-- When a user is created, their username becomes a valid audience
-- When a user is deactivated/deleted, their username becomes invalid
+**Naming the destination:**
+- Send `owner_username` and `resource`: the account that runs the service and
+  the URL the token is about to be sent to
+- The Hub resolves that pair to one of the owner's registered satellites and
+  binds the token to it; an account that runs no satellite at that URL gets 422
+- `aud` (a username) is deprecated and works only while the account runs
+  exactly one satellite
+- With none of them the route answers 400 (`MISSING_AUDIENCE`)
 
 **Security:**
 - Requires valid Hub session token
-- Audience must be a valid, active username
+- A token minted for one satellite is not accepted at another
 - Token cannot be refreshed - request a new one when expired
 """,
 )
@@ -236,7 +240,7 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 **Token Claims:**
 - `sub`: "guest" (special identifier for guest users)
 - `iss`: Issuer URL (Hub URL)
-- `aud`: The target service identifier (username of target user/service)
+- `aud`: The id of the satellite the token is for
 - `exp`: Expiration timestamp (short-lived, typically 60 seconds)
 - `role`: "guest" (indicates unauthenticated user)
 
@@ -246,12 +250,10 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 
 **Restrictions:**
 - Guest tokens can only be used with endpoints that have no policies attached
-- Guest users cannot access billing/accounting features
-- Guest tokens do not include transaction tokens
+- Guest users cannot pay for anything
 
-**Audience Validation:**
-- The audience must be the username of an active user account
-- When a user is deactivated/deleted, their username becomes invalid
+**Naming the destination:**
+- Same as `GET /token`: send `owner_username` and `resource`; `aud` is deprecated
 """,
 )
 def get_guest_satellite_token(
@@ -414,14 +416,14 @@ using JWKS for local verification. The calling service must authenticate with
 their own Hub session token.
 
 **Authorization:**
-The calling service's username determines which audience they can verify.
-For example, a service account with username `syftai-space` can only verify
-tokens where `aud=syftai-space`.
+A caller can only verify tokens addressed to its own satellites. Send
+`satellite_id` to require one satellite in particular; without it a token
+for any of the caller's satellites is accepted.
 
 **Verification Checks:**
 1. Token signature (RS256 with Hub's private key)
 2. Token expiry (exp claim)
-3. Token audience matches calling service's authorized audience
+3. Token audience is one of the caller's satellites
 4. Token issuer matches Hub URL
 5. Token subject user is active (not deactivated/deleted)
 
