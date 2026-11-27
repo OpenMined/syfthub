@@ -30,7 +30,7 @@
 
 | Doc | Base URL | Endpoints |
 |---|---|---|
-| [Backend API](api/backend.md) | `/api/v1` | Every backend route, generated from the code: auth, users, endpoints, collectives, satellites, IdP, NATS, wallet |
+| [Backend API](api/backend.md) | `/api/v1` | Layout, authentication and errors; per-route detail is served live at `/docs` |
 | [Aggregator API](api/aggregator.md) | `/aggregator/api/v1` | RAG chat, streaming (SSE), URL queries, agent sessions |
 | [MCP API](api/mcp.md) | `/mcp` | OAuth 2.1 flow + MCP tools |
 

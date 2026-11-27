@@ -112,6 +112,6 @@ The `aud` claim in satellite tokens must match an active username in the databas
 ## Related
 
 - [PKI Workflow](pki-workflow.md) — deeper dive into key management and the IdP flow
-- [API Reference: Auth endpoints](../api/backend.md#auth) — request/response details
-- [API Reference: IdP endpoints](../api/backend.md#identity-provider) — satellite token issuance
+- [API Reference: Auth endpoints](../api/backend.md#route-groups) — request/response details
+- [API Reference: IdP endpoints](../api/backend.md#satellite-tokens) — satellite token issuance
 - [Glossary](../glossary.md) — token type definitions

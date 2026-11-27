@@ -52,7 +52,7 @@ a satellite token is bound to one host and an owner may run several. An endpoint
 is called without an `Authorization` header.
 
 Mint these with the Hub's `GET /api/v1/token` (or `GET /api/v1/token/guest`), passing
-`owner_username` and `resource`. See the [backend reference](backend.md#identity-provider).
+`owner_username` and `resource`. See the [backend reference](backend.md#satellite-tokens).
 
 ### The user's Hub token, for payments
 
